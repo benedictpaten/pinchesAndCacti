@@ -11,8 +11,6 @@
 #include "sonLib.h"
 #include "stPinchGraphs.h"
 
-const char *ST_PINCH_GRAPH_EXCEPTION_ID = "ST_PINCH_GRAPH_EXCEPTION_ID";
-
 struct _stPinchThreadSet {
     stList *threads;
     stHash *threadsHash;
@@ -63,10 +61,7 @@ stPinchBlock *stPinchBlock_construct2(stPinchSegment *segment) {
 }
 
 stPinchBlock *stPinchBlock_construct(stPinchSegment *segment1, bool orientation1, stPinchSegment *segment2, bool orientation2) {
-    if (stPinchSegment_getLength(segment1) != stPinchSegment_getLength(segment2)) {
-        stThrowNew(ST_COMPRESSION_EXCEPTION_ID, "Two segments that are being pinched have different lengths: %i %i\n",
-                stPinchSegment_getLength(segment1), stPinchSegment_getLength(segment2));
-    }
+    assert(stPinchSegment_getLength(segment1) == stPinchSegment_getLength(segment2));
     stPinchBlock *block = st_malloc(sizeof(stPinchBlock));
     block->headSegment = segment1;
     block->tailSegment = segment2;
@@ -94,10 +89,7 @@ stPinchBlock *stPinchBlock_pinch(stPinchBlock *block1, stPinchBlock *block2, boo
     if (stPinchBlock_getDegree(block1) < stPinchBlock_getDegree(block2)) { //Avoid merging large blocks into small blocks
         return stPinchBlock_pinch(block2, block1, orientation);
     }
-    if (stPinchBlock_getLength(block1) != stPinchBlock_getLength(block2)) {
-        stThrowNew(ST_PINCH_GRAPH_EXCEPTION_ID, "Two segments that are being pinched have different lengths: %i %i\n",
-                stPinchBlock_getLength(block1), stPinchBlock_getLength(block2));
-    }
+    assert(stPinchBlock_getLength(block1) == stPinchBlock_getLength(block2));
     stPinchBlockIt blockIt = stPinchBlock_getSegmentIterator(block2);
     stPinchSegment *segment = stPinchBlockIt_getNext(&blockIt);
     while (segment != NULL) {

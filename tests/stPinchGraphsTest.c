@@ -257,18 +257,8 @@ static void testStPinchBlock_NoSplits(CuTest *testCase) {
     CuAssertIntEquals(testCase, stPinchSegment_getLength(segment1), stPinchSegment_getLength(segment3));
     CuAssertIntEquals(testCase, stPinchSegment_getLength(segment1), stPinchSegment_getLength(segment4));
 
-    //Now try merging two blocks of uneven length
     stPinchThread_split(thread3, 0);
     segment1 = stPinchThread_getFirst(thread3);
-    segment2 = stPinchSegment_get3Prime(segment1);
-    stTry {
-            stPinchBlock_construct(segment1, 1, segment2, 1);
-            CuAssertTrue(testCase, 0);
-        }stCatch(ST_PINCH_GRAPH_EXCEPTION_ID)
-            {
-                st_logInfo(stExcept_getMsg(ST_PINCH_GRAPH_EXCEPTION_ID));
-            }stTryEnd
-
     //Now make a block with a single element
     block = stPinchBlock_construct2(segment1);
     CuAssertIntEquals(testCase, 1, stPinchBlock_getDegree(block));
