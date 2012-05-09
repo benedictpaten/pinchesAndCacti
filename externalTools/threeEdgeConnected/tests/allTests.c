@@ -5,16 +5,18 @@
  */
 
 #include "CuTest.h"
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
 #include "sonLib.h"
 
-CuSuite* stCactusGraphsTestSuite(void);
-CuSuite* stPinchGraphsTestSuite(void);
+CuSuite* threeEdgeTestSuite(void);
 
-int stPinchesAndCactiRunAllTests(void) {
+
+int threeEdgeRunAllTests(void) {
     CuString *output = CuStringNew();
     CuSuite* suite = CuSuiteNew();
-    CuSuiteAddSuite(suite, stPinchGraphsTestSuite());
-    CuSuiteAddSuite(suite, stCactusGraphsTestSuite());
+    CuSuiteAddSuite(suite, threeEdgeTestSuite());
 
     CuSuiteRun(suite);
     CuSuiteSummary(suite, output);
@@ -27,7 +29,5 @@ int main(int argc, char *argv[]) {
     if(argc == 2) {
         st_setLogLevelFromString(argv[1]);
     }
-    int i = stPinchesAndCactiRunAllTests();
-    //while(1);
-    return i;
+    return threeEdgeRunAllTests();
 }

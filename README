@@ -1,0 +1,4 @@
+This is a library for creating pinch graphs (generalised overlap graphs) and cactus graphs. 
+
+The project should be located in the same directory containing sonLib (https://github.com/benedictpaten/sonLib), which must be installed.
+Given this requirement a simple 'make all' should be enough to build the project. 'make test' will then do a batch of obligatory tests.
