@@ -91,7 +91,7 @@ stPinchBlock *stPinchBlock_pinch(stPinchBlock *block1, stPinchBlock *block2, boo
     if (block1 == block2) {
         return block1; //Already joined
     }
-    if (stPinchBlock_getDegree(block1) > stPinchBlock_getDegree(block2)) { //Avoid merging large blocks into small blocks
+    if (stPinchBlock_getDegree(block1) < stPinchBlock_getDegree(block2)) { //Avoid merging large blocks into small blocks
         return stPinchBlock_pinch(block2, block1, orientation);
     }
     if (stPinchBlock_getLength(block1) != stPinchBlock_getLength(block2)) {
