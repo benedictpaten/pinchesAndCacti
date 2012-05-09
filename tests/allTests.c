@@ -8,10 +8,12 @@
 #include "sonLib.h"
 
 CuSuite* stCactusGraphsTestSuite(void);
+CuSuite* stPinchGraphsTestSuite(void);
 
-int stCactusGraphsRunAllTests(void) {
+int stPinchesAndCactiRunAllTests(void) {
     CuString *output = CuStringNew();
     CuSuite* suite = CuSuiteNew();
+    CuSuiteAddSuite(suite, stPinchGraphsTestSuite());
     CuSuiteAddSuite(suite, stCactusGraphsTestSuite());
 
     CuSuiteRun(suite);
