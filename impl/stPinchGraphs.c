@@ -922,12 +922,12 @@ void stPinchThreadSet_getLabelIntervalsP(stPinchThread *thread, stHash *pinchEnd
             label = stHash_search(pinchEndsToLabels, &pinchEnd);
             assert(label != NULL);
         }
-        //#ifdef BEN_DEBUG
+#ifdef BEN_DEBUG
         else {
             pinchEnd.orientation = !pinchEnd.orientation;
             assert(label == stHash_search(pinchEndsToLabels, &pinchEnd));
         }
-        //#endif
+#endif
         if (label != label2) {
             int64_t end = stPinchSegment_getStart(segment) + stPinchSegment_getLength(segment) / 2;
             if (start < end) {
