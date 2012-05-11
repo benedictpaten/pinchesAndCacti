@@ -914,7 +914,7 @@ void stPinchThreadSet_getLabelIntervalsP(stPinchThread *thread, stHash *pinchEnd
             label = stHash_search(pinchEndsToLabels, &pinchEnd);
             assert(label != NULL);
         }
-#ifdef BEN_DEBUG
+#ifndef NDEBUG
         else {
             pinchEnd.orientation = !pinchEnd.orientation;
             assert(label == stHash_search(pinchEndsToLabels, &pinchEnd));
