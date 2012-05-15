@@ -332,7 +332,7 @@ static void makeChain(stCactusEdgeEnd *edgeEnd, stCactusEdgeEnd *edgeEnd2, stLis
     }
 }
 
-void stCactusGraph_markCyclesP(stCactusEdgeEnd *edgeEnd, stHash *nodesOnChainToEdgeEnds, stList *chainPath) {
+static void stCactusGraph_markCyclesP(stCactusEdgeEnd *edgeEnd, stHash *nodesOnChainToEdgeEnds, stList *chainPath) {
     stList_append(chainPath, edgeEnd);
     stList_append(chainPath, NULL);
     while (stList_length(chainPath) > 0) {
@@ -386,14 +386,7 @@ void stCactusGraph_markCycles(stCactusGraph *graph, stCactusNode *startNode) {
     stHash_destruct(nodesOnChainToEdgeEnds);
 }
 
-void stCactusGraph_collapseBridgesP2(stList *stack, stCactusNode *parentNode, stCactusEdgeEnd *edgeEnd,
-        stCactusEdgeEnd *edgeEnd2) {
-    stList_append(stack, parentNode);
-    stList_append(stack, edgeEnd);
-    stList_append(stack, edgeEnd2);
-}
-
-void stCactusGraph_collapseBridgesP(stCactusNode *parentNode, stCactusEdgeEnd *edgeEnd, stList *nodesToMerge) {
+static void stCactusGraph_collapseBridgesP(stCactusNode *parentNode, stCactusEdgeEnd *edgeEnd, stList *nodesToMerge) {
     stList *stack = stList_construct();
     stList_append(stack, parentNode);
     stList_append(stack, edgeEnd);

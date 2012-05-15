@@ -944,11 +944,11 @@ stSortedSet *stPinchThreadSet_getLabelIntervals(stPinchThreadSet *threadSet, stH
     return pinchIntervals;
 }
 
-static int cmp64s(int64_t i, int64_t j) {
+static inline int cmp64s(int64_t i, int64_t j) {
     return i > j ? 1 : (i < j ? -1 : 0);
 }
 
-int stPinchInterval_compareFunction(const stPinchInterval *interval1, const stPinchInterval *interval2) {
+inline int stPinchInterval_compareFunction(const stPinchInterval *interval1, const stPinchInterval *interval2) {
     int i = cmp64s(interval1->name, interval2->name);
     if (i != 0) {
         return i;
