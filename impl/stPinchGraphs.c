@@ -735,8 +735,7 @@ int stPinchEnd_equalsFn(const void *a, const void *b) {
 
 uint32_t stPinchEnd_hashFn(const void *a) {
     const stPinchEnd *end1 = a;
-    int64_t i = (int64_t) end1->block;
-    return (uint32_t) i;
+    return stHash_pointer(end1->block) + end1->orientation;
 }
 
 bool stPinchEnd_traverse5Prime(bool endOrientation, stPinchSegment *segment) {
