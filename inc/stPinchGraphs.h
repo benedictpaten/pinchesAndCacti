@@ -61,7 +61,7 @@ typedef struct _stPinchInterval {
 
 //Thread set
 
-stPinchThreadSet *stPinchThreadSet_construct();
+stPinchThreadSet *stPinchThreadSet_construct(void);
 
 void stPinchThreadSet_destruct(stPinchThreadSet *threadSet);
 
@@ -89,11 +89,11 @@ stList *stPinchThreadSet_getAdjacencyComponents2(stPinchThreadSet *threadSet, st
 
 stSortedSet *stPinchThreadSet_getThreadComponents(stPinchThreadSet *threadSet);
 
-stPinchThreadSet *stPinchThreadSet_getRandomEmptyGraph();
+stPinchThreadSet *stPinchThreadSet_getRandomEmptyGraph(void);
 
 stPinch stPinchThreadSet_getRandomPinch(stPinchThreadSet *threadSet);
 
-stPinchThreadSet *stPinchThreadSet_getRandomGraph();
+stPinchThreadSet *stPinchThreadSet_getRandomGraph(void);
 
 //convenience functions
 
