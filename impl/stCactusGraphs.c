@@ -68,8 +68,7 @@ stCactusEdgeEnd *stCactusNode_getFirstEdgeEnd(stCactusNode *node) {
 
 static void stCactusEdgeEnd_destruct(stCactusEdgeEnd *edge, void(*destructEdgeEndObjectFn)(void *));
 
-static void stCactusNode_destruct(stCactusNode *node, void(*destructNodeObjectFn)(void *),
-        void(*destructEdgeEndObjectFn)(void *)) {
+static void stCactusNode_destruct(stCactusNode *node, void(*destructNodeObjectFn)(void *), void(*destructEdgeEndObjectFn)(void *)) {
     stCactusNodeEdgeEndIt it = stCactusNode_getEdgeEndIt(node);
     stCactusEdgeEnd *edgeEnd;
     while ((edgeEnd = stCactusNodeEdgeEndIt_getNext(&it)) != NULL) {
@@ -111,8 +110,7 @@ static void stCactusNode_mergeNodes(stCactusGraph *graph, stCactusNode *node1, s
 
 //Edge functions
 
-static void connectUpEdgeEnd(stCactusEdgeEnd *edgeEnd, stCactusNode *node, stCactusEdgeEnd *otherEdgeEnd,
-        void *endObject) {
+static void connectUpEdgeEnd(stCactusEdgeEnd *edgeEnd, stCactusNode *node, stCactusEdgeEnd *otherEdgeEnd, void *endObject) {
     edgeEnd->node = node;
     edgeEnd->otherEdgeEnd = otherEdgeEnd;
     edgeEnd->endObject = endObject;
@@ -124,8 +122,8 @@ static void connectUpEdgeEnd(stCactusEdgeEnd *edgeEnd, stCactusNode *node, stCac
     node->tail = edgeEnd;
 }
 
-stCactusEdgeEnd *stCactusEdgeEnd_construct(stCactusGraph *graph, stCactusNode *node1, stCactusNode *node2,
-        void *edgeEndObject1, void *edgeEndObject2) {
+stCactusEdgeEnd *stCactusEdgeEnd_construct(stCactusGraph *graph, stCactusNode *node1, stCactusNode *node2, void *edgeEndObject1,
+        void *edgeEndObject2) {
     stCactusEdgeEnd *edgeEnd1 = st_calloc(1, sizeof(stCactusEdgeEnd));
     stCactusEdgeEnd *edgeEnd2 = st_calloc(1, sizeof(stCactusEdgeEnd));
 
@@ -216,8 +214,7 @@ stCactusNode *stCactusGraph_getNode(stCactusGraph *node, void *nodeObject) {
     return stHash_search(node->objectToNodeHash, nodeObject);
 }
 
-void stCactusGraph_collapseToCactus(stCactusGraph *graph, void *(*mergeNodeObjects)(void *, void *),
-        stCactusNode *startNode) {
+void stCactusGraph_collapseToCactus(stCactusGraph *graph, void *(*mergeNodeObjects)(void *, void *), stCactusNode *startNode) {
     //Basic data structures
     stHash *nodesToPositions = stHash_construct();
     stHash *positionsToNodes = stHash_construct3((uint32_t(*)(const void *)) stIntTuple_hashKey,
@@ -428,8 +425,18 @@ static void stCactusGraph_collapseBridgesP(stCactusNode *parentNode, stCactusEdg
     stList_destruct(stack);
 }
 
-void stCactusGraph_collapseBridges(stCactusGraph *graph, stCactusNode *startNode,
-        void *(*mergeNodeObjects)(void *, void *)) {
+void mergeNodes(stCactusGraph *graph, stCactusNode *startNode, stList *nodesToMerge, void *(*mergeNodeObjects)(void *, void *)) {
+    for (int32_t i = 0; i < stList_length(nodesToMerge); i += 2) {
+        stCactusNode *parentNode = stList_get(nodesToMerge, i);
+        stCactusNode *nodeToMerge = stList_get(nodesToMerge, i + 1);
+        stCactusNode_mergeNodes(graph, parentNode, nodeToMerge, mergeNodeObjects);
+    }
+    stList_destruct(nodesToMerge);
+    stCactusGraph_unmarkCycles(graph);
+    stCactusGraph_markCycles(graph, startNode);
+}
+
+void stCactusGraph_collapseBridges(stCactusGraph *graph, stCactusNode *startNode, void *(*mergeNodeObjects)(void *, void *)) {
     stCactusNodeEdgeEndIt edgeIterator = stCactusNode_getEdgeEndIt(startNode);
     stCactusEdgeEnd *edgeEnd;
     stList *bridgesToMerge = stList_construct();
@@ -438,14 +445,84 @@ void stCactusGraph_collapseBridges(stCactusGraph *graph, stCactusNode *startNode
             stCactusGraph_collapseBridgesP(startNode, stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd), bridgesToMerge);
         }
     }
-    //Now merge bridges
-    for (int32_t i = 0; i < stList_length(bridgesToMerge); i += 2) {
-        stCactusNode *parentNode = stList_get(bridgesToMerge, i);
-        stCactusNode *nodeToMerge = stList_get(bridgesToMerge, i + 1);
-        stCactusNode_mergeNodes(graph, parentNode, nodeToMerge, mergeNodeObjects);
+    mergeNodes(graph, startNode, bridgesToMerge, mergeNodeObjects); //Now merge bridges
+}
+
+int32_t stCactusEdgeEnd_getChainLength(stCactusEdgeEnd *edgeEnd) {
+    stCactusEdgeEnd *edgeEnd2 = stCactusEdgeEnd_getLink(stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd));
+    int32_t chainLength = 1;
+    while (edgeEnd != edgeEnd2) {
+        chainLength++;
+        edgeEnd2 = stCactusEdgeEnd_getLink(stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd2));
     }
-    stList_destruct(bridgesToMerge);
-    stCactusGraph_unmarkCycles(graph);
-    stCactusGraph_markCycles(graph, startNode);
+    return chainLength;
+}
+
+int32_t stCactusNode_getTotalEdgeLengthOfFlower(stCactusNode *node) {
+    stCactusNodeEdgeEndIt edgeIterator = stCactusNode_getEdgeEndIt(node);
+    stCactusEdgeEnd *edgeEnd;
+    int32_t totalLength = 0;
+    while ((edgeEnd = stCactusNodeEdgeEndIt_getNext(&edgeIterator))) {
+        if (stCactusEdgeEnd_isChainEnd(edgeEnd) && stCactusEdgeEnd_getLinkOrientation(edgeEnd)) {
+            totalLength += stCactusEdgeEnd_getChainLength(edgeEnd);
+        }
+    }
+    return totalLength;
+}
+
+int32_t stCactusNode_getChainNumber(stCactusNode *node) {
+    stCactusNodeEdgeEndIt edgeIterator = stCactusNode_getEdgeEndIt(node);
+    stCactusEdgeEnd *edgeEnd;
+    int32_t totalNumber = 0;
+    while ((edgeEnd = stCactusNodeEdgeEndIt_getNext(&edgeIterator))) {
+        if (stCactusEdgeEnd_isChainEnd(edgeEnd) && stCactusEdgeEnd_getLinkOrientation(edgeEnd)) {
+            totalNumber++;
+        }
+    }
+    return totalNumber;
+}
+
+static void stCactusGraph_collapseLongChainsP(stCactusNode *node, stList *nodesToMerge, int32_t longChain) {
+    stCactusNodeEdgeEndIt edgeIterator = stCactusNode_getEdgeEndIt(node);
+    stCactusEdgeEnd *edgeEnd;
+    while ((edgeEnd = stCactusNodeEdgeEndIt_getNext(&edgeIterator))) {
+        if (stCactusEdgeEnd_isChainEnd(edgeEnd) && stCactusEdgeEnd_getLinkOrientation(edgeEnd) && stCactusEdgeEnd_getChainLength(edgeEnd)
+                > longChain) {
+            stCactusNode *node2 = stCactusEdgeEnd_getNode(stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd));
+            stCactusNode *node3 = stCactusEdgeEnd_getNode(stCactusEdgeEnd_getOtherEdgeEnd(stCactusEdgeEnd_getLink(edgeEnd)));
+            if (node2 != node3) {
+                assert(node2 != node);
+                assert(node3 != node);
+                stList_append(nodesToMerge, node3);
+                stList_append(nodesToMerge, node2); //subtle, but this ordering ensures that when
+                //we remark the nodes with orientations they end up with different orientations between the edges that are
+                //really linked but now merged in the same node.
+            } else {
+                assert(node2 == node);
+                assert(longChain <= 1);
+            }
+        }
+    }
+}
+
+void stCactusGraph_collapseLongChainsOfBigFlowers(stCactusGraph *graph, stCactusNode *startNode, int32_t chainLengthForBigFlower,
+        int32_t longChain, void *(*mergeNodeObjects)(void *, void *), bool recursive) {
+    do {
+        stCactusGraphNodeIt *it = stCactusGraphNodeIterator_construct(graph);
+        stCactusNode *node;
+        stList *chainNodesToMerge = stList_construct();
+        while ((node = stCactusGraphNodeIterator_getNext(it))) {
+            if (stCactusNode_getTotalEdgeLengthOfFlower(node) > chainLengthForBigFlower) {
+                stCactusGraph_collapseLongChainsP(node, chainNodesToMerge, longChain);
+            }
+        }
+        stCactusGraphNodeIterator_destruct(it);
+        if(stList_length(chainNodesToMerge) > 0) { //We go around because the result of the merge may require more merges.
+            mergeNodes(graph, startNode, chainNodesToMerge, mergeNodeObjects); //Now merge bridges
+        }
+        else {
+            break;
+        }
+    } while(recursive);
 }
 

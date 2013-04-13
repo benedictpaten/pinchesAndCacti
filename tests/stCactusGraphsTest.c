@@ -17,8 +17,8 @@
 static stCactusGraph *g;
 static int32_t nO1 = 1, nO2 = 2, nO3 = 3, nO4 = 4, nO5 = 5, nO6 = 6, nO7 = 7, nO8 = 8, nO9 = 9;
 static stCactusNode *n1, *n2, *n3, *n4, *n5, *n6, *n7, *n8, *n9;
-static stCactusEdgeEnd *e12, *e21, *e23, *e32, *e13, *e31, *e24, *e42, *e11, *e11r, *e45, *e54, *e56, *e65, *e56r,
-        *e65r, *e58, *e85, *e49, *e94, *e37, *e73, *e37r, *e73r;
+static stCactusEdgeEnd *e12, *e21, *e23, *e32, *e13, *e31, *e24, *e42, *e11, *e11r, *e45, *e54, *e56, *e65, *e56r, *e65r, *e58, *e85, *e49,
+        *e94, *e37, *e73, *e37r, *e73r;
 
 static void teardown() {
     if (g != NULL) {
@@ -381,8 +381,8 @@ static void testStCactusGraph_unmarkAndMarkCycles(CuTest *testCase) {
 
     //Now test the chain structure
     //stCactusEdgeEnd_getLink
-    stCactusEdgeEnd *edgeEnds[] = { e12, e13, e11, e11r, e21, e23, e24, e32, e31, e37, e37r, e42, e45, e49, e54, e56,
-            e56r, e58, e65, e65r, e73, e73r, e85, e94 };
+    stCactusEdgeEnd *edgeEnds[] = { e12, e13, e11, e11r, e21, e23, e24, e32, e31, e37, e37r, e42, e45, e49, e54, e56, e56r, e58, e65, e65r,
+            e73, e73r, e85, e94 };
 
     for (int32_t i = 0; i < 24; i++) {
         CuAssertPtrEquals(testCase, NULL, stCactusEdgeEnd_getLink(edgeEnds[i]));
@@ -480,10 +480,12 @@ static void testStCactusGraph_randomTest(CuTest *testCase) {
     //return;
     //Creates a problem instances, then checks graph is okay by checking every edge
     //is properly connected, with right number of nodes and that everyone is in a chain
-    for (int32_t test = 0; test < 100; test++) {
-        int32_t nodeNumber = st_randomInt(0, 1000);
-        int32_t edgeNumber = nodeNumber > 0 ? st_randomInt(0, 1000) : 0;
-        st_logInfo("We have %i edges and %i nodes in random test\n", edgeNumber, nodeNumber);
+    for (int32_t test = 0; test < 1000; test++) {
+        int32_t nodeNumber = st_randomInt(0, 100); //1000);
+        int32_t edgeNumber = nodeNumber > 0 ? st_randomInt(0, 200) : 0; //1000) : 0;
+        int32_t longChain = st_randomInt(2, 10);
+        int32_t chainLengthForBigFlower = st_randomInt(0, 20);
+        st_logInfo("We have %i edges and %i nodes in random test %i\n", edgeNumber, nodeNumber, test);
         stCactusGraph *g2 = stCactusGraph_construct();
         stList *nodeObjects = stList_construct3(0, free);
         for (int32_t i = 0; i < nodeNumber; i++) {
@@ -513,6 +515,7 @@ static void testStCactusGraph_randomTest(CuTest *testCase) {
             CuAssertTrue(testCase, startNode != NULL);
             stCactusGraph_collapseToCactus(g2, mergeNodeObjects, startNode);
             stCactusGraph_collapseBridges(g2, startNode, mergeNodeObjects);
+            stCactusGraph_collapseLongChainsOfBigFlowers(g2, startNode, chainLengthForBigFlower, longChain, mergeNodeObjects, 1);
         }
         //Now iterate through nodes and check chains
         stCactusGraphNodeIt *nodeIt = stCactusGraphNodeIterator_construct(g2);
@@ -555,7 +558,7 @@ static void testStCactusGraph_randomTest(CuTest *testCase) {
                 CuAssertTrue(
                         testCase,
                         stCactusEdgeEnd_getLinkOrientation(edgeEnd)
-                                != stCactusEdgeEnd_getLinkOrientation(linkedEdgeEnd));
+                        != stCactusEdgeEnd_getLinkOrientation(linkedEdgeEnd));
                 //Properties that must be true if chain is a cycle
                 CuAssertTrue(testCase, linkedEdgeEnd != edgeEnd);
                 CuAssertTrue(testCase, otherEdgeEnd != edgeEnd);
@@ -588,6 +591,22 @@ static void testStCactusGraph_randomTest(CuTest *testCase) {
                 }
                 CuAssertTrue(testCase, chainEnd);
                 stSortedSet_destruct(nodesOnCycle);
+            }
+        }
+        stCactusGraphNodeIterator_destruct(nodeIt);
+
+        //Check no long chains of big flowers
+        nodeIt = stCactusGraphNodeIterator_construct(g2);
+        while ((node = stCactusGraphNodeIterator_getNext(nodeIt)) != NULL) {
+            if (stCactusNode_getTotalEdgeLengthOfFlower(node) > chainLengthForBigFlower && stCactusNode_getChainNumber(node) > 1) {
+                stCactusNodeEdgeEndIt edgeIt = stCactusNode_getEdgeEndIt(node);
+                stCactusEdgeEnd *edgeEnd;
+                while ((edgeEnd = stCactusNodeEdgeEndIt_getNext(&edgeIt)) != NULL) {
+                    if (stCactusEdgeEnd_isChainEnd(edgeEnd)) {
+                        //st_uglyf("%i %i %i %i %i\n", chainLengthForBigFlower, longChain, stCactusNode_getTotalEdgeLengthOfFlower(node), stCactusNode_getChainNumber(node), stCactusEdgeEnd_getChainLength(edgeEnd));
+                        CuAssertTrue(testCase, stCactusEdgeEnd_getChainLength(edgeEnd) <= longChain);
+                    }
+                }
             }
         }
         stCactusGraphNodeIterator_destruct(nodeIt);
