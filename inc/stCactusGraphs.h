@@ -36,9 +36,9 @@ stCactusEdgeEnd *stCactusNodeEdgeEndIt_getNext(stCactusNodeEdgeEndIt *it);
 
 stCactusEdgeEnd *stCactusNode_getFirstEdgeEnd(stCactusNode *node);
 
-int32_t stCactusNode_getTotalEdgeLengthOfFlower(stCactusNode *node);
+int64_t stCactusNode_getTotalEdgeLengthOfFlower(stCactusNode *node);
 
-int32_t stCactusNode_getChainNumber(stCactusNode *node);
+int64_t stCactusNode_getChainNumber(stCactusNode *node);
 
 //Edge functions
 
@@ -62,7 +62,7 @@ bool stCactusEdgeEnd_isChainEnd(stCactusEdgeEnd *edgeEnd);
 
 stCactusEdgeEnd *stCactusEdgeEnd_getNextEdgeEnd(stCactusEdgeEnd *edgeEnd);
 
-int32_t stCactusEdgeEnd_getChainLength(stCactusEdgeEnd *edgeEnd);
+int64_t stCactusEdgeEnd_getChainLength(stCactusEdgeEnd *edgeEnd);
 
 //Graph functions
 
@@ -90,7 +90,7 @@ void stCactusGraph_markCycles(stCactusGraph *graph, stCactusNode *startNode);
 void stCactusGraph_collapseBridges(stCactusGraph *graph,
         stCactusNode *startNode, void *(*mergeNodeObjects)(void *, void *));
 
-int32_t stCactusGraph_collapseLongChainsOfBigFlowers(stCactusGraph *graph, stCactusNode *startNode, int32_t chainLengthForBigFlower,
-        int32_t longChain, void *(*mergeNodeObjects)(void *, void *), bool recursive);
+int64_t stCactusGraph_collapseLongChainsOfBigFlowers(stCactusGraph *graph, stCactusNode *startNode, int64_t chainLengthForBigFlower,
+        int64_t longChain, void *(*mergeNodeObjects)(void *, void *), bool recursive);
 
 #endif /* ST_CACTUS_GRAPH_H_ */

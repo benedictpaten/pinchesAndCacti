@@ -15,21 +15,21 @@
 #include "CuTest.h"
 #include "3_Absorb3edge2x.h"
 
-void addEdgeToList(stList *vertices, int32_t vertex1, int32_t vertex2) {
+void addEdgeToList(stList *vertices, int64_t vertex1, int64_t vertex2) {
     stList *edges = stList_get(vertices, vertex1);
-    stList_append(edges, stIntTuple_construct(1, vertex2));
+    stList_append(edges, stIntTuple_construct1( vertex2));
 }
 
-stList *getRandomGraph(int32_t vertexNumber, int32_t edgeNumber) {
+stList *getRandomGraph(int64_t vertexNumber, int64_t edgeNumber) {
     stList *vertices = stList_construct3(0, (void (*)(void *))stList_destruct);
     //Add vertices.
-    for(int32_t i=0; i<vertexNumber; i++) {
+    for(int64_t i=0; i<vertexNumber; i++) {
         stList_append(vertices, stList_construct3(0, (void (*)(void *))stIntTuple_destruct));
     }
     //Add edges.
     while(edgeNumber-- > 0) {
-        int32_t vertex1 = st_randomInt(0, vertexNumber);
-        int32_t vertex2 = st_randomInt(0, vertexNumber);
+        int64_t vertex1 = st_randomInt(0, vertexNumber);
+        int64_t vertex2 = st_randomInt(0, vertexNumber);
         addEdgeToList(vertices, vertex1, vertex2);
         addEdgeToList(vertices, vertex2, vertex1);
     }
@@ -40,13 +40,13 @@ static void test_3EdgeFunction(CuTest *testCase) {
     /*
      * Exercises the 3-edge function
      */
-    for(int32_t test=0; test<100; test++) {
+    for(int64_t test=0; test<100; test++) {
 
         /*
          * Get a random graph to test.
          */
-        int32_t vertexNumber = st_randomInt(0, 100);
-        int32_t edgeNumber = vertexNumber > 0 ? st_randomInt(0, vertexNumber * vertexNumber) : 0;
+        int64_t vertexNumber = st_randomInt(0, 100);
+        int64_t edgeNumber = vertexNumber > 0 ? st_randomInt(0, vertexNumber * vertexNumber) : 0;
         stList *vertices = getRandomGraph(vertexNumber, edgeNumber);
 
         /*

@@ -16,7 +16,7 @@ typedef struct _stPinchThreadSet stPinchThreadSet;
 
 typedef struct _stPinchThreadIt {
     stPinchThreadSet *threadSet;
-    int32_t index;
+    int64_t index;
 } stPinchThreadSetIt;
 
 typedef struct _stPinchThread stPinchThread;
@@ -71,7 +71,7 @@ stPinchThread *stPinchThreadSet_getThread(stPinchThreadSet *threadSet, int64_t n
 
 stPinchSegment *stPinchThreadSet_getSegment(stPinchThreadSet *threadSet, int64_t name, int64_t coordinate);
 
-int32_t stPinchThreadSet_getSize(stPinchThreadSet *threadSet);
+int64_t stPinchThreadSet_getSize(stPinchThreadSet *threadSet);
 
 stPinchThreadSetIt stPinchThreadSet_getIt(stPinchThreadSet *threadSet);
 
@@ -81,7 +81,7 @@ void stPinchThreadSet_joinTrivialBoundaries(stPinchThreadSet *threadSet);
 
 stPinchSegment *stPinchThreadSet_getSegment(stPinchThreadSet *threadSet, int64_t name, int64_t coordinate);
 
-int32_t stPinchThreadSet_getTotalBlockNumber(stPinchThreadSet *threadSet);
+int64_t stPinchThreadSet_getTotalBlockNumber(stPinchThreadSet *threadSet);
 
 stList *stPinchThreadSet_getAdjacencyComponents(stPinchThreadSet *threadSet);
 
@@ -167,9 +167,9 @@ int64_t stPinchBlock_getLength(stPinchBlock *block);
 
 stPinchSegment *stPinchBlock_getFirst(stPinchBlock *block);
 
-uint32_t stPinchBlock_getDegree(stPinchBlock *block);
+uint64_t stPinchBlock_getDegree(stPinchBlock *block);
 
-void stPinchBlock_trim(stPinchBlock *block, int32_t blockEndTrim);
+void stPinchBlock_trim(stPinchBlock *block, int64_t blockEndTrim);
 
 //Block ends
 
@@ -187,7 +187,7 @@ bool stPinchEnd_getOrientation(stPinchEnd *end);
 
 int stPinchEnd_equalsFn(const void *, const void *);
 
-uint32_t stPinchEnd_hashFn(const void *);
+uint64_t stPinchEnd_hashFn(const void *);
 
 bool stPinchEnd_traverse5Prime(bool endOrientation, stPinchSegment *segment);
 

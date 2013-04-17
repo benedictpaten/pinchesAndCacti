@@ -34,7 +34,7 @@ struct _stPinchSegment {
 };
 
 struct _stPinchBlock {
-    uint32_t degree;
+    uint64_t degree;
     stPinchSegment *headSegment;
     stPinchSegment *tailSegment;
 };
@@ -126,7 +126,7 @@ stPinchSegment *stPinchBlockIt_getNext(stPinchBlockIt *blockIt) {
     return segment;
 }
 
-uint32_t stPinchBlock_getDegree(stPinchBlock *block) {
+uint64_t stPinchBlock_getDegree(stPinchBlock *block) {
     return block->degree;
 }
 
@@ -139,7 +139,7 @@ int64_t stPinchBlock_getLength(stPinchBlock *block) {
     return stPinchSegment_getLength(stPinchBlock_getFirst(block));
 }
 
-void stPinchBlock_trim(stPinchBlock *block, int32_t blockEndTrim) {
+void stPinchBlock_trim(stPinchBlock *block, int64_t blockEndTrim) {
     if (blockEndTrim <= 0) {
         return;
     }
@@ -364,7 +364,7 @@ stPinchSegment *stPinchThread_pinchP(stPinchThread *thread, int64_t start) {
     return segment1;
 }
 
-stPinchSegment *stPinchThread_pinchTrim(stPinchSegment *segment, bool strand, int32_t length) {
+stPinchSegment *stPinchThread_pinchTrim(stPinchSegment *segment, bool strand, int64_t length) {
     assert(length > 0);
     if (stPinchSegment_getLength(segment) <= length) {
         return segment;
@@ -455,7 +455,7 @@ static void stPinchThread_destruct(stPinchThread *thread) {
     free(thread);
 }
 
-static uint32_t stPinchThread_hashKey(const stPinchThread *thread) {
+static uint64_t stPinchThread_hashKey(const stPinchThread *thread) {
     return thread->name;
 }
 
@@ -468,7 +468,7 @@ static int stPinchThread_equals(const stPinchThread *thread1, const stPinchThrea
 stPinchThreadSet *stPinchThreadSet_construct() {
     stPinchThreadSet *threadSet = st_malloc(sizeof(stPinchThreadSet));
     threadSet->threads = stList_construct3(0, (void(*)(void *)) stPinchThread_destruct);
-    threadSet->threadsHash = stHash_construct3((uint32_t(*)(const void *)) stPinchThread_hashKey,
+    threadSet->threadsHash = stHash_construct3((uint64_t(*)(const void *)) stPinchThread_hashKey,
             (int(*)(const void *, const void *)) stPinchThread_equals, NULL, NULL);
     return threadSet;
 }
@@ -493,7 +493,7 @@ stPinchThread *stPinchThreadSet_getThread(stPinchThreadSet *threadSet, int64_t n
     return stHash_search(threadSet->threadsHash, &thread);
 }
 
-int32_t stPinchThreadSet_getSize(stPinchThreadSet *threadSet) {
+int64_t stPinchThreadSet_getSize(stPinchThreadSet *threadSet) {
     return stList_length(threadSet->threads);
 }
 
@@ -581,8 +581,8 @@ stPinchBlock *stPinchThreadSetBlockIt_getNext(stPinchThreadSetBlockIt *blockIt) 
     }
 }
 
-int32_t stPinchThreadSet_getTotalBlockNumber(stPinchThreadSet *threadSet) {
-    int32_t blockCount = 0;
+int64_t stPinchThreadSet_getTotalBlockNumber(stPinchThreadSet *threadSet) {
+    int64_t blockCount = 0;
     stPinchThreadSetBlockIt blockIt = stPinchThreadSet_getBlockIt(threadSet);
     while (stPinchThreadSetBlockIt_getNext(&blockIt) != NULL) {
         blockCount++;
@@ -677,7 +677,7 @@ stSortedSet *stPinchThreadSet_getThreadComponents(stPinchThreadSet *threadSet) {
             assert(threadComponent2 != NULL);
             if (threadComponent1 != threadComponent2) {
                 stList_appendAll(threadComponent1, threadComponent2);
-                for (int32_t i = 0; i < stList_length(threadComponent2); i++) {
+                for (int64_t i = 0; i < stList_length(threadComponent2); i++) {
                     stPinchThread *thread = stList_get(threadComponent2, i);
                     stHash_insert(threadToComponentHash, thread, threadComponent1);
                 }
@@ -733,7 +733,7 @@ int stPinchEnd_equalsFn(const void *a, const void *b) {
     return end1->block == end2->block && end1->orientation == end2->orientation;
 }
 
-uint32_t stPinchEnd_hashFn(const void *a) {
+uint64_t stPinchEnd_hashFn(const void *a) {
     const stPinchEnd *end1 = a;
     return stHash_pointer(end1->block) + end1->orientation;
 }
@@ -986,8 +986,8 @@ stPinch stPinchThreadSet_getRandomPinch(stPinchThreadSet *threadSet) {
     bool strand1, strand2;
     getRandomPosition(threadSet, &thread1, &start1, &strand1);
     getRandomPosition(threadSet, &thread2, &start2, &strand2);
-    int32_t i = stPinchThread_getStart(thread1) + stPinchThread_getLength(thread1) - start1;
-    int32_t j = stPinchThread_getStart(thread2) + stPinchThread_getLength(thread2) - start2;
+    int64_t i = stPinchThread_getStart(thread1) + stPinchThread_getLength(thread1) - start1;
+    int64_t j = stPinchThread_getStart(thread2) + stPinchThread_getLength(thread2) - start2;
     assert(i >= 0 && j >= 0);
     i = i > j ? j : i;
     int64_t length = i == 0 ? 0 : st_randomInt(0, i);
@@ -997,11 +997,11 @@ stPinch stPinchThreadSet_getRandomPinch(stPinchThreadSet *threadSet) {
 
 stPinchThreadSet *stPinchThreadSet_getRandomEmptyGraph() {
     stPinchThreadSet *threadSet = stPinchThreadSet_construct();
-    int32_t randomThreadNumber = st_randomInt(2, 10);
-    for (int32_t threadIndex = 0; threadIndex < randomThreadNumber; threadIndex++) {
-        int32_t start = st_randomInt(1, 100);
-        int32_t length = st_randomInt(1, 100);
-        int32_t threadName = threadIndex + 4;
+    int64_t randomThreadNumber = st_randomInt(2, 10);
+    for (int64_t threadIndex = 0; threadIndex < randomThreadNumber; threadIndex++) {
+        int64_t start = st_randomInt(1, 100);
+        int64_t length = st_randomInt(1, 100);
+        int64_t threadName = threadIndex + 4;
         stPinchThreadSet_addThread(threadSet, threadName, start, length);
     }
     return threadSet;
