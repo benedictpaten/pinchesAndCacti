@@ -540,7 +540,7 @@ stList *computeThreeEdgeConnectedComponents(stList *vertices) {
         stListIterator *it = stList_getIterator(edges);
         stIntTuple *N;
         while((N = stList_getNext(it)) != NULL) {
-            n = stIntTuple_getPosition(N, 0)+1;
+            n = stIntTuple_get(N, 0)+1;
             edge = adjacencyEdge_construct();
             edge->u = n;
             edge->more = LG[v];

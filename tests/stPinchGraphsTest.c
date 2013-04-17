@@ -558,9 +558,9 @@ stHash *getUnalignedColumns(stPinchThreadSet *threadSet) {
 
 static void decodePosition(stPinchThreadSet *threadSet, stIntTuple *alignedPosition, stPinchThread **thread, int64_t *position,
         bool *strand) {
-    *thread = stPinchThreadSet_getThread(threadSet, stIntTuple_getPosition(alignedPosition, 0));
+    *thread = stPinchThreadSet_getThread(threadSet, stIntTuple_get(alignedPosition, 0));
     assert(*thread != NULL);
-    *position = stIntTuple_getPosition(alignedPosition, 1);
+    *position = stIntTuple_get(alignedPosition, 1);
     assert(*position != 0);
     *strand = 1;
     if (*position < 0) {
