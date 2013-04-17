@@ -14,10 +14,10 @@
 #include "stPinchGraphs.h"
 
 static stPinchThreadSet *threadSet = NULL;
-static int64_t name1 = 0, start1 = 1, length1 = ((int64_t) INT32_MAX) + 1;
+static int64_t name1 = 0, start1 = 1, length1 = INT64_MAX-1;
 static int64_t leftSplitPoint1 = 10, leftSplitPoint2 = 11;
 static stPinchThread *thread1;
-static int64_t name2 = INT32_MAX, start2 = 4, length2 = 10;
+static int64_t name2 = INT64_MAX, start2 = 4, length2 = 10;
 static stPinchThread *thread2;
 
 static void teardown() {
@@ -829,7 +829,7 @@ static stList *getAdjacencyComponent(stPinchSegment *segment, int64_t position, 
     segment2 = stPinchSegment_get5Prime(segment);
     while (segment2 != NULL) {
         if (stPinchSegment_getBlock(segment2) != NULL) {
-            return getAdjacencyComponentP(segment2, INT32_MAX, pinchEndsToAdjacencyComponents);
+            return getAdjacencyComponentP(segment2, INT64_MAX, pinchEndsToAdjacencyComponents);
         }
         segment2 = stPinchSegment_get5Prime(segment2);
     }
