@@ -1021,7 +1021,12 @@ stPinchThreadSet *stPinchThreadSet_getRandomGraph() {
 static void stPinchThread_filterPinchPositiveStrandP(stPinchSegment **segment1, stPinchSegment **segment2, int64_t start1, int64_t start2, int64_t *offset) {
     int64_t i = stPinchSegment_getStart(*segment1) + stPinchSegment_getLength(*segment1) - start1;
     int64_t j = stPinchSegment_getStart(*segment2) + stPinchSegment_getLength(*segment2) - start2;
-    if (i < j) {
+    if(i == j) {
+        *offset = i;
+        *segment1 = stPinchSegment_get3Prime(*segment1);
+        *segment2 = stPinchSegment_get3Prime(*segment2);
+    }
+    else if (i < j) {
         *offset = i;
         *segment1 = stPinchSegment_get3Prime(*segment1);
     } else {
@@ -1036,13 +1041,11 @@ static void stPinchThread_filterPinchPositiveStrand(stPinchThread *thread1, stPi
     int64_t offset = 0;
     stPinchSegment *segment1 = stPinchThread_getSegment(thread1, start1);
     stPinchSegment *segment2 = stPinchThread_getSegment(thread2, start2);
-    while (offset <= length) {
+    while (offset < length) {
         assert(segment1 != NULL);
         assert(segment2 != NULL);
-        st_uglyf("The offset and start %" PRIi64 " %" PRIi64 "\n", start, offset);
         if (filterFn(segment1, segment2)) {
             if (offset - start > 0) {
-                st_uglyf("Hello t1: %" PRIi64 " t2: %" PRIi64 " s1: %" PRIi64 " s2: %" PRIi64 " length: %" PRIi64 "\n", stPinchThread_getName(thread1), stPinchThread_getName(thread2), start1 + start, start2 + start, offset - start);
                 stPinchThread_pinch(thread1, thread2, start1 + start, start2 + start, offset - start, 1);
                 segment1 = stPinchThread_getSegment(thread1, start1 + offset);
                 segment2 = stPinchThread_getSegment(thread2, start2 + offset);
@@ -1053,9 +1056,7 @@ static void stPinchThread_filterPinchPositiveStrand(stPinchThread *thread1, stPi
             stPinchThread_filterPinchPositiveStrandP(&segment1, &segment2, start1, start2, &offset);
         }
     }
-    st_uglyf("The END offset and start %" PRIi64 " %" PRIi64 "\n", start, offset);
     if (length - start > 0) {
-        st_uglyf("Hello t1: %" PRIi64 " t2: %" PRIi64 " s1: %" PRIi64 " s2: %" PRIi64 " length: %" PRIi64 "\n", stPinchThread_getName(thread1), stPinchThread_getName(thread2), start1 + start, start2 + start, length - start);
         stPinchThread_pinch(thread1, thread2, start1 + start, start2 + start, length - start, 1);
     }
 }
@@ -1063,7 +1064,12 @@ static void stPinchThread_filterPinchPositiveStrand(stPinchThread *thread1, stPi
 static void stPinchThread_filterPinchNegativeStrandP(stPinchSegment **segment1, stPinchSegment **segment2, int64_t start1, int64_t end2, int64_t *offset) {
     int64_t i = stPinchSegment_getStart(*segment1) + stPinchSegment_getLength(*segment1) - start1;
     int64_t j = end2 - stPinchSegment_getStart(*segment2);
-    if (i < j) {
+    if(i == j) {
+        *offset = i;
+        *segment1 = stPinchSegment_get3Prime(*segment1);
+        *segment2 = stPinchSegment_get5Prime(*segment2);
+    }
+    else if (i < j) {
         *offset = i;
         *segment1 = stPinchSegment_get3Prime(*segment1);
     } else {

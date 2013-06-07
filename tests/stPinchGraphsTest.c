@@ -672,19 +672,15 @@ static bool canMerge(stSortedSet *column1, stSortedSet *column2) {
 }
 
 static void testStPinchThread_filterPinch_randomTests(CuTest *testCase) {
-    for (int64_t test = 0; test < 10000; test++) {
+    for (int64_t test = 0; test < 100; test++) {
         st_logInfo("Starting random pinch test %" PRIi64 "\n", test);
-        st_uglyf("Booo!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
         stPinchThreadSet *threadSet = stPinchThreadSet_getRandomEmptyGraph();
         stHash *columns = getUnalignedColumns(threadSet);
 
         //Randomly push them together, updating both sets, and checking that set of alignments is what we expect
         double threshold = st_random();
-        int64_t count = 0;
-        while (st_random() > threshold && count++ < 3) {
+        while (st_random() > threshold) {
             stPinch pinch = stPinchThreadSet_getRandomPinch(threadSet);
-            pinch.strand = 1;
-            st_uglyf("Random pinch t1: %" PRIi64 " t2: %" PRIi64 " s1: %" PRIi64 " s2: %" PRIi64 " length %" PRIi64 " \n", pinch.name1, pinch.name2, pinch.start1, pinch.start2, pinch.length);
             stPinchThread_filterPinch(stPinchThreadSet_getThread(threadSet, pinch.name1), stPinchThreadSet_getThread(threadSet, pinch.name2),
                     pinch.start1, pinch.start2, pinch.length, pinch.strand, testStPinchThread_filterPinch_randomTests_filterFn);
             //now do all the pushing together of the equivalence classes
@@ -692,7 +688,6 @@ static void testStPinchThread_filterPinch_randomTests(CuTest *testCase) {
                 stSortedSet *column1 = getColumn(columns, pinch.name1, pinch.start1 + i, 1);
                 stSortedSet *column2 = getColumn(columns, pinch.name2, pinch.strand ? pinch.start2 + i : pinch.start2 + pinch.length - 1 - i, pinch.strand);
                 if(canMerge(column1, column2)) {
-                    st_uglyf("Goodbye t1: %" PRIi64 " t2: %" PRIi64 " s1: %" PRIi64 " s2: %" PRIi64 " \n", pinch.name1, pinch.name2, pinch.start1 + i, pinch.start2 + i);
                     mergePositionsSymmetric(columns, pinch.name1, pinch.start1 + i, 1, pinch.name2,
                             pinch.strand ? pinch.start2 + i : pinch.start2 + pinch.length - 1 - i, pinch.strand);
                 }
