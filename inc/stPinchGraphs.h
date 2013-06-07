@@ -125,6 +125,9 @@ void stPinchThread_joinTrivialBoundaries(stPinchThread *thread);
 
 void stPinchThread_pinch(stPinchThread *thread1, stPinchThread *thread2, int64_t start1, int64_t start2, int64_t length, bool strand2);
 
+void stPinchThread_filterPinch(stPinchThread *thread1, stPinchThread *thread2, int64_t start1, int64_t start2,
+        int64_t length, bool strand2, bool(*filterFn)(stPinchSegment *, stPinchSegment *));
+
 //Segments
 
 int64_t stPinchSegment_getStart(stPinchSegment *segment);
