@@ -771,6 +771,37 @@ bool stPinchEnd_boundaryIsTrivial(stPinchEnd end) {
     return 1;
 }
 
+stSet *stPinchEnd_getConnectedPinchEnds(stPinchEnd *end) {
+    stSet *l = stSet_construct2((void (*)(void *))stPinchEnd_destruct);
+    stPinchBlockIt blockIt = stPinchBlock_getSegmentIterator(end->block);
+    stPinchSegment *segment;
+    while ((segment = stPinchBlockIt_getNext(&blockIt)) != NULL) {
+        bool _5PrimeTraversal = stPinchEnd_traverse5Prime(end->orientation, segment);
+        while (1) {
+            segment = _5PrimeTraversal ? stPinchSegment_get5Prime(segment) : stPinchSegment_get3Prime(segment);
+            if (segment == NULL) {
+                break;
+            }
+            stPinchBlock *block = stPinchSegment_getBlock(segment);
+            if (block != NULL) {
+                stPinchEnd end2 = stPinchEnd_constructStatic(block, stPinchEnd_endOrientation(_5PrimeTraversal, segment));
+                if (stSet_search(l, &end2) == NULL) {
+                    stSet_insert(l, stPinchEnd_construct(end2.block, end2.orientation));
+                }
+                break;
+            }
+        }
+    }
+    return l;
+}
+
+int64_t stPinchEnd_getNumberOfConnectedPinchEnds(stPinchEnd *end) {
+    stSet *set = stPinchEnd_getConnectedPinchEnds(end);
+    int64_t i = stSet_size(set);
+    stSet_destruct(set);
+    return i;
+}
+
 static void merge3Prime(stPinchSegment *segment) {
     stPinchSegment *nSegment = segment->nSegment;
     assert(nSegment != NULL && nSegment != segment);

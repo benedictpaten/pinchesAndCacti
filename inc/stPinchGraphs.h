@@ -200,6 +200,10 @@ bool stPinchEnd_boundaryIsTrivial(stPinchEnd end);
 
 void stPinchEnd_joinTrivialBoundary(stPinchEnd end);
 
+stSet *stPinchEnd_getConnectedPinchEnds(stPinchEnd *end);
+
+int64_t stPinchEnd_getNumberOfConnectedPinchEnds(stPinchEnd *end);
+
 //Pinch structure
 
 void stPinch_fillOut(stPinch *pinch, int64_t name1, int64_t name2, int64_t start1, int64_t start2, int64_t length, bool strand);
