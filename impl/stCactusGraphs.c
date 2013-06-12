@@ -498,7 +498,6 @@ static void stCactusGraph_collapseLongChainsP(stCactusNode *node, stList *nodesT
                 //we remark the nodes with orientations they end up with different orientations between the edges that are
                 //really linked but now merged in the same node.
             } else {
-                assert(node2 == node);
                 assert(longChain <= 1);
             }
         }
