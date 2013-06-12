@@ -286,6 +286,25 @@ void stPinchSegment_split(stPinchSegment *segment, int64_t leftSideOfSplitPoint)
     }
 }
 
+void stPinchSegment_putSegmentFirstInBlock(stPinchSegment *segment) {
+    if(segment->block != NULL) {
+        if(segment->block->headSegment != segment) {
+            stPinchSegment *pBlockSegment = segment->block->headSegment;
+            while(pBlockSegment->nBlockSegment != segment) {
+                pBlockSegment = pBlockSegment->nBlockSegment;
+                assert(pBlockSegment != NULL);
+            }
+            pBlockSegment->nBlockSegment = segment->nBlockSegment;
+            if(segment->nBlockSegment == NULL) {
+                assert(segment->block->tailSegment == segment);
+                segment->block->tailSegment = pBlockSegment;
+            }
+            segment->nBlockSegment = segment->block->headSegment;
+            segment->block->headSegment = segment;
+        }
+    }
+}
+
 //Thread
 
 int64_t stPinchThread_getName(stPinchThread *thread) {

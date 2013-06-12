@@ -148,6 +148,8 @@ bool stPinchSegment_getBlockOrientation(stPinchSegment *segment);
 
 void stPinchSegment_split(stPinchSegment *segment, int64_t leftSideOfSplitPoint);
 
+void stPinchSegment_putSegmentFirstInBlock(stPinchSegment *segment);
+
 //Blocks
 
 stPinchBlock *stPinchBlock_construct3(stPinchSegment *segment, bool orientation);
