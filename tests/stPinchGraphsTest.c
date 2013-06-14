@@ -672,7 +672,7 @@ static bool canMerge(stSortedSet *column1, stSortedSet *column2) {
 }
 
 static void testStPinchThread_filterPinch_randomTests(CuTest *testCase) {
-    for (int64_t test = 0; test < 100000; test++) {
+    for (int64_t test = 0; test < 100; test++) {
         st_logInfo("Starting random pinch test %" PRIi64 "\n", test);
         stPinchThreadSet *threadSet = stPinchThreadSet_getRandomEmptyGraph();
         stHash *columns = getUnalignedColumns(threadSet);
