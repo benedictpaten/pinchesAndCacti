@@ -373,8 +373,7 @@ void stPinchThread_joinTrivialBoundaries(stPinchThread *thread) {
     } while ((segment = stPinchSegment_get3Prime(segment)) != NULL);
 }
 
-stPinchSegment *stPinchThread_pinchP(stPinchThread *thread, int64_t start) {
-    stPinchSegment *segment1 = stPinchThread_getSegment(thread, start);
+stPinchSegment *stPinchThread_pinchP(stPinchSegment *segment1, int64_t start) {
     assert(segment1 != NULL);
     if (stPinchSegment_getStart(segment1) != start) {
         stPinchSegment_split(segment1, start - 1);
@@ -383,17 +382,112 @@ stPinchSegment *stPinchThread_pinchP(stPinchThread *thread, int64_t start) {
     return segment1;
 }
 
-stPinchSegment *stPinchThread_pinchTrim(stPinchSegment *segment, bool strand, int64_t length) {
+stPinchSegment *stPinchThread_pinchTrimPositive(stPinchSegment *segment, int64_t length) {
     assert(length > 0);
     if (stPinchSegment_getLength(segment) <= length) {
         return segment;
     }
-    if (strand) {
-        stPinchSegment_split(segment, stPinchSegment_getStart(segment) + length - 1);
+    stPinchSegment_split(segment, stPinchSegment_getStart(segment) + length - 1);
+    return segment;
+}
+
+void stPinchThread_pinchPositive(stPinchSegment *segment1, stPinchSegment *segment2, int64_t start1, int64_t start2, int64_t length) {
+    if(segment1 == segment2 || stPinchSegment_getBlock(segment1) == stPinchSegment_getBlock(segment2)) {
+        stPinchThread *thread2 = stPinchSegment_getThread(segment2);
+        segment1 = stPinchThread_pinchP(segment1, start1);
+        segment2 = stPinchThread_getSegment(thread2, start2);
+        segment2 = stPinchThread_pinchP(segment2, start2);
+    }
+    else {
+        segment1 = stPinchThread_pinchP(segment1, start1);
+        segment2 = stPinchThread_pinchP(segment2, start2);
+    }
+    while (length > 0) {
+        if (segment1 == segment2) {
+            return; //This is a trivial alignment
+        }
+        do {
+            int64_t i = stPinchSegment_getLength(segment1);
+            segment2 = stPinchThread_pinchTrimPositive(segment2, length > i ? i : length);
+            i = stPinchSegment_getLength(segment2);
+            stPinchThread_pinchTrimPositive(segment1, length > i ? i : length);
+        } while (stPinchSegment_getLength(segment1) != stPinchSegment_getLength(segment2));
+        stPinchBlock *block1, *block2;
+        if ((block1 = stPinchSegment_getBlock(segment1)) == NULL) {
+            block1 = stPinchBlock_construct2(segment1);
+        }
+        if ((block2 = stPinchSegment_getBlock(segment2)) == NULL) {
+            block2 = stPinchBlock_construct2(segment2);
+        }
+        bool bO1 = stPinchSegment_getBlockOrientation(segment1);
+        bool bO2 = stPinchSegment_getBlockOrientation(segment2);
+        bool alignmentOrientation = bO1 == bO2;
+        if (block1 == block2) {
+            if (stPinchSegment_getLength(segment1) > 1 && !alignmentOrientation) {
+                segment2 = stPinchThread_pinchTrimPositive(segment2, stPinchSegment_getLength(segment2) / 2);
+                continue;
+            }
+        }
+        block1 = stPinchBlock_pinch(block1, block2, alignmentOrientation);
+        length -= stPinchSegment_getLength(segment1);
+        segment1 = stPinchSegment_get3Prime(segment1);
+        segment2 = stPinchSegment_get3Prime(segment2);
+    }
+}
+
+stPinchSegment *stPinchThread_pinchTrimNegative(stPinchSegment *segment, int64_t length) {
+    assert(length > 0);
+    if (stPinchSegment_getLength(segment) <= length) {
         return segment;
     }
     stPinchSegment_split(segment, stPinchSegment_getStart(segment) + stPinchSegment_getLength(segment) - 1 - length);
     return stPinchSegment_get3Prime(segment);
+}
+
+void stPinchThread_pinchNegative(stPinchSegment *segment1, stPinchSegment *segment2, int64_t start1, int64_t start2, int64_t length) {
+    if(segment1 == segment2 || stPinchSegment_getBlock(segment1) == stPinchSegment_getBlock(segment2)) {
+        stPinchThread *thread2 = stPinchSegment_getThread(segment2);
+        segment1 = stPinchThread_pinchP(segment1, start1);
+        segment2 = stPinchThread_getSegment(thread2, start2 + length - 1);
+        stPinchSegment_split(segment2, start2 + length - 1);
+    }
+    else {
+        segment1 = stPinchThread_pinchP(segment1, start1);
+        stPinchSegment_split(segment2, start2 + length - 1);
+    }
+    while (length > 0) {
+        if (segment1 == segment2) {
+            if (stPinchSegment_getLength(segment1) > 1) { //Split the block in two
+                segment2 = stPinchThread_pinchTrimNegative(segment2, stPinchSegment_getLength(segment1) / 2);
+            }
+        }
+        do {
+            int64_t i = stPinchSegment_getLength(segment1);
+            segment2 = stPinchThread_pinchTrimNegative(segment2, length > i ? i : length);
+            i = stPinchSegment_getLength(segment2);
+            stPinchThread_pinchTrimPositive(segment1, length > i ? i : length);
+        } while (stPinchSegment_getLength(segment1) != stPinchSegment_getLength(segment2));
+        stPinchBlock *block1, *block2;
+        if ((block1 = stPinchSegment_getBlock(segment1)) == NULL) {
+            block1 = stPinchBlock_construct2(segment1);
+        }
+        if ((block2 = stPinchSegment_getBlock(segment2)) == NULL) {
+            block2 = stPinchBlock_construct2(segment2);
+        }
+        bool bO1 = stPinchSegment_getBlockOrientation(segment1);
+        bool bO2 = stPinchSegment_getBlockOrientation(segment2);
+        bool alignmentOrientation = bO1 != bO2;
+        if (block1 == block2) {
+            if (stPinchSegment_getLength(segment1) > 1 && !alignmentOrientation) {
+                segment2 = stPinchThread_pinchTrimNegative(segment2, stPinchSegment_getLength(segment2) / 2);
+                continue;
+            }
+        }
+        block1 = stPinchBlock_pinch(block1, block2, alignmentOrientation);
+        length -= stPinchSegment_getLength(segment1);
+        segment1 = stPinchSegment_get3Prime(segment1);
+        segment2 = stPinchSegment_get5Prime(segment2);
+    }
 }
 
 void stPinchThread_pinch(stPinchThread *thread1, stPinchThread *thread2, int64_t start1, int64_t start2, int64_t length, bool strand2) {
@@ -405,50 +499,14 @@ void stPinchThread_pinch(stPinchThread *thread1, stPinchThread *thread2, int64_t
     assert(stPinchThread_getStart(thread1) + stPinchThread_getLength(thread1) >= start1 + length);
     assert(stPinchThread_getStart(thread2) <= start2);
     assert(stPinchThread_getStart(thread2) + stPinchThread_getLength(thread2) >= start2 + length);
-    stPinchSegment *segment1 = stPinchThread_pinchP(thread1, start1), *segment2;
-    if (strand2) {
-        segment2 = stPinchThread_pinchP(thread2, start2);
-    } else {
-        segment2 = stPinchThread_getSegment(thread2, start2 + length - 1);
-        stPinchSegment_split(segment2, start2 + length - 1);
+    if(strand2) {
+        stPinchThread_pinchPositive(stPinchThread_getSegment(thread1, start1), stPinchThread_getSegment(thread2, start2), start1, start2, length);
     }
-    while (length > 0) {
-        if (segment1 == segment2) {
-            if (strand2) {
-                return; //This is a trivial alignment
-            }
-            if (stPinchSegment_getLength(segment1) > 1) { //Split the block in two
-                segment2 = stPinchThread_pinchTrim(segment2, 0, stPinchSegment_getLength(segment1) / 2);
-            }
-        }
-        do {
-            int64_t i = stPinchSegment_getLength(segment1);
-            segment2 = stPinchThread_pinchTrim(segment2, strand2, length > i ? i : length);
-            i = stPinchSegment_getLength(segment2);
-            stPinchThread_pinchTrim(segment1, 1, length > i ? i : length);
-        } while (stPinchSegment_getLength(segment1) != stPinchSegment_getLength(segment2));
-        stPinchBlock *block1, *block2;
-        if ((block1 = stPinchSegment_getBlock(segment1)) == NULL) {
-            block1 = stPinchBlock_construct2(segment1);
-        }
-        if ((block2 = stPinchSegment_getBlock(segment2)) == NULL) {
-            block2 = stPinchBlock_construct2(segment2);
-        }
-        bool bO1 = stPinchSegment_getBlockOrientation(segment1);
-        bool bO2 = stPinchSegment_getBlockOrientation(segment2);
-        bool alignmentOrientation = ((bO1 == bO2) && strand2) || ((bO1 != bO2) && !strand2);
-        if (block1 == block2) {
-            if (stPinchSegment_getLength(segment1) > 1 && !alignmentOrientation) {
-                segment2 = stPinchThread_pinchTrim(segment2, strand2, stPinchSegment_getLength(segment2) / 2);
-                continue;
-            }
-        }
-        block1 = stPinchBlock_pinch(block1, block2, alignmentOrientation);
-        length -= stPinchSegment_getLength(segment1);
-        segment1 = stPinchSegment_get3Prime(segment1);
-        segment2 = strand2 ? stPinchSegment_get3Prime(segment2) : stPinchSegment_get5Prime(segment2);
+    else {
+        stPinchThread_pinchNegative(stPinchThread_getSegment(thread1, start1), stPinchThread_getSegment(thread2, start2 + length - 1), start1, start2, length);
     }
 }
+
 
 //Private functions
 
@@ -1097,14 +1155,15 @@ static void stPinchThread_filterPinchPositiveStrand(stPinchThread *thread1, stPi
             stPinchThread_filterPinchPositiveStrandP(&segment1, &segment2, start1, start2, &offset);
         } else {
             int64_t start = offset;
+            stPinchSegment *s1 = segment1, *s2 = segment2;
             stPinchThread_filterPinchPositiveStrandP(&segment1, &segment2, start1, start2, &offset);
             assert(offset - start > 0);
             if(offset > length) {
-                stPinchThread_pinch(thread1, thread2, start1 + start, start2 + start, length - start, 1);
+                stPinchThread_pinchPositive(s1, s2, start1 + start, start2 + start, length - start);
                 break;
             }
             else {
-                stPinchThread_pinch(thread1, thread2, start1 + start, start2 + start, offset - start, 1);
+                stPinchThread_pinchPositive(s1, s2, start1 + start, start2 + start, offset - start);
             }
             segment1 = stPinchThread_getSegment(thread1, start1 + offset);
             segment2 = stPinchThread_getSegment(thread2, start2 + offset);
@@ -1141,14 +1200,15 @@ static void stPinchThread_filterPinchNegativeStrand(stPinchThread *thread1, stPi
             stPinchThread_filterPinchNegativeStrandP(&segment1, &segment2, start1, start2 + length, &offset);
         } else {
             int64_t start = offset;
+            stPinchSegment *s1 = segment1, *s2 = segment2;
             stPinchThread_filterPinchNegativeStrandP(&segment1, &segment2, start1, start2 + length, &offset);
             assert(offset - start > 0);
             if (offset > length) {
-                stPinchThread_pinch(thread1, thread2, start1 + start, start2, length - start, 0);
+                stPinchThread_pinchNegative(s1, s2, start1 + start, start2, length - start);
                 break;
             }
             else {
-                stPinchThread_pinch(thread1, thread2, start1 + start, start2 + length - offset, offset - start, 0);
+                stPinchThread_pinchNegative(s1, s2, start1 + start, start2 + length - offset, offset - start);
             }
             segment1 = stPinchThread_getSegment(thread1, start1 + offset);
             segment2 = stPinchThread_getSegment(thread2, start2 + length - 1 - offset);
