@@ -520,7 +520,6 @@ int64_t stCactusGraph_collapseLongChainsOfBigFlowers(stCactusGraph *graph, stCac
         if(stList_length(chainNodesToMerge) > 0) { //We go around because the result of the merge may require more merges.
             nodesMerged += stList_length(chainNodesToMerge)/2;
             mergeNodes(graph, startNode, chainNodesToMerge, mergeNodeObjects); //Now merge bridges
-            stList_destruct(chainNodesToMerge);
         }
         else {
             stList_destruct(chainNodesToMerge);
