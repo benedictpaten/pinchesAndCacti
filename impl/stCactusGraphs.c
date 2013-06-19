@@ -504,9 +504,10 @@ static void stCactusGraph_collapseLongChainsP(stCactusNode *node, stList *nodesT
     }
 }
 
-int64_t stCactusGraph_collapseLongChainsOfBigFlowers(stCactusGraph *graph, stCactusNode *startNode, int64_t chainLengthForBigFlower,
+stSet *stCactusGraph_collapseLongChainsOfBigFlowers(stCactusGraph *graph, stCactusNode *startNode, int64_t chainLengthForBigFlower,
         int64_t longChain, void *(*mergeNodeObjects)(void *, void *), bool recursive) {
     int64_t nodesMerged = 0;
+    stSet *bigNodes = stSet_construct();
     do {
         stCactusGraphNodeIt *it = stCactusGraphNodeIterator_construct(graph);
         stCactusNode *node;
@@ -514,6 +515,7 @@ int64_t stCactusGraph_collapseLongChainsOfBigFlowers(stCactusGraph *graph, stCac
         while ((node = stCactusGraphNodeIterator_getNext(it))) {
             if (stCactusNode_getTotalEdgeLengthOfFlower(node) > chainLengthForBigFlower) {
                 stCactusGraph_collapseLongChainsP(node, chainNodesToMerge, longChain);
+                stSet_insert(bigNodes, node);
             }
         }
         stCactusGraphNodeIterator_destruct(it);
@@ -526,6 +528,6 @@ int64_t stCactusGraph_collapseLongChainsOfBigFlowers(stCactusGraph *graph, stCac
             break;
         }
     } while(recursive);
-    return nodesMerged;
+    return bigNodes;
 }
 
