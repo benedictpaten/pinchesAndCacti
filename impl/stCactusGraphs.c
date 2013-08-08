@@ -532,8 +532,6 @@ stSet *stCactusGraph_collapseLongChainsOfBigFlowers(stCactusGraph *graph, stCact
 }
 
 void stCactusGraph_breakChainAtReverseTandemDuplications(stCactusNode *node, stCactusEdgeEnd *edgeEnd, void *(*mergeNodeObjects)(void *, void *)) {
-    //get set of
-
     //get location of first pair of nested parentheses
 
     //while pair of parentheses exists
@@ -541,6 +539,8 @@ void stCactusGraph_breakChainAtReverseTandemDuplications(stCactusNode *node, stC
     //do merge
 
     //from right side of nested parentheses search for new pair
+
+    //if new pair is not found, search whole remaining chain for location of pair of nested parentheses
 
 }
 
