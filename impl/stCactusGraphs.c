@@ -531,3 +531,31 @@ stSet *stCactusGraph_collapseLongChainsOfBigFlowers(stCactusGraph *graph, stCact
     return bigNodes;
 }
 
+void stCactusGraph_breakChainAtReverseTandemDuplications(stCactusNode *node, stCactusEdgeEnd *edgeEnd, void *(*mergeNodeObjects)(void *, void *)) {
+    //get set of
+
+    //get location of first pair of nested parentheses
+
+    //while pair of parentheses exists
+
+    //do merge
+
+    //from right side of nested parentheses search for new pair
+
+}
+
+void stCactusGraph_breakChainsAtReverseTandemDuplications(stCactusGraph *graph, stCactusNode *startNode, void *(*mergeNodeObjects)(void *, void *)) {
+    stCactusGraphNodeIt *it = stCactusGraphNodeIterator_construct(graph);
+    stCactusNode *node;
+    while ((node = stCactusGraphNodeIterator_getNext(it))) {
+        stCactusNodeEdgeEndIt edgeIterator = stCactusNode_getEdgeEndIt(node);
+        stCactusEdgeEnd *edgeEnd;
+        while ((edgeEnd = stCactusNodeEdgeEndIt_getNext(&edgeIterator))) {
+            if (stCactusEdgeEnd_isChainEnd(edgeEnd) && stCactusEdgeEnd_getLinkOrientation(edgeEnd)) {
+                stCactusGraph_breakChainAtReverseTandemDuplications(node, edgeEnd, mergeNodeObjects);
+            }
+        }
+    }
+    stCactusGraphNodeIterator_destruct(it);
+}
+
