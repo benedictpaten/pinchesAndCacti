@@ -535,31 +535,6 @@ stSet *stCactusGraph_collapseLongChainsOfBigFlowers(stCactusGraph *graph, stCact
  * Following functions are used for breaking chains by edge-ends that can-not be part of a link, i.e. because they have an incident effective self loops.
  */
 
-static bool getNestedEdgeEndsNotInChain(stCactusEdgeEnd *edgeEnd,
-        stCactusEdgeEnd **leftEdgeEnd, stCactusEdgeEnd **rightEdgeEnd,
-        bool (*endIsNotInChain)(stCactusEdgeEnd *, void *extraArg), void *extraArg) {
-    /*
-     * Finds a pair of edge-ends for which (1) each end either returns non-zero for endIsNotInChain or is an edge-end at the end of chain
-     * and (2) the ends are in the chain that linked by a chain of cactus edges and links, starting on both ends with cactus edges.
-     * If no such pair exists, except for the very ends of the chain, then returns 0, else returns 1.
-     */
-    *leftEdgeEnd = edgeEnd;
-    stCactusNode *startNode = stCactusEdgeEnd_getNode(edgeEnd);
-    while(1) {
-        *rightEdgeEnd = stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd);
-        if(startNode == stCactusEdgeEnd_getNode(*rightEdgeEnd)) { //looped around
-            return stCactusEdgeEnd_getNode(*leftEdgeEnd) != stCactusEdgeEnd_getNode(*rightEdgeEnd);
-        }
-        if(endIsNotInChain(*rightEdgeEnd, extraArg)) {
-            return 1;
-        }
-        edgeEnd = stCactusEdgeEnd_getLink(*rightEdgeEnd);
-        if(endIsNotInChain(edgeEnd, extraArg)) {
-            *leftEdgeEnd = edgeEnd;
-        }
-    }
-}
-
 static void stCactusEdgeEnd_mergeIncidentNodesInMarkedCactusGraph(stCactusGraph *graph,
         stCactusEdgeEnd *leftEdgeEnd, stCactusEdgeEnd *rightEdgeEnd,
         void *(*mergeNodeObjects)(void *, void *)) {
@@ -571,6 +546,7 @@ static void stCactusEdgeEnd_mergeIncidentNodesInMarkedCactusGraph(stCactusGraph 
         stCactusNode_mergeNodes(graph, stCactusEdgeEnd_getNode(leftEdgeEnd), stCactusEdgeEnd_getNode(rightEdgeEnd), mergeNodeObjects);
         assert(leftEdgeEnd->link != rightEdgeEnd);
         assert(rightEdgeEnd->link != leftEdgeEnd);
+        assert(rightEdgeEnd->link != leftEdgeEnd->link);
         assert(stCactusEdgeEnd_getNode(leftEdgeEnd) == stCactusEdgeEnd_getNode(rightEdgeEnd));
 
         //Deal with the edge ends connected to their links
@@ -596,6 +572,32 @@ static void stCactusEdgeEnd_mergeIncidentNodesInMarkedCactusGraph(stCactusGraph 
     }
 }
 
+static bool getNestedEdgeEndsNotInChain(stCactusEdgeEnd *edgeEnd,
+        stCactusEdgeEnd **leftEdgeEnd, stCactusEdgeEnd **rightEdgeEnd,
+        bool (*endIsNotInChain)(stCactusEdgeEnd *, void *extraArg), void *extraArg) {
+    /*
+     * Finds a pair of edge-ends for which (1) each end either returns non-zero for endIsNotInChain or is an edge-end at the end of chain
+     * and (2) the ends are in the chain that linked by a chain of cactus edges and links, starting on both ends with cactus edges.
+     * If no such pair exists, except for the very ends of the chain, then returns 0, else returns 1.
+     */
+    assert(stCactusEdgeEnd_getLinkOrientation(edgeEnd));
+    *leftEdgeEnd = edgeEnd;
+    stCactusNode *startNode = stCactusEdgeEnd_getNode(edgeEnd);
+    while(1) {
+        *rightEdgeEnd = stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd);
+        if(startNode == stCactusEdgeEnd_getNode(*rightEdgeEnd)) { //looped around
+            return stCactusEdgeEnd_getNode(*leftEdgeEnd) != startNode; //We have distinct node to merge.
+        }
+        if(endIsNotInChain(*rightEdgeEnd, extraArg)) {
+            return 1;
+        }
+        edgeEnd = stCactusEdgeEnd_getLink(*rightEdgeEnd);
+        if(endIsNotInChain(edgeEnd, extraArg)) {
+            *leftEdgeEnd = edgeEnd;
+        }
+    }
+}
+
 static stCactusNode *stCactusGraph_breakChainByEndsNotInChain(stCactusGraph *graph,
         stCactusEdgeEnd *edgeEnd, void *(*mergeNodeObjects)(void *, void *),
         bool (*endIsNotInChain)(stCactusEdgeEnd *, void *extraArg), void *extraArg) {
@@ -614,19 +616,27 @@ static stCactusNode *stCactusGraph_breakChainByEndsNotInChain(stCactusGraph *gra
     //while pair of parentheses exists
     while(hasPair) {
         assert(stCactusEdgeEnd_getNode(leftEdgeEnd) != stCactusEdgeEnd_getNode(rightEdgeEnd));
+        assert(stCactusEdgeEnd_getLinkOrientation(leftEdgeEnd));
+        assert(!stCactusEdgeEnd_getLinkOrientation(rightEdgeEnd));
         //if we are going to brake the chain into two by merging an internal node with "node", then we add
         if(stCactusEdgeEnd_getNode(leftEdgeEnd) == stCactusEdgeEnd_getNode(edgeEnd)) {
+            assert(stCactusEdgeEnd_isChainEnd(leftEdgeEnd));
+            assert(!stCactusEdgeEnd_isChainEnd(rightEdgeEnd));
             stCactusEdgeEnd *nextChainEdgeEnd = stCactusEdgeEnd_getLink(rightEdgeEnd);
             stCactusEdgeEnd_mergeIncidentNodesInMarkedCactusGraph(graph, leftEdgeEnd, rightEdgeEnd, mergeNodeObjects);
             stCactusGraph_breakChainByEndsNotInChain(graph, nextChainEdgeEnd, mergeNodeObjects, endIsNotInChain, extraArg);
             hasPair = getNestedEdgeEndsNotInChain(edgeEnd, &leftEdgeEnd, &rightEdgeEnd, endIsNotInChain, extraArg);
         }
         else if(stCactusEdgeEnd_getNode(rightEdgeEnd) == stCactusEdgeEnd_getNode(edgeEnd)) {
+            assert(!stCactusEdgeEnd_isChainEnd(leftEdgeEnd));
+            assert(stCactusEdgeEnd_isChainEnd(rightEdgeEnd));
             stCactusEdgeEnd_mergeIncidentNodesInMarkedCactusGraph(graph, leftEdgeEnd, rightEdgeEnd, mergeNodeObjects);
             stCactusGraph_breakChainByEndsNotInChain(graph, leftEdgeEnd, mergeNodeObjects, endIsNotInChain, extraArg);
             hasPair = getNestedEdgeEndsNotInChain(edgeEnd, &leftEdgeEnd, &rightEdgeEnd, endIsNotInChain, extraArg);
         }
         else { //Two internal nodes
+            assert(!stCactusEdgeEnd_isChainEnd(leftEdgeEnd));
+            assert(!stCactusEdgeEnd_isChainEnd(rightEdgeEnd));
             stCactusEdgeEnd *nextChainEdgeEnd = stCactusEdgeEnd_getLink(rightEdgeEnd);
             stCactusEdgeEnd_mergeIncidentNodesInMarkedCactusGraph(graph, leftEdgeEnd, rightEdgeEnd, mergeNodeObjects);
             hasPair = getNestedEdgeEndsNotInChain(nextChainEdgeEnd, &leftEdgeEnd, &rightEdgeEnd, endIsNotInChain, extraArg);
