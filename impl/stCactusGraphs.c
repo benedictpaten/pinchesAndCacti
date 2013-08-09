@@ -596,7 +596,7 @@ static void stCactusEdgeEnd_mergeIncidentNodesInMarkedCactusGraph(stCactusGraph 
     }
 }
 
-static void stCactusGraph_breakChainByEndsNotInChain(stCactusGraph *graph,
+static stCactusNode *stCactusGraph_breakChainByEndsNotInChain(stCactusGraph *graph,
         stCactusEdgeEnd *edgeEnd, void *(*mergeNodeObjects)(void *, void *),
         bool (*endIsNotInChain)(stCactusEdgeEnd *, void *extraArg), void *extraArg) {
     /*
@@ -636,6 +636,7 @@ static void stCactusGraph_breakChainByEndsNotInChain(stCactusGraph *graph,
         }
         assert(stCactusEdgeEnd_isChainEnd(edgeEnd));
     }
+    return stCactusEdgeEnd_getNode(edgeEnd);
 }
 
 stList *stCactusNode_getChains(stCactusNode *startNode) {
@@ -653,12 +654,12 @@ stList *stCactusNode_getChains(stCactusNode *startNode) {
     return chainStack;
 }
 
-void stCactusGraph_breakChainsByEndsNotInChains(stCactusGraph *graph,
+stCactusNode *stCactusGraph_breakChainsByEndsNotInChains(stCactusGraph *graph,
         stCactusNode *startNode, void *(*mergeNodeObjects)(void *, void *),
         bool (*endIsNotInChain)(stCactusEdgeEnd *, void *extraArg), void *extraArg) {
     /*
      * Removes all ends that return non-zero from endIsNotInChain from within internal links within chains, breaking them down deterministically and correctly, in that
-     * all results chains are maximal given this constraint.
+     * all results chains are maximal given this constraint. Returns the startNode, which may change die to merges.
      */
     //First call function recursively
     stCactusNodeEdgeEndIt edgeIterator = stCactusNode_getEdgeEndIt(startNode);
@@ -681,8 +682,9 @@ void stCactusGraph_breakChainsByEndsNotInChains(stCactusGraph *graph,
     //Now process the chains we have for this node
     stList *chainStack = stCactusNode_getChains(startNode);
     while(stList_length(chainStack) > 0) {
-        stCactusGraph_breakChainByEndsNotInChain(graph, stList_pop(chainStack), mergeNodeObjects, endIsNotInChain, extraArg);
+        startNode = stCactusGraph_breakChainByEndsNotInChain(graph, stList_pop(chainStack), mergeNodeObjects, endIsNotInChain, extraArg);
     }
     stList_destruct(chainStack);
+    return startNode;
 }
 
