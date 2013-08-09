@@ -531,9 +531,18 @@ stSet *stCactusGraph_collapseLongChainsOfBigFlowers(stCactusGraph *graph, stCact
     return bigNodes;
 }
 
-static bool getNestedReverseTandemDuplication(stCactusEdgeEnd *edgeEnd,
+/*
+ * Following functions are used for breaking chains by edge-ends that can-not be part of a link, i.e. because they have an incident effective self loops.
+ */
+
+static bool getNestedEdgeEndsNotInChain(stCactusEdgeEnd *edgeEnd,
         stCactusEdgeEnd **leftEdgeEnd, stCactusEdgeEnd **rightEdgeEnd,
-        bool (*hasReversal)(stCactusEdgeEnd *)) {
+        bool (*endIsNotInChain)(stCactusEdgeEnd *, void *extraArg), void *extraArg) {
+    /*
+     * Finds a pair of edge-ends for which (1) each end either returns non-zero for endIsNotInChain or is an edge-end at the end of chain
+     * and (2) the ends are in the chain that linked by a chain of cactus edges and links, starting on both ends with cactus edges.
+     * If no such pair exists, except for the very ends of the chain, then returns 0, else returns 1.
+     */
     *leftEdgeEnd = edgeEnd;
     stCactusNode *startNode = stCactusEdgeEnd_getNode(edgeEnd);
     while(1) {
@@ -541,19 +550,23 @@ static bool getNestedReverseTandemDuplication(stCactusEdgeEnd *edgeEnd,
         if(startNode == stCactusEdgeEnd_getNode(*rightEdgeEnd)) { //looped around
             return stCactusEdgeEnd_getNode(*leftEdgeEnd) != stCactusEdgeEnd_getNode(*rightEdgeEnd);
         }
-        if(hasReversal(*rightEdgeEnd)) {
+        if(endIsNotInChain(*rightEdgeEnd, extraArg)) {
             return 1;
         }
         edgeEnd = stCactusEdgeEnd_getLink(*rightEdgeEnd);
-        if(hasReversal(edgeEnd)) {
+        if(endIsNotInChain(edgeEnd, extraArg)) {
             *leftEdgeEnd = edgeEnd;
         }
     }
 }
 
-static void stCactusGraph_mergeNodesWithEdgeEndIncidences(stCactusGraph *graph,
+static void stCactusEdgeEnd_mergeIncidentNodesInMarkedCactusGraph(stCactusGraph *graph,
         stCactusEdgeEnd *leftEdgeEnd, stCactusEdgeEnd *rightEdgeEnd,
         void *(*mergeNodeObjects)(void *, void *)) {
+    /*
+     * Merges together the nodes incident with the given edge ends, if distinct, updating the
+     * chain links in the process.
+     */
     if(stCactusEdgeEnd_getNode(leftEdgeEnd) != stCactusEdgeEnd_getNode(rightEdgeEnd)) {
         stCactusNode_mergeNodes(graph, stCactusEdgeEnd_getNode(leftEdgeEnd), stCactusEdgeEnd_getNode(rightEdgeEnd), mergeNodeObjects);
         assert(leftEdgeEnd->link != rightEdgeEnd);
@@ -583,14 +596,20 @@ static void stCactusGraph_mergeNodesWithEdgeEndIncidences(stCactusGraph *graph,
     }
 }
 
-static void stCactusGraph_breakChainAtReverseTandemDuplications(stCactusGraph *graph,
+static void stCactusGraph_breakChainByEndsNotInChain(stCactusGraph *graph,
         stCactusEdgeEnd *edgeEnd, void *(*mergeNodeObjects)(void *, void *),
-        bool (*hasReversal)(stCactusEdgeEnd *)) {
+        bool (*endIsNotInChain)(stCactusEdgeEnd *, void *extraArg), void *extraArg) {
+    /*
+     * The edgeEnd argument represents the end of a chain. Method breaks up the chain so that the resulting set of chains
+     * contains no internal edge end for which endIsNotInChain is true. This is deterministic and results in the resulting set of chains being maximal.
+     */
     assert(stCactusEdgeEnd_isChainEnd(edgeEnd));
+    assert(stCactusEdgeEnd_getLink(edgeEnd) != NULL);
+    assert(stCactusEdgeEnd_getLinkOrientation(edgeEnd));
 
     //get location of first pair of nested parentheses
     stCactusEdgeEnd *leftEdgeEnd, *rightEdgeEnd;
-    bool hasPair = getNestedReverseTandemDuplication(edgeEnd, &leftEdgeEnd, &rightEdgeEnd, hasReversal);
+    bool hasPair = getNestedEdgeEndsNotInChain(edgeEnd, &leftEdgeEnd, &rightEdgeEnd, endIsNotInChain, extraArg);
 
     //while pair of parentheses exists
     while(hasPair) {
@@ -598,21 +617,21 @@ static void stCactusGraph_breakChainAtReverseTandemDuplications(stCactusGraph *g
         //if we are going to brake the chain into two by merging an internal node with "node", then we add
         if(stCactusEdgeEnd_getNode(leftEdgeEnd) == stCactusEdgeEnd_getNode(edgeEnd)) {
             stCactusEdgeEnd *nextChainEdgeEnd = stCactusEdgeEnd_getLink(rightEdgeEnd);
-            stCactusGraph_mergeNodesWithEdgeEndIncidences(graph, leftEdgeEnd, rightEdgeEnd, mergeNodeObjects);
-            stCactusGraph_breakChainAtReverseTandemDuplications(graph, nextChainEdgeEnd, mergeNodeObjects, hasReversal);
-            hasPair = getNestedReverseTandemDuplication(edgeEnd, &leftEdgeEnd, &rightEdgeEnd, hasReversal);
+            stCactusEdgeEnd_mergeIncidentNodesInMarkedCactusGraph(graph, leftEdgeEnd, rightEdgeEnd, mergeNodeObjects);
+            stCactusGraph_breakChainByEndsNotInChain(graph, nextChainEdgeEnd, mergeNodeObjects, endIsNotInChain, extraArg);
+            hasPair = getNestedEdgeEndsNotInChain(edgeEnd, &leftEdgeEnd, &rightEdgeEnd, endIsNotInChain, extraArg);
         }
         else if(stCactusEdgeEnd_getNode(rightEdgeEnd) == stCactusEdgeEnd_getNode(edgeEnd)) {
-            stCactusGraph_mergeNodesWithEdgeEndIncidences(graph, leftEdgeEnd, rightEdgeEnd, mergeNodeObjects);
-            stCactusGraph_breakChainAtReverseTandemDuplications(graph, leftEdgeEnd, mergeNodeObjects, hasReversal);
-            hasPair = getNestedReverseTandemDuplication(edgeEnd, &leftEdgeEnd, &rightEdgeEnd, hasReversal);
+            stCactusEdgeEnd_mergeIncidentNodesInMarkedCactusGraph(graph, leftEdgeEnd, rightEdgeEnd, mergeNodeObjects);
+            stCactusGraph_breakChainByEndsNotInChain(graph, leftEdgeEnd, mergeNodeObjects, endIsNotInChain, extraArg);
+            hasPair = getNestedEdgeEndsNotInChain(edgeEnd, &leftEdgeEnd, &rightEdgeEnd, endIsNotInChain, extraArg);
         }
         else { //Two internal nodes
             stCactusEdgeEnd *nextChainEdgeEnd = stCactusEdgeEnd_getLink(rightEdgeEnd);
-            stCactusGraph_mergeNodesWithEdgeEndIncidences(graph, leftEdgeEnd, rightEdgeEnd, mergeNodeObjects);
-            hasPair = getNestedReverseTandemDuplication(nextChainEdgeEnd, &leftEdgeEnd, &rightEdgeEnd, hasReversal);
+            stCactusEdgeEnd_mergeIncidentNodesInMarkedCactusGraph(graph, leftEdgeEnd, rightEdgeEnd, mergeNodeObjects);
+            hasPair = getNestedEdgeEndsNotInChain(nextChainEdgeEnd, &leftEdgeEnd, &rightEdgeEnd, endIsNotInChain, extraArg);
             if(!hasPair) {
-                hasPair = getNestedReverseTandemDuplication(edgeEnd, &leftEdgeEnd, &rightEdgeEnd, hasReversal);
+                hasPair = getNestedEdgeEndsNotInChain(edgeEnd, &leftEdgeEnd, &rightEdgeEnd, endIsNotInChain, extraArg);
             }
         }
         assert(stCactusEdgeEnd_isChainEnd(edgeEnd));
@@ -620,7 +639,9 @@ static void stCactusGraph_breakChainAtReverseTandemDuplications(stCactusGraph *g
 }
 
 stList *stCactusNode_getChains(stCactusNode *startNode) {
-    //Collate a static list of chains attached to the node.
+    /*
+     * Collate a static list of chains attached to the node.
+     */
     stList *chainStack = stList_construct();
     stCactusNodeEdgeEndIt edgeIterator = stCactusNode_getEdgeEndIt(startNode);
     stCactusEdgeEnd *edgeEnd;
@@ -632,16 +653,14 @@ stList *stCactusNode_getChains(stCactusNode *startNode) {
     return chainStack;
 }
 
-void stCactusGraph_breakChainsAtReverseTandemDuplications(stCactusGraph *graph,
+void stCactusGraph_breakChainsByEndsNotInChains(stCactusGraph *graph,
         stCactusNode *startNode, void *(*mergeNodeObjects)(void *, void *),
-        bool (*hasReversal)(stCactusEdgeEnd *)) {
-    //Process the chains we have for this node
-    stList *chainStack = stCactusNode_getChains(startNode);
-    while(stList_length(chainStack) > 0) {
-        stCactusGraph_breakChainAtReverseTandemDuplications(graph, stList_pop(chainStack), mergeNodeObjects, hasReversal);
-    }
-    stList_destruct(chainStack);
-    //Now call function recursively
+        bool (*endIsNotInChain)(stCactusEdgeEnd *, void *extraArg), void *extraArg) {
+    /*
+     * Removes all ends that return non-zero from endIsNotInChain from within internal links within chains, breaking them down deterministically and correctly, in that
+     * all results chains are maximal given this constraint.
+     */
+    //First call function recursively
     stCactusNodeEdgeEndIt edgeIterator = stCactusNode_getEdgeEndIt(startNode);
     stCactusEdgeEnd *edgeEnd;
     while ((edgeEnd = stCactusNodeEdgeEndIt_getNext(&edgeIterator))) {
@@ -649,11 +668,21 @@ void stCactusGraph_breakChainsAtReverseTandemDuplications(stCactusGraph *graph,
         if (stCactusEdgeEnd_isChainEnd(edgeEnd) && stCactusEdgeEnd_getLinkOrientation(edgeEnd)) {
             stCactusEdgeEnd *edgeEnd2 = stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd);
             while(stCactusEdgeEnd_getNode(edgeEnd2) != startNode) {
-                stCactusGraph_breakChainsAtReverseTandemDuplications(graph, stCactusEdgeEnd_getNode(edgeEnd2), mergeNodeObjects, hasReversal);
+                stCactusGraph_breakChainsByEndsNotInChains(graph, stCactusEdgeEnd_getNode(edgeEnd2), mergeNodeObjects, endIsNotInChain, extraArg);
                 edgeEnd2 = stCactusEdgeEnd_getOtherEdgeEnd(stCactusEdgeEnd_getLink(edgeEnd2));
             }
             assert(stCactusEdgeEnd_getLink(edgeEnd2) == edgeEnd);
+            assert(stCactusEdgeEnd_isChainEnd(edgeEnd2));
+            assert(!stCactusEdgeEnd_getLinkOrientation(edgeEnd2));
+            assert(stCactusEdgeEnd_isChainEnd(edgeEnd));
+            assert(stCactusEdgeEnd_getLinkOrientation(edgeEnd));
         }
     }
+    //Now process the chains we have for this node
+    stList *chainStack = stCactusNode_getChains(startNode);
+    while(stList_length(chainStack) > 0) {
+        stCactusGraph_breakChainByEndsNotInChain(graph, stList_pop(chainStack), mergeNodeObjects, endIsNotInChain, extraArg);
+    }
+    stList_destruct(chainStack);
 }
 

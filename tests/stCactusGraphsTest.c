@@ -476,11 +476,46 @@ static void testStCactusGraph_collapseBridges(CuTest *testCase) {
     teardown();
 }
 
+bool endIsNotInChain(stCactusEdgeEnd *edgeEnd, void *endsNotInChainSet) {
+    return stSet_search(endsNotInChainSet, edgeEnd) != NULL;
+}
+
+static void testStCactusGraph_breakChainsByEndsNotInChains(CuTest *testCase) {
+    setup();
+    stCactusGraph_collapseBridges(g, n1, mergeNodeObjects);
+    stSet *endsNotInChainSet = stSet_construct();
+    stSet_insert(endsNotInChainSet, e54);
+    stCactusGraph_breakChainsByEndsNotInChains(g, n1, mergeNodeObjects, endIsNotInChain, endsNotInChainSet);
+    //Check graph.
+    CuAssertIntEquals(testCase, 1, stCactusEdgeEnd_isChainEnd(e54));
+    //cleanup
+    stSet_destruct(endsNotInChainSet);
+    teardown();
+}
+
+stSet *getRandomSetOfEdgeEnds(stCactusGraph *g, double probabilityOfInclusion) {
+    stSet *edgeEnds = stSet_construct();
+    stCactusGraphNodeIt *nIt = stCactusGraphNodeIterator_construct(g);
+    stCactusNode *n;
+    while((n = stCactusGraphNodeIterator_getNext(nIt)) != NULL) {
+        stCactusNodeEdgeEndIt eIt = stCactusNode_getEdgeEndIt(n);
+        stCactusEdgeEnd *e;
+        while((e = stCactusNodeEdgeEndIt_getNext(&eIt)) != NULL) {
+            if(st_random() < probabilityOfInclusion) {
+                assert(stSet_search(edgeEnds, e) == NULL);
+                stSet_insert(edgeEnds, e);
+            }
+        }
+    }
+    stCactusGraphNodeIterator_destruct(nIt);
+    return edgeEnds;
+}
+
 static void testStCactusGraph_randomTest(CuTest *testCase) {
     //return;
     //Creates a problem instances, then checks graph is okay by checking every edge
     //is properly connected, with right number of nodes and that everyone is in a chain
-    for (int64_t test = 0; test < 1000; test++) {
+    for (int64_t test = 0; test < 100000; test++) {
         int64_t nodeNumber = st_randomInt(0, 100); //1000);
         int64_t edgeNumber = nodeNumber > 0 ? st_randomInt(0, 200) : 0; //1000) : 0;
         int64_t longChain = st_randomInt(2, 10);
@@ -495,6 +530,8 @@ static void testStCactusGraph_randomTest(CuTest *testCase) {
             stList_append(nodeObjects, j);
         }
         stSortedSet *edgeEnds = stSortedSet_construct();
+        stSet *edgeEndsNotInChainSet = NULL;
+        stCactusNode *startNode = NULL;
         if (nodeNumber > 0) {
             stList *includedNodeObjects = stList_construct(); //Edge construction ensures there is just one component containing edges.
             stList_append(includedNodeObjects, st_randomChoice(nodeObjects));
@@ -510,12 +547,14 @@ static void testStCactusGraph_randomTest(CuTest *testCase) {
                 stSortedSet_insert(edgeEnds, edgeEnd);
                 stSortedSet_insert(edgeEnds, stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd));
             }
-            stCactusNode *startNode = stCactusGraph_getNode(g2, st_randomChoice(includedNodeObjects));
+            startNode = stCactusGraph_getNode(g2, st_randomChoice(includedNodeObjects));
             stList_destruct(includedNodeObjects);
             CuAssertTrue(testCase, startNode != NULL);
             stCactusGraph_collapseToCactus(g2, mergeNodeObjects, startNode);
             stCactusGraph_collapseBridges(g2, startNode, mergeNodeObjects);
             stCactusGraph_collapseLongChainsOfBigFlowers(g2, startNode, chainLengthForBigFlower, longChain, mergeNodeObjects, 1);
+            edgeEndsNotInChainSet = getRandomSetOfEdgeEnds(g2, st_random());
+            stCactusGraph_breakChainsByEndsNotInChains(g2, startNode, mergeNodeObjects, endIsNotInChain, edgeEndsNotInChainSet);
         }
         //Now iterate through nodes and check chains
         stCactusGraphNodeIt *nodeIt = stCactusGraphNodeIterator_construct(g2);
@@ -528,6 +567,8 @@ static void testStCactusGraph_randomTest(CuTest *testCase) {
             stSortedSet_insert(nodesInFinalGraph, node);
         }
         stCactusGraphNodeIterator_destruct(nodeIt);
+
+        //Check basic connectivity.
         nodeIt = stCactusGraphNodeIterator_construct(g2);
         int64_t edgeEndNumber = 0;
         while ((node = stCactusGraphNodeIterator_getNext(nodeIt)) != NULL) {
@@ -566,12 +607,16 @@ static void testStCactusGraph_randomTest(CuTest *testCase) {
         }
         stCactusGraphNodeIterator_destruct(nodeIt);
         CuAssertIntEquals(testCase, edgeNumber * 2, edgeEndNumber);
-        //Check each chain is a simple cycle with one orientation
+        //Check each chain is a simple cycle.
         nodeIt = stCactusGraphNodeIterator_construct(g2);
         while ((node = stCactusGraphNodeIterator_getNext(nodeIt)) != NULL) {
             stCactusNodeEdgeEndIt edgeEndIt = stCactusNode_getEdgeEndIt(node);
             stCactusEdgeEnd *edgeEnd;
+            int64_t linkEnds = 0;
+            int64_t totalEnds = 0;
             while ((edgeEnd = stCactusNodeEdgeEndIt_getNext(&edgeEndIt)) != NULL) {
+                totalEnds++;
+                linkEnds += stCactusEdgeEnd_isChainEnd(edgeEnd) ? 0 : 1;
                 stSortedSet *nodesOnCycle = stSortedSet_construct();
                 stSortedSet_insert(nodesOnCycle, stCactusEdgeEnd_getNode(edgeEnd));
                 stCactusEdgeEnd *chainEdgeEnd = edgeEnd;
@@ -592,6 +637,13 @@ static void testStCactusGraph_randomTest(CuTest *testCase) {
                 CuAssertTrue(testCase, chainEnd);
                 stSortedSet_destruct(nodesOnCycle);
             }
+            CuAssertTrue(testCase, linkEnds == 0 || linkEnds == 2);
+            /*if(node == startNode) {
+                CuAssertIntEquals(testCase, 0, linkEnds);
+            }
+            else if(totalEnds > 0) {
+                CuAssertIntEquals(testCase, 2, linkEnds);
+            }*/
         }
         stCactusGraphNodeIterator_destruct(nodeIt);
 
@@ -611,10 +663,28 @@ static void testStCactusGraph_randomTest(CuTest *testCase) {
         }
         stCactusGraphNodeIterator_destruct(nodeIt);
 
+        //Check no chains contain links including members of edgeEndsNotInChainSet (this does not check that chains are maximal).
+        nodeIt = stCactusGraphNodeIterator_construct(g2);
+        while ((node = stCactusGraphNodeIterator_getNext(nodeIt)) != NULL) {
+            stCactusNodeEdgeEndIt edgeIt = stCactusNode_getEdgeEndIt(node);
+            stCactusEdgeEnd *edgeEnd;
+            while ((edgeEnd = stCactusNodeEdgeEndIt_getNext(&edgeIt)) != NULL) {
+                if (!stCactusEdgeEnd_isChainEnd(edgeEnd)) {
+                    //st_uglyf("%" PRIi64 " %" PRIi64 " %" PRIi64 " %" PRIi64 " %" PRIi64 "\n", chainLengthForBigFlower, longChain, stCactusNode_getTotalEdgeLengthOfFlower(node), stCactusNode_getChainNumber(node), stCactusEdgeEnd_getChainLength(edgeEnd));
+                    CuAssertTrue(testCase, stSet_search(edgeEndsNotInChainSet, edgeEnd) == NULL);
+                }
+            }
+        }
+        stCactusGraphNodeIterator_destruct(nodeIt);
+
+
         stCactusGraph_destruct(g2);
         stSortedSet_destruct(edgeEnds);
         stList_destruct(nodeObjects);
         stSortedSet_destruct(nodesInFinalGraph);
+        if(edgeEndsNotInChainSet != NULL) {
+            stSet_destruct(edgeEndsNotInChainSet);
+        }
     }
 }
 
@@ -625,6 +695,7 @@ CuSuite* stCactusGraphsTestSuite(void) {
     SUITE_ADD_TEST(suite, testStCactusGraph);
     SUITE_ADD_TEST(suite, testStCactusGraph_unmarkAndMarkCycles);
     SUITE_ADD_TEST(suite, testStCactusGraph_collapseBridges);
+    SUITE_ADD_TEST(suite, testStCactusGraph_breakChainsByEndsNotInChains);
     SUITE_ADD_TEST(suite, testStCactusGraph_randomTest);
     return suite;
 }

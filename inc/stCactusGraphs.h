@@ -96,8 +96,8 @@ stSet *stCactusGraph_collapseLongChainsOfBigFlowers(stCactusGraph *graph, stCact
         int64_t longChain, void *(*mergeNodeObjects)(void *, void *), bool recursive);
 
 //Functions used for getting rid of reverse tandem dups
-void stCactusGraph_breakChainsAtReverseTandemDuplications(stCactusGraph *graph,
+void stCactusGraph_breakChainsByEndsNotInChains(stCactusGraph *graph,
         stCactusNode *startNode, void *(*mergeNodeObjects)(void *, void *),
-        bool (*hasReversal)(stCactusEdgeEnd *));
+        bool (*endIsNotInChain)(stCactusEdgeEnd *, void *), void *extraArg);
 
 #endif /* ST_CACTUS_GRAPH_H_ */
