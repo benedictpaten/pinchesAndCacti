@@ -64,6 +64,8 @@ stCactusEdgeEnd *stCactusEdgeEnd_getNextEdgeEnd(stCactusEdgeEnd *edgeEnd);
 
 int64_t stCactusEdgeEnd_getChainLength(stCactusEdgeEnd *edgeEnd);
 
+void stCactusEdgeEnd_demote(stCactusEdgeEnd *edgeEnd);
+
 //Graph functions
 
 stCactusGraph *stCactusGraph_construct2(void (*destructNodeObjectFn)(void *), void (*destructEdgeEndObjectFn)(void *));
@@ -92,5 +94,10 @@ void stCactusGraph_collapseBridges(stCactusGraph *graph,
 
 stSet *stCactusGraph_collapseLongChainsOfBigFlowers(stCactusGraph *graph, stCactusNode *startNode, int64_t chainLengthForBigFlower,
         int64_t longChain, void *(*mergeNodeObjects)(void *, void *), bool recursive);
+
+//Functions used for getting rid of reverse tandem dups
+void stCactusGraph_breakChainsAtReverseTandemDuplications(stCactusGraph *graph,
+        stCactusNode *startNode, void *(*mergeNodeObjects)(void *, void *),
+        bool (*hasReversal)(stCactusEdgeEnd *));
 
 #endif /* ST_CACTUS_GRAPH_H_ */
