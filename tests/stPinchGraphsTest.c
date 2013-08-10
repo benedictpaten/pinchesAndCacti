@@ -773,8 +773,25 @@ static void testStPinchThreadSet_getAdjacencyComponents_randomTests(CuTest *test
     }
 }
 
-static bool hasSelfLoopWithRespectToOtherEnd(stPinchEnd *end1, stPinchEnd *end2) {
-    return stPinchEnd_hasSelfLoopWithRespectToOtherEnd(end1, end2);
+static bool hasSelfLoopWithRespectToOtherBlock(stPinchEnd *end1, stPinchBlock *block2) {
+    stPinchBlockIt sIt = stPinchBlock_getSegmentIterator(stPinchEnd_getBlock(end1));
+    stPinchSegment *segment;
+    while((segment = stPinchBlockIt_getNext(&sIt)) != NULL) {
+        bool traverse5Prime = stPinchEnd_traverse5Prime(stPinchEnd_getOrientation(end1), segment);
+        while(1) {
+            segment = traverse5Prime ? stPinchSegment_get5Prime(segment) : stPinchSegment_get3Prime(segment);
+            if(block2 == stPinchSegment_getBlock(segment) && stPinchEnd_getBlock(end1) != block2) {
+                break;
+            }
+            if(stPinchEnd_getBlock(end1) == stPinchSegment_getBlock(segment)) {
+                if(stPinchEnd_endOrientation(traverse5Prime, segment) == stPinchEnd_getOrientation(end1)) {
+                    return 1;
+                }
+                break;
+            }
+        }
+    }
+    return 0;
 }
 
 static stList *getListOfBlocks(stPinchThreadSet *threadSet) {
@@ -788,7 +805,7 @@ static stList *getListOfBlocks(stPinchThreadSet *threadSet) {
     return blocks;
 }
 
-static void testStPinchEnd_hasSelfLoopWithRespectToOtherEnd_randomTests(CuTest *testCase) {
+static void testStPinchEnd_hasSelfLoopWithRespectToOtherBlock_randomTests(CuTest *testCase) {
     for (int64_t test = 0; test < 100; test++) {
         st_logInfo("Starting random has self loop with respect to other end test %" PRIi64 "\n", test);
         stPinchThreadSet *threadSet = stPinchThreadSet_getRandomGraph();
@@ -798,9 +815,9 @@ static void testStPinchEnd_hasSelfLoopWithRespectToOtherEnd_randomTests(CuTest *
         stPinchBlock *block;
         while((block = stPinchThreadSetBlockIt_getNext(&blockIt)) != NULL) {
             stPinchEnd end1 = stPinchEnd_constructStatic(block, st_random() > 0.5);
-            stPinchEnd end2 = stPinchEnd_constructStatic(st_randomChoice(blocks), st_random() > 0.5);
-            CuAssertTrue(testCase, stPinchEnd_hasSelfLoopWithRespectToOtherEnd(&end1, &end2) == \
-                    hasSelfLoopWithRespectToOtherEnd(&end1, &end2));
+            stPinchBlock *block2 = st_randomChoice(blocks);
+            CuAssertTrue(testCase, stPinchEnd_hasSelfLoopWithRespectToOtherBlock(&end1, block2) == \
+                    hasSelfLoopWithRespectToOtherBlock(&end1, block2));
         }
         stPinchThreadSet_destruct(threadSet);
         stList_destruct(blocks);
@@ -808,7 +825,30 @@ static void testStPinchEnd_hasSelfLoopWithRespectToOtherEnd_randomTests(CuTest *
 }
 
 static int64_t getTotalIncidentSequenceConnectingEnds(stPinchEnd *end1, stPinchEnd *end2) {
-    return stPinchEnd_getTotalIncidentSequenceConnectingEnds(end1, end2);
+    stPinchBlockIt sIt = stPinchBlock_getSegmentIterator(stPinchEnd_getBlock(end1));
+    stPinchSegment *segment;
+    int64_t i=0;
+    while((segment = stPinchBlockIt_getNext(&sIt)) != NULL) {
+        stPinchSegment *startSegment = segment;
+        bool traverse5Prime = stPinchEnd_traverse5Prime(stPinchEnd_getOrientation(end1), segment);
+        while(1) {
+            segment = traverse5Prime ? stPinchSegment_get5Prime(segment) : stPinchSegment_get3Prime(segment);
+            if(stPinchEnd_getBlock(end1) == stPinchSegment_getBlock(segment) && stPinchEnd_getBlock(end1) != stPinchEnd_getBlock(end2)) {
+                break;
+            }
+            if(stPinchEnd_getBlock(end2) == stPinchSegment_getBlock(segment)) {
+                if(stPinchEnd_endOrientation(traverse5Prime, segment) == stPinchEnd_getOrientation(end2)) {
+                    int64_t j = (traverse5Prime ?
+                            stPinchSegment_getStart(startSegment) - (stPinchSegment_getStart(segment) + stPinchSegment_getLength(segment)) :
+                            stPinchSegment_getStart(segment) - (stPinchSegment_getStart(startSegment) + stPinchSegment_getLength(startSegment))) - 1;
+                    assert(j >= 0);
+                    i += j;
+                }
+                break;
+            }
+        }
+    }
+    return i;
 }
 
 static void testStPinchEnd_getTotalIncidentSequenceConnectingEnds_randomTests(CuTest *testCase) {
@@ -1028,7 +1068,7 @@ CuSuite* stPinchGraphsTestSuite(void) {
     SUITE_ADD_TEST(suite, testStPinchInterval);
     SUITE_ADD_TEST(suite, testStPinchThreadSet_getLabelIntervals);
     SUITE_ADD_TEST(suite, testStPinchThreadSet_getLabelIntervals_randomTests);
-    SUITE_ADD_TEST(suite, testStPinchEnd_hasSelfLoopWithRespectToOtherEnd_randomTests);
+    SUITE_ADD_TEST(suite, testStPinchEnd_hasSelfLoopWithRespectToOtherBlock_randomTests);
     SUITE_ADD_TEST(suite, testStPinchEnd_getTotalIncidentSequenceConnectingEnds_randomTests);
 
     return suite;

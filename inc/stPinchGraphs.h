@@ -206,7 +206,7 @@ stSet *stPinchEnd_getConnectedPinchEnds(stPinchEnd *end);
 
 int64_t stPinchEnd_getNumberOfConnectedPinchEnds(stPinchEnd *end);
 
-bool stPinchEnd_hasSelfLoopWithRespectToOtherEnd(stPinchEnd *end, stPinchEnd *otherEnd);
+bool stPinchEnd_hasSelfLoopWithRespectToOtherBlock(stPinchEnd *end, stPinchBlock *otherBlock);
 
 int64_t stPinchEnd_getTotalIncidentSequenceConnectingEnds(stPinchEnd *end, stPinchEnd *otherEnd);
 

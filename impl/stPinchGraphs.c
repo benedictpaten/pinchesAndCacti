@@ -900,11 +900,13 @@ static void appendBlocksSegments(stPinchBlock *block, stList *list) {
     }
 }
 
-bool stPinchEnd_hasSelfLoopWithRespectToOtherEnd(stPinchEnd *end, stPinchEnd *otherEnd) {
+bool stPinchEnd_hasSelfLoopWithRespectToOtherBlock(stPinchEnd *end, stPinchBlock *otherBlock) {
     //Construct list of segments in end and otherEnd's blocks.
     stList *l = stList_construct();
     appendBlocksSegments(stPinchEnd_getBlock(end), l);
-    appendBlocksSegments(stPinchEnd_getBlock(otherEnd), l);
+    if(stPinchEnd_getBlock(end) != otherBlock) {
+        appendBlocksSegments(otherBlock, l);
+    }
     //Sort segments by thread and then coordinate.
     stList_sort(l, (int (*)(const void *, const void *))stPinchSegment_compare);
 
@@ -932,7 +934,9 @@ int64_t stPinchEnd_getTotalIncidentSequenceConnectingEnds(stPinchEnd *end, stPin
     //Construct list of segments in end and otherEnd's blocks.
     stList *l = stList_construct();
     appendBlocksSegments(stPinchEnd_getBlock(end), l);
-    appendBlocksSegments(stPinchEnd_getBlock(otherEnd), l);
+    if(stPinchEnd_getBlock(otherEnd) != stPinchEnd_getBlock(end)) {
+        appendBlocksSegments(stPinchEnd_getBlock(otherEnd), l);
+    }
     //Sort segments by thread and then coordinate.
     stList_sort(l, (int (*)(const void *, const void *))stPinchSegment_compare);
 
@@ -944,7 +948,7 @@ int64_t stPinchEnd_getTotalIncidentSequenceConnectingEnds(stPinchEnd *end, stPin
         //If there exists two successive segments in different ends that are contigous add their length.
         if(stPinchSegment_getThread(s1) == stPinchSegment_getThread(s2)) { //same thread
             if(stPinchSegment_getBlock(s1) == stPinchEnd_getBlock(end)) {
-               if(stPinchSegment_getBlock(s2) == stPinchEnd_getBlock(otherEnd) && //different blocks
+               if(stPinchSegment_getBlock(s2) == stPinchEnd_getBlock(otherEnd) && //appropriate blocks
                   !stPinchEnd_traverse5Prime(stPinchEnd_getOrientation(end), s1) &&
                   stPinchEnd_traverse5Prime(stPinchEnd_getOrientation(otherEnd), s2)) { //contiguous
                    assert(stPinchSegment_getStart(s1) + stPinchSegment_getLength(s1) <= s2->start);
