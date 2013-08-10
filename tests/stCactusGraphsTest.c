@@ -515,7 +515,7 @@ static void testStCactusGraph_randomTest(CuTest *testCase) {
     //return;
     //Creates a problem instances, then checks graph is okay by checking every edge
     //is properly connected, with right number of nodes and that everyone is in a chain
-    for (int64_t test = 0; test < 100000; test++) {
+    for (int64_t test = 0; test < 10000; test++) {
         int64_t nodeNumber = st_randomInt(0, 100); //1000);
         int64_t edgeNumber = nodeNumber > 0 ? st_randomInt(0, 200) : 0; //1000) : 0;
         int64_t longChain = st_randomInt(2, 10);
@@ -552,9 +552,9 @@ static void testStCactusGraph_randomTest(CuTest *testCase) {
             CuAssertTrue(testCase, startNode != NULL);
             stCactusGraph_collapseToCactus(g2, mergeNodeObjects, startNode);
             stCactusGraph_collapseBridges(g2, startNode, mergeNodeObjects);
-            stCactusGraph_collapseLongChainsOfBigFlowers(g2, startNode, chainLengthForBigFlower, longChain, mergeNodeObjects, 1);
             edgeEndsNotInChainSet = getRandomSetOfEdgeEnds(g2, st_random());
             startNode = stCactusGraph_breakChainsByEndsNotInChains(g2, startNode, mergeNodeObjects, endIsNotInChain, edgeEndsNotInChainSet);
+            stCactusGraph_collapseLongChainsOfBigFlowers(g2, startNode, chainLengthForBigFlower, longChain, mergeNodeObjects, 1);
         }
         //Now iterate through nodes and check chains
         stCactusGraphNodeIt *nodeIt = stCactusGraphNodeIterator_construct(g2);
@@ -656,7 +656,7 @@ static void testStCactusGraph_randomTest(CuTest *testCase) {
                 while ((edgeEnd = stCactusNodeEdgeEndIt_getNext(&edgeIt)) != NULL) {
                     if (stCactusEdgeEnd_isChainEnd(edgeEnd)) {
                         //st_uglyf("%" PRIi64 " %" PRIi64 " %" PRIi64 " %" PRIi64 " %" PRIi64 "\n", chainLengthForBigFlower, longChain, stCactusNode_getTotalEdgeLengthOfFlower(node), stCactusNode_getChainNumber(node), stCactusEdgeEnd_getChainLength(edgeEnd));
-                        //CuAssertTrue(testCase, stCactusEdgeEnd_getChainLength(edgeEnd) <= longChain);
+                        CuAssertTrue(testCase, stCactusEdgeEnd_getChainLength(edgeEnd) <= longChain);
                     }
                 }
             }

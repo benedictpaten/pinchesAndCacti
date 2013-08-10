@@ -206,6 +206,10 @@ stSet *stPinchEnd_getConnectedPinchEnds(stPinchEnd *end);
 
 int64_t stPinchEnd_getNumberOfConnectedPinchEnds(stPinchEnd *end);
 
+bool stPinchEnd_hasSelfLoopWithRespectToOtherEnd(stPinchEnd *end, stPinchEnd *otherEnd);
+
+int64_t stPinchEnd_getTotalIncidentSequenceConnectingEnds(stPinchEnd *end, stPinchEnd *otherEnd);
+
 //Pinch structure
 
 void stPinch_fillOut(stPinch *pinch, int64_t name1, int64_t name2, int64_t start1, int64_t start2, int64_t length, bool strand);

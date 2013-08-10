@@ -548,6 +548,8 @@ static void stCactusEdgeEnd_mergeIncidentNodesInMarkedCactusGraph(stCactusGraph 
         assert(rightEdgeEnd->link != leftEdgeEnd);
         assert(rightEdgeEnd->link != leftEdgeEnd->link);
         assert(stCactusEdgeEnd_getNode(leftEdgeEnd) == stCactusEdgeEnd_getNode(rightEdgeEnd));
+        assert(stCactusEdgeEnd_getNode(leftEdgeEnd->link) == stCactusEdgeEnd_getNode(rightEdgeEnd->link));
+        assert(stCactusEdgeEnd_getNode(leftEdgeEnd) == stCactusEdgeEnd_getNode(rightEdgeEnd->link));
 
         //Deal with the edge ends connected to their links
         leftEdgeEnd->link->link = rightEdgeEnd->link;
@@ -582,11 +584,11 @@ static bool getNestedEdgeEndsNotInChain(stCactusEdgeEnd *edgeEnd,
      */
     assert(stCactusEdgeEnd_getLinkOrientation(edgeEnd));
     *leftEdgeEnd = edgeEnd;
-    stCactusNode *startNode = stCactusEdgeEnd_getNode(edgeEnd);
     while(1) {
         *rightEdgeEnd = stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd);
-        if(startNode == stCactusEdgeEnd_getNode(*rightEdgeEnd)) { //looped around
-            return stCactusEdgeEnd_getNode(*leftEdgeEnd) != startNode; //We have distinct node to merge.
+        if(stCactusEdgeEnd_isChainEnd(*rightEdgeEnd)) { //looped to beginning of chain
+            return stCactusEdgeEnd_getNode(*leftEdgeEnd) != stCactusEdgeEnd_getNode(*rightEdgeEnd) &&
+                    (stCactusEdgeEnd_isChainEnd(*leftEdgeEnd) || endIsNotInChain(*leftEdgeEnd, extraArg)); //We have distinct node to merge and the left end is a chain.
         }
         if(endIsNotInChain(*rightEdgeEnd, extraArg)) {
             return 1;

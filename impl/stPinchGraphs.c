@@ -207,8 +207,15 @@ void stPinchSegment_destruct(stPinchSegment *segment) {
     free(segment);
 }
 
-int stPinchSegment_compareFunction(const stPinchSegment *segment1, const stPinchSegment *segment2) {
+int stPinchSegment_compareBySequencePosition(const stPinchSegment *segment1, const stPinchSegment *segment2) {
     return segment1->start < segment2->start ? -1 : (segment1->start > segment2->start ? 1 : 0);
+}
+
+int stPinchSegment_compare(const stPinchSegment *segment1, const stPinchSegment *segment2) {
+    if(segment1->thread->name != segment2->thread->name) {
+        return segment1->thread->name > segment2->thread->name ? 1 : -1;
+    }
+    return stPinchSegment_compareBySequencePosition(segment1, segment2);
 }
 
 static stPinchSegment *stPinchSegment_construct(int64_t start, stPinchThread *thread) {
@@ -521,7 +528,7 @@ static stPinchThread *stPinchThread_construct(int64_t name, int64_t start, int64
     thread->name = name;
     thread->start = start;
     thread->length = length;
-    thread->segments = stSortedSet_construct3((int(*)(const void *, const void *)) stPinchSegment_compareFunction,
+    thread->segments = stSortedSet_construct3((int(*)(const void *, const void *)) stPinchSegment_compareBySequencePosition,
             (void(*)(void *)) stPinchSegment_destruct);
     stPinchSegment *segment = stPinchSegment_construct(start, thread);
     stPinchSegment *terminatorSegment = stPinchSegment_construct(start + length, thread);
@@ -882,6 +889,79 @@ int64_t stPinchEnd_getNumberOfConnectedPinchEnds(stPinchEnd *end) {
     stSet *set = stPinchEnd_getConnectedPinchEnds(end);
     int64_t i = stSet_size(set);
     stSet_destruct(set);
+    return i;
+}
+
+static void appendBlocksSegments(stPinchBlock *block, stList *list) {
+    stPinchBlockIt it = stPinchBlock_getSegmentIterator(block);
+    stPinchSegment *segment;
+    while((segment = stPinchBlockIt_getNext(&it))) {
+        stList_append(list, segment);
+    }
+}
+
+bool stPinchEnd_hasSelfLoopWithRespectToOtherEnd(stPinchEnd *end, stPinchEnd *otherEnd) {
+    //Construct list of segments in end and otherEnd's blocks.
+    stList *l = stList_construct();
+    appendBlocksSegments(stPinchEnd_getBlock(end), l);
+    appendBlocksSegments(stPinchEnd_getBlock(otherEnd), l);
+    //Sort segments by thread and then coordinate.
+    stList_sort(l, (int (*)(const void *, const void *))stPinchSegment_compare);
+
+    //Walk through list of segments
+    for(int64_t i=1; i<stList_length(l); i++) {
+        stPinchSegment *s1 = stList_get(l, i-1);
+        stPinchSegment *s2 = stList_get(l, i);
+        //If there exists two successive segments in the same thread from block's end that are joined by an interstitial sequence,
+        //without an intervening segment from otherEnd's block then we have identified a self-loop.
+        if(stPinchSegment_getBlock(s1) == stPinchEnd_getBlock(end) && //same block
+           stPinchSegment_getBlock(s2) == stPinchEnd_getBlock(end) && //same block
+           stPinchSegment_getThread(s1) == stPinchSegment_getThread(s2) && //same thread
+           !stPinchEnd_traverse5Prime(stPinchEnd_getOrientation(end), s1) && //contiguous
+           stPinchEnd_traverse5Prime(stPinchEnd_getOrientation(end), s2) /*contiguous*/) {
+            assert(stPinchSegment_getStart(s1) + stPinchSegment_getLength(s1) <= s2->start);
+            stList_destruct(l);
+            return 1;
+        }
+    }
+    stList_destruct(l);
+    return 0;
+}
+
+int64_t stPinchEnd_getTotalIncidentSequenceConnectingEnds(stPinchEnd *end, stPinchEnd *otherEnd) {
+    //Construct list of segments in end and otherEnd's blocks.
+    stList *l = stList_construct();
+    appendBlocksSegments(stPinchEnd_getBlock(end), l);
+    appendBlocksSegments(stPinchEnd_getBlock(otherEnd), l);
+    //Sort segments by thread and then coordinate.
+    stList_sort(l, (int (*)(const void *, const void *))stPinchSegment_compare);
+
+    //Walk through list of segments
+    int64_t i = 0;
+    for(int64_t i=1; i<stList_length(l); i++) {
+        stPinchSegment *s1 = stList_get(l, i-1);
+        stPinchSegment *s2 = stList_get(l, i);
+        //If there exists two successive segments in different ends that are contigous add their length.
+        if(stPinchSegment_getThread(s1) == stPinchSegment_getThread(s2)) { //same thread
+            if(stPinchSegment_getBlock(s1) == stPinchEnd_getBlock(end)) {
+               if(stPinchSegment_getBlock(s2) == stPinchEnd_getBlock(otherEnd) && //different blocks
+                  !stPinchEnd_traverse5Prime(stPinchEnd_getOrientation(end), s1) &&
+                  stPinchEnd_traverse5Prime(stPinchEnd_getOrientation(otherEnd), s2)) { //contiguous
+                   assert(stPinchSegment_getStart(s1) + stPinchSegment_getLength(s1) <= s2->start);
+                   i += stPinchSegment_getStart(s2) - (stPinchSegment_getStart(s1) + stPinchSegment_getLength(s1));
+               }
+            } else {
+                assert(stPinchSegment_getBlock(s1) == stPinchEnd_getBlock(otherEnd));
+                if(stPinchSegment_getBlock(s2) == stPinchEnd_getBlock(end) && //different blocks
+                     !stPinchEnd_traverse5Prime(stPinchEnd_getOrientation(otherEnd), s1) &&
+                     stPinchEnd_traverse5Prime(stPinchEnd_getOrientation(end), s2)) { //contiguous
+                    assert(stPinchSegment_getStart(s1) + stPinchSegment_getLength(s1) <= s2->start);
+                    i += stPinchSegment_getStart(s2) - (stPinchSegment_getStart(s1) + stPinchSegment_getLength(s1));
+                }
+            }
+        }
+    }
+    stList_destruct(l);
     return i;
 }
 

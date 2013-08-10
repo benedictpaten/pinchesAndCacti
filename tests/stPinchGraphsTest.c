@@ -14,7 +14,7 @@
 #include "stPinchGraphs.h"
 
 static stPinchThreadSet *threadSet = NULL;
-static int64_t name1 = 0, start1 = 1, length1 = INT64_MAX-1;
+static int64_t name1 = 0, start1 = 1, length1 = INT64_MAX - 1;
 static int64_t leftSplitPoint1 = 10, leftSplitPoint2 = 11;
 static stPinchThread *thread1;
 static int64_t name2 = INT64_MAX, start2 = 4, length2 = 10;
@@ -221,7 +221,8 @@ static void testStPinchBlock_NoSplits(CuTest *testCase) {
     CuAssertIntEquals(testCase, 0, stPinchSegment_getBlockOrientation(segment3));
 
     //Now try merging two blocks and undoing them
-    block = stPinchBlock_pinch(stPinchBlock_pinch(stPinchBlock_construct2(segment1), stPinchBlock_construct2(segment2), 0),
+    block = stPinchBlock_pinch(
+            stPinchBlock_pinch(stPinchBlock_construct2(segment1), stPinchBlock_construct2(segment2), 0),
             stPinchBlock_construct(segment3, 0, segment4, 1), 0);
     CuAssertIntEquals(testCase, 4, stPinchBlock_getDegree(block));
     CuAssertIntEquals(testCase, stPinchSegment_getLength(segment1), stPinchBlock_getLength(block));
@@ -415,8 +416,8 @@ static bool areAligned(stPinchThread *thread1, int64_t base1, stPinchThread *thr
     return stPinchBlock_getLength(block1) - 1 - offset2 == offset1;
 }
 
-static void testStPinchThread_pinchP(CuTest *testCase, int64_t segmentNumber, int64_t start, int64_t lengths[], int64_t blockDegrees[],
-        stPinchThread *thread) {
+static void testStPinchThread_pinchP(CuTest *testCase, int64_t segmentNumber, int64_t start, int64_t lengths[],
+        int64_t blockDegrees[], stPinchThread *thread) {
     stPinchSegment *segment = stPinchThread_getFirst(thread);
     int64_t i = start;
     for (int64_t j = 0; j < segmentNumber; j++) {
@@ -499,13 +500,11 @@ static void testStPinchThread_pinch(CuTest *testCase) {
     teardown();
 }
 
-
-
 //Functions that implement a very simple merging of alignment positions
 
 static void addColumn(stHash *columns, int64_t name, int64_t position, int64_t strand) {
     assert(position > 0);
-    stIntTuple *p = stIntTuple_construct2( name, (strand ? position : -position));
+    stIntTuple *p = stIntTuple_construct2(name, (strand ? position : -position));
     stSortedSet *column = stSortedSet_construct3((int(*)(const void *, const void *)) stIntTuple_cmpFn, NULL);
     stSortedSet_insert(column, p);
     stHash_insert(columns, p, column);
@@ -513,14 +512,15 @@ static void addColumn(stHash *columns, int64_t name, int64_t position, int64_t s
 
 static stSortedSet *getColumn(stHash *columns, int64_t name, int64_t position, int64_t strand) {
     assert(position != 0);
-    stIntTuple *p = stIntTuple_construct2( name, strand ? position : -position);
+    stIntTuple *p = stIntTuple_construct2(name, strand ? position : -position);
     stSortedSet *column = stHash_search(columns, p);
     assert(column != NULL);
     stIntTuple_destruct(p);
     return column;
 }
 
-static void mergePositions(stHash *columns, int64_t name1, int64_t start1, bool strand1, int64_t name2, int64_t start2, bool strand2) {
+static void mergePositions(stHash *columns, int64_t name1, int64_t start1, bool strand1, int64_t name2, int64_t start2,
+        bool strand2) {
     stSortedSet *column1 = getColumn(columns, name1, start1, strand1);
     stSortedSet *column2 = getColumn(columns, name2, start2, strand2);
     stSortedSet *column2R = getColumn(columns, name2, start2, !strand2);
@@ -538,8 +538,8 @@ static void mergePositions(stHash *columns, int64_t name1, int64_t start1, bool 
     }
 }
 
-static void mergePositionsSymmetric(stHash *columns, int64_t name1, int64_t start1, bool strand1, int64_t name2, int64_t start2,
-        bool strand2) {
+static void mergePositionsSymmetric(stHash *columns, int64_t name1, int64_t start1, bool strand1, int64_t name2,
+        int64_t start2, bool strand2) {
     mergePositions(columns, name1, start1, strand1, name2, start2, strand2);
     mergePositions(columns, name1, start1, !strand1, name2, start2, !strand2);
 }
@@ -558,8 +558,8 @@ stHash *getUnalignedColumns(stPinchThreadSet *threadSet) {
     return columns;
 }
 
-static void decodePosition(stPinchThreadSet *threadSet, stIntTuple *alignedPosition, stPinchThread **thread, int64_t *position,
-        bool *strand) {
+static void decodePosition(stPinchThreadSet *threadSet, stIntTuple *alignedPosition, stPinchThread **thread,
+        int64_t *position, bool *strand) {
     *thread = stPinchThreadSet_getThread(threadSet, stIntTuple_get(alignedPosition, 0));
     assert(*thread != NULL);
     *position = stIntTuple_get(alignedPosition, 1);
@@ -613,8 +613,9 @@ static void testStPinchThread_pinch_randomTests(CuTest *testCase) {
         double threshold = st_random();
         while (st_random() > threshold) {
             stPinch pinch = stPinchThreadSet_getRandomPinch(threadSet);
-            stPinchThread_pinch(stPinchThreadSet_getThread(threadSet, pinch.name1), stPinchThreadSet_getThread(threadSet, pinch.name2),
-                    pinch.start1, pinch.start2, pinch.length, pinch.strand);
+            stPinchThread_pinch(stPinchThreadSet_getThread(threadSet, pinch.name1),
+                    stPinchThreadSet_getThread(threadSet, pinch.name2), pinch.start1, pinch.start2, pinch.length,
+                    pinch.strand);
             //now do all the pushing together of the equivalence classes
             for (int64_t i = 0; i < pinch.length; i++) {
                 mergePositionsSymmetric(columns, pinch.name1, pinch.start1 + i, 1, pinch.name2,
@@ -638,15 +639,15 @@ static bool checkIntersection(stSortedSet *names1, stSortedSet *names2) {
 }
 
 static stSortedSet *getNames(stPinchSegment *segment) {
-    stSortedSet *names = stSortedSet_construct3((int (*)(const void *, const void *))stIntTuple_cmpFn, (void (*)(void *))stIntTuple_destruct);
-    if(stPinchSegment_getBlock(segment) != NULL) {
+    stSortedSet *names = stSortedSet_construct3((int(*)(const void *, const void *)) stIntTuple_cmpFn,
+            (void(*)(void *)) stIntTuple_destruct);
+    if (stPinchSegment_getBlock(segment) != NULL) {
         stPinchBlock *block = stPinchSegment_getBlock(segment);
         stPinchBlockIt it = stPinchBlock_getSegmentIterator(block);
-        while((segment = stPinchBlockIt_getNext(&it)) != NULL) {
+        while ((segment = stPinchBlockIt_getNext(&it)) != NULL) {
             stSortedSet_insert(names, stIntTuple_construct1(stPinchSegment_getName(segment)));
         }
-    }
-    else {
+    } else {
         stSortedSet_insert(names, stIntTuple_construct1(stPinchSegment_getName(segment)));
     }
     return names;
@@ -657,10 +658,11 @@ static bool testStPinchThread_filterPinch_randomTests_filterFn(stPinchSegment *s
 }
 
 static stSortedSet *getNames2(stSortedSet *column) {
-    stSortedSet *names = stSortedSet_construct3((int (*)(const void *, const void *))stIntTuple_cmpFn, (void (*)(void *))stIntTuple_destruct);
+    stSortedSet *names = stSortedSet_construct3((int(*)(const void *, const void *)) stIntTuple_cmpFn,
+            (void(*)(void *)) stIntTuple_destruct);
     stSortedSetIterator *it = stSortedSet_getIterator(column);
     stIntTuple *i;
-    while((i = stSortedSet_getNext(it)) != NULL) {
+    while ((i = stSortedSet_getNext(it)) != NULL) {
         stSortedSet_insert(names, stIntTuple_construct1(stIntTuple_get(i, 0)));
     }
     stSortedSet_destructIterator(it);
@@ -681,13 +683,15 @@ static void testStPinchThread_filterPinch_randomTests(CuTest *testCase) {
         double threshold = st_random();
         while (st_random() > threshold) {
             stPinch pinch = stPinchThreadSet_getRandomPinch(threadSet);
-            stPinchThread_filterPinch(stPinchThreadSet_getThread(threadSet, pinch.name1), stPinchThreadSet_getThread(threadSet, pinch.name2),
-                    pinch.start1, pinch.start2, pinch.length, pinch.strand, testStPinchThread_filterPinch_randomTests_filterFn);
+            stPinchThread_filterPinch(stPinchThreadSet_getThread(threadSet, pinch.name1),
+                    stPinchThreadSet_getThread(threadSet, pinch.name2), pinch.start1, pinch.start2, pinch.length,
+                    pinch.strand, testStPinchThread_filterPinch_randomTests_filterFn);
             //now do all the pushing together of the equivalence classes
             for (int64_t i = 0; i < pinch.length; i++) {
                 stSortedSet *column1 = getColumn(columns, pinch.name1, pinch.start1 + i, 1);
-                stSortedSet *column2 = getColumn(columns, pinch.name2, pinch.strand ? pinch.start2 + i : pinch.start2 + pinch.length - 1 - i, pinch.strand);
-                if(canMerge(column1, column2)) {
+                stSortedSet *column2 = getColumn(columns, pinch.name2,
+                        pinch.strand ? pinch.start2 + i : pinch.start2 + pinch.length - 1 - i, pinch.strand);
+                if (canMerge(column1, column2)) {
                     mergePositionsSymmetric(columns, pinch.name1, pinch.start1 + i, 1, pinch.name2,
                             pinch.strand ? pinch.start2 + i : pinch.start2 + pinch.length - 1 - i, pinch.strand);
                 }
@@ -769,6 +773,63 @@ static void testStPinchThreadSet_getAdjacencyComponents_randomTests(CuTest *test
     }
 }
 
+static bool hasSelfLoopWithRespectToOtherEnd(stPinchEnd *end1, stPinchEnd *end2) {
+    return stPinchEnd_hasSelfLoopWithRespectToOtherEnd(end1, end2);
+}
+
+static stList *getListOfBlocks(stPinchThreadSet *threadSet) {
+    //Get set of blocks.
+    stPinchThreadSetBlockIt blockIt = stPinchThreadSet_getBlockIt(threadSet);
+    stList *blocks = stList_construct();
+    stPinchBlock *block;
+    while((block = stPinchThreadSetBlockIt_getNext(&blockIt)) != NULL) {
+        stList_append(blocks, block);
+    }
+    return blocks;
+}
+
+static void testStPinchEnd_hasSelfLoopWithRespectToOtherEnd_randomTests(CuTest *testCase) {
+    for (int64_t test = 0; test < 100; test++) {
+        st_logInfo("Starting random has self loop with respect to other end test %" PRIi64 "\n", test);
+        stPinchThreadSet *threadSet = stPinchThreadSet_getRandomGraph();
+        stList *blocks = getListOfBlocks(threadSet);
+        stPinchThreadSetBlockIt blockIt = stPinchThreadSet_getBlockIt(threadSet);
+        //Walk through blocks and randomly pick pairs of sides to test.
+        stPinchBlock *block;
+        while((block = stPinchThreadSetBlockIt_getNext(&blockIt)) != NULL) {
+            stPinchEnd end1 = stPinchEnd_constructStatic(block, st_random() > 0.5);
+            stPinchEnd end2 = stPinchEnd_constructStatic(st_randomChoice(blocks), st_random() > 0.5);
+            CuAssertTrue(testCase, stPinchEnd_hasSelfLoopWithRespectToOtherEnd(&end1, &end2) == \
+                    hasSelfLoopWithRespectToOtherEnd(&end1, &end2));
+        }
+        stPinchThreadSet_destruct(threadSet);
+        stList_destruct(blocks);
+    }
+}
+
+static int64_t getTotalIncidentSequenceConnectingEnds(stPinchEnd *end1, stPinchEnd *end2) {
+    return stPinchEnd_getTotalIncidentSequenceConnectingEnds(end1, end2);
+}
+
+static void testStPinchEnd_getTotalIncidentSequenceConnectingEnds_randomTests(CuTest *testCase) {
+    for (int64_t test = 0; test < 100; test++) {
+        st_logInfo("Starting random get total incident sequence connecting ends test %" PRIi64 "\n", test);
+        stPinchThreadSet *threadSet = stPinchThreadSet_getRandomGraph();
+        stList *blocks = getListOfBlocks(threadSet);
+        stPinchThreadSetBlockIt blockIt = stPinchThreadSet_getBlockIt(threadSet);
+        //Walk through blocks and randomly pick pairs of sides to test.
+        stPinchBlock *block;
+        while((block = stPinchThreadSetBlockIt_getNext(&blockIt)) != NULL) {
+            stPinchEnd end1 = stPinchEnd_constructStatic(block, st_random() > 0.5);
+            stPinchEnd end2 = stPinchEnd_constructStatic(st_randomChoice(blocks), st_random() > 0.5);
+            CuAssertTrue(testCase, stPinchEnd_getTotalIncidentSequenceConnectingEnds(&end1, &end2) == \
+                    getTotalIncidentSequenceConnectingEnds(&end1, &end2));
+        }
+        stPinchThreadSet_destruct(threadSet);
+        stList_destruct(blocks);
+    }
+}
+
 static void testStPinchThreadSet_getThreadComponents(CuTest *testCase) {
     for (int64_t test = 0; test < 100; test++) {
         st_logInfo("Starting random thread component test %" PRIi64 "\n", test);
@@ -798,8 +859,7 @@ static void testStPinchThreadSet_getThreadComponents(CuTest *testCase) {
                 }
             }
             stSortedSet_destruct(threadComponentSet);
-        }
-        st_logInfo("There were %" PRIi64 " threads in %" PRIi64 " components\n", stPinchThreadSet_getSize(threadSet), stSortedSet_size(threadComponents));
+        } st_logInfo("There were %" PRIi64 " threads in %" PRIi64 " components\n", stPinchThreadSet_getSize(threadSet), stSortedSet_size(threadComponents));
         CuAssertIntEquals(testCase, stPinchThreadSet_getSize(threadSet), stSortedSet_size(threads));
         stSortedSet_destructIterator(it);
         stSortedSet_destruct(threadComponents);
@@ -841,7 +901,8 @@ static void testStPinchInterval(CuTest *testCase) {
     CuAssertIntEquals(testCase, 0, stPinchInterval_compareFunction(&interval2, &interval2));
     CuAssertIntEquals(testCase, -1, stPinchInterval_compareFunction(interval, &interval2));
     CuAssertIntEquals(testCase, 1, stPinchInterval_compareFunction(&interval2, interval));
-    stSortedSet *intervals = stSortedSet_construct3((int(*)(const void *, const void *)) stPinchInterval_compareFunction, NULL);
+    stSortedSet *intervals = stSortedSet_construct3(
+            (int(*)(const void *, const void *)) stPinchInterval_compareFunction, NULL);
     CuAssertPtrEquals(testCase, NULL, stSortedSet_search(intervals, interval));
     CuAssertPtrEquals(testCase, NULL, stSortedSet_search(intervals, &interval2));
     stSortedSet_insert(intervals, interval);
@@ -885,7 +946,8 @@ static void testStPinchThreadSet_getLabelIntervals(CuTest *testCase) {
 static stList *getAdjacencyComponentP(stPinchSegment *segment, int64_t position, stHash *pinchEndsToAdjacencyComponents) {
     stPinchBlock *block = stPinchSegment_getBlock(segment);
     assert(block != NULL);
-    bool orientation = (position >= stPinchSegment_getLength(segment) / 2) ^ stPinchSegment_getBlockOrientation(segment);
+    bool orientation = (position >= stPinchSegment_getLength(segment) / 2)
+            ^ stPinchSegment_getBlockOrientation(segment);
     stPinchEnd pinchEnd = stPinchEnd_constructStatic(block, orientation);
     stList *adjacencyComponent = stHash_search(pinchEndsToAdjacencyComponents, &pinchEnd);
     assert(adjacencyComponent != NULL);
@@ -919,7 +981,8 @@ static void testStPinchThreadSet_getLabelIntervals_randomTests(CuTest *testCase)
         st_logInfo("Starting random get label intervals test %" PRIi64 "\n", test);
         stPinchThreadSet *threadSet = stPinchThreadSet_getRandomGraph();
         stHash *pinchEndsToAdjacencyComponents;
-        stList *adjacencyComponents = stPinchThreadSet_getAdjacencyComponents2(threadSet, &pinchEndsToAdjacencyComponents);
+        stList *adjacencyComponents = stPinchThreadSet_getAdjacencyComponents2(threadSet,
+                &pinchEndsToAdjacencyComponents);
         stSortedSet *intervals = stPinchThreadSet_getLabelIntervals(threadSet, pinchEndsToAdjacencyComponents);
         //Check every base is in a label interval
         stPinchThreadSetSegmentIt segmentIt = stPinchThreadSet_getSegmentIt(threadSet);
@@ -934,7 +997,7 @@ static void testStPinchThreadSet_getLabelIntervals_randomTests(CuTest *testCase)
                 CuAssertTrue(
                         testCase,
                         stPinchSegment_getStart(segment) + i < stPinchInterval_getStart(interval)
-                        + stPinchInterval_getLength(interval));
+                                + stPinchInterval_getLength(interval));
                 //Now check out stupid way of calculating the adjacency component is the same as the calculated by the label function.
                 CuAssertPtrEquals(testCase, getAdjacencyComponent(segment, i, pinchEndsToAdjacencyComponents),
                         stPinchInterval_getLabel(interval));
@@ -965,6 +1028,8 @@ CuSuite* stPinchGraphsTestSuite(void) {
     SUITE_ADD_TEST(suite, testStPinchInterval);
     SUITE_ADD_TEST(suite, testStPinchThreadSet_getLabelIntervals);
     SUITE_ADD_TEST(suite, testStPinchThreadSet_getLabelIntervals_randomTests);
+    SUITE_ADD_TEST(suite, testStPinchEnd_hasSelfLoopWithRespectToOtherEnd_randomTests);
+    SUITE_ADD_TEST(suite, testStPinchEnd_getTotalIncidentSequenceConnectingEnds_randomTests);
 
     return suite;
 }
