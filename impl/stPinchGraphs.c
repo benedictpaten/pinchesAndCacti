@@ -930,7 +930,7 @@ bool stPinchEnd_hasSelfLoopWithRespectToOtherBlock(stPinchEnd *end, stPinchBlock
     return 0;
 }
 
-int64_t stPinchEnd_getTotalIncidentSequenceConnectingEnds(stPinchEnd *end, stPinchEnd *otherEnd) {
+stList *stPinchEnd_getSubSequenceLengthsConnectingEnds(stPinchEnd *end, stPinchEnd *otherEnd) {
     //Construct list of segments in end and otherEnd's blocks.
     stList *l = stList_construct();
     appendBlocksSegments(stPinchEnd_getBlock(end), l);
@@ -940,35 +940,40 @@ int64_t stPinchEnd_getTotalIncidentSequenceConnectingEnds(stPinchEnd *end, stPin
     //Sort segments by thread and then coordinate.
     stList_sort(l, (int (*)(const void *, const void *))stPinchSegment_compare);
 
+    //List of segments to return.
+    stList *lengths = stList_construct3(0, (void (*)(void *))stIntTuple_destruct);
+
     //Walk through list of segments
-    int64_t j = 0;
     for(int64_t i=1; i<stList_length(l); i++) {
         stPinchSegment *s1 = stList_get(l, i-1);
         stPinchSegment *s2 = stList_get(l, i);
         //If there exists two successive segments in different ends that are contigous add their length.
         if(stPinchSegment_getThread(s1) == stPinchSegment_getThread(s2)) { //same thread
-            if(stPinchSegment_getBlock(s1) == stPinchEnd_getBlock(end)) {
-               if(stPinchSegment_getBlock(s2) == stPinchEnd_getBlock(otherEnd) && //appropriate blocks
-                  !stPinchEnd_traverse5Prime(stPinchEnd_getOrientation(end), s1) &&
-                  stPinchEnd_traverse5Prime(stPinchEnd_getOrientation(otherEnd), s2)) { //contiguous
+            if(stPinchSegment_getBlock(s1) == stPinchEnd_getBlock(end)) { //case where first segment is from first block.
+               if(stPinchSegment_getBlock(s2) == stPinchEnd_getBlock(otherEnd) && //right blocks
+                   ((!stPinchEnd_traverse5Prime(stPinchEnd_getOrientation(end), s1) && //contiguity, traverse 5 to 3 from end to otherEnd
+                   stPinchEnd_traverse5Prime(stPinchEnd_getOrientation(otherEnd), s2)) ||
+                   //second case of contiguity occurs when ends are opposite ends of same block, in which case we must consider
+                   //traverse 5 to 4 from otherEnd to end
+                   (stPinchEnd_getBlock(end) == stPinchEnd_getBlock(otherEnd) && !stPinchEnd_equalsFn(end, otherEnd) &&
+                   !stPinchEnd_traverse5Prime(stPinchEnd_getOrientation(otherEnd), s1) &&
+                   stPinchEnd_traverse5Prime(stPinchEnd_getOrientation(end), s2)))) {
                    assert(stPinchSegment_getStart(s1) + stPinchSegment_getLength(s1) <= s2->start);
-                   st_uglyf("We got %i\n", stPinchSegment_getStart(s2) - (stPinchSegment_getStart(s1) + stPinchSegment_getLength(s1)));
-                   j += stPinchSegment_getStart(s2) - (stPinchSegment_getStart(s1) + stPinchSegment_getLength(s1));
+                   stList_append(lengths, stIntTuple_construct1(stPinchSegment_getStart(s2) - (stPinchSegment_getStart(s1) + stPinchSegment_getLength(s1))));
                }
             } else {
-                assert(stPinchSegment_getBlock(s1) == stPinchEnd_getBlock(otherEnd));
+                assert(stPinchSegment_getBlock(s1) == stPinchEnd_getBlock(otherEnd)); //case where first segment is from other block.
                 if(stPinchSegment_getBlock(s2) == stPinchEnd_getBlock(end) && //different blocks
                      !stPinchEnd_traverse5Prime(stPinchEnd_getOrientation(otherEnd), s1) &&
                      stPinchEnd_traverse5Prime(stPinchEnd_getOrientation(end), s2)) { //contiguous
                     assert(stPinchSegment_getStart(s1) + stPinchSegment_getLength(s1) <= s2->start);
-                    st_uglyf("We got2 %i\n", stPinchSegment_getStart(s2) - (stPinchSegment_getStart(s1) + stPinchSegment_getLength(s1)));
-                    j += stPinchSegment_getStart(s2) - (stPinchSegment_getStart(s1) + stPinchSegment_getLength(s1));
+                    stList_append(lengths, stIntTuple_construct1(stPinchSegment_getStart(s2) - (stPinchSegment_getStart(s1) + stPinchSegment_getLength(s1))));
                 }
             }
         }
     }
     stList_destruct(l);
-    return j;
+    return lengths;
 }
 
 static void merge3Prime(stPinchSegment *segment) {

@@ -208,7 +208,7 @@ int64_t stPinchEnd_getNumberOfConnectedPinchEnds(stPinchEnd *end);
 
 bool stPinchEnd_hasSelfLoopWithRespectToOtherBlock(stPinchEnd *end, stPinchBlock *otherBlock);
 
-int64_t stPinchEnd_getTotalIncidentSequenceConnectingEnds(stPinchEnd *end, stPinchEnd *otherEnd);
+stList *stPinchEnd_getSubSequenceLengthsConnectingEnds(stPinchEnd *end, stPinchEnd *otherEnd);
 
 //Pinch structure
 
