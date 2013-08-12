@@ -941,7 +941,7 @@ int64_t stPinchEnd_getTotalIncidentSequenceConnectingEnds(stPinchEnd *end, stPin
     stList_sort(l, (int (*)(const void *, const void *))stPinchSegment_compare);
 
     //Walk through list of segments
-    int64_t i = 0;
+    int64_t j = 0;
     for(int64_t i=1; i<stList_length(l); i++) {
         stPinchSegment *s1 = stList_get(l, i-1);
         stPinchSegment *s2 = stList_get(l, i);
@@ -952,7 +952,8 @@ int64_t stPinchEnd_getTotalIncidentSequenceConnectingEnds(stPinchEnd *end, stPin
                   !stPinchEnd_traverse5Prime(stPinchEnd_getOrientation(end), s1) &&
                   stPinchEnd_traverse5Prime(stPinchEnd_getOrientation(otherEnd), s2)) { //contiguous
                    assert(stPinchSegment_getStart(s1) + stPinchSegment_getLength(s1) <= s2->start);
-                   i += stPinchSegment_getStart(s2) - (stPinchSegment_getStart(s1) + stPinchSegment_getLength(s1));
+                   st_uglyf("We got %i\n", stPinchSegment_getStart(s2) - (stPinchSegment_getStart(s1) + stPinchSegment_getLength(s1)));
+                   j += stPinchSegment_getStart(s2) - (stPinchSegment_getStart(s1) + stPinchSegment_getLength(s1));
                }
             } else {
                 assert(stPinchSegment_getBlock(s1) == stPinchEnd_getBlock(otherEnd));
@@ -960,13 +961,14 @@ int64_t stPinchEnd_getTotalIncidentSequenceConnectingEnds(stPinchEnd *end, stPin
                      !stPinchEnd_traverse5Prime(stPinchEnd_getOrientation(otherEnd), s1) &&
                      stPinchEnd_traverse5Prime(stPinchEnd_getOrientation(end), s2)) { //contiguous
                     assert(stPinchSegment_getStart(s1) + stPinchSegment_getLength(s1) <= s2->start);
-                    i += stPinchSegment_getStart(s2) - (stPinchSegment_getStart(s1) + stPinchSegment_getLength(s1));
+                    st_uglyf("We got2 %i\n", stPinchSegment_getStart(s2) - (stPinchSegment_getStart(s1) + stPinchSegment_getLength(s1)));
+                    j += stPinchSegment_getStart(s2) - (stPinchSegment_getStart(s1) + stPinchSegment_getLength(s1));
                 }
             }
         }
     }
     stList_destruct(l);
-    return i;
+    return j;
 }
 
 static void merge3Prime(stPinchSegment *segment) {
