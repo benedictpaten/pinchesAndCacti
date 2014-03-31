@@ -5,10 +5,11 @@
  *      Author: benedictpaten
  */
 
-#include <stdlib.h>
 #include "sonLib.h"
 #include "stCactusGraphs.h"
 #include "3_Absorb3edge2x.h"
+#include <stdio.h>
+#include <stdlib.h>
 
 struct _stCactusNode {
     stCactusEdgeEnd *head;
@@ -598,6 +599,7 @@ static bool getNestedEdgeEndsNotInChain(stCactusEdgeEnd *edgeEnd,
             *leftEdgeEnd = edgeEnd;
         }
     }
+    return 0;
 }
 
 static stCactusNode *stCactusGraph_breakChainByEndsNotInChain(stCactusGraph *graph,

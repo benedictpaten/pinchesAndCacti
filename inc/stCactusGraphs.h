@@ -8,6 +8,8 @@
 #ifndef ST_CACTUS_GRAPH_H_
 #define ST_CACTUS_GRAPH_H_
 
+#include "sonLib.h"
+
 typedef struct _stCactusNode stCactusNode;
 
 typedef struct _stCactusEdgeEnd stCactusEdgeEnd;

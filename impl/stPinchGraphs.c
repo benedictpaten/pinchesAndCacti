@@ -669,6 +669,7 @@ stPinchBlock *stPinchThreadSetBlockIt_getNext(stPinchThreadSetBlockIt *blockIt) 
             return block;
         }
     }
+    return NULL;
 }
 
 int64_t stPinchThreadSet_getTotalBlockNumber(stPinchThreadSet *threadSet) {
