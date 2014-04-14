@@ -8,6 +8,8 @@
 #ifndef ST_CACTUS_GRAPH_H_
 #define ST_CACTUS_GRAPH_H_
 
+#include "sonLib.h"
+
 #ifdef __cplusplus
 extern "C"{
 #endif
