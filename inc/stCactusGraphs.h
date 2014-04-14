@@ -8,6 +8,10 @@
 #ifndef ST_CACTUS_GRAPH_H_
 #define ST_CACTUS_GRAPH_H_
 
+#ifdef __cplusplus
+extern "C"{
+#endif
+
 typedef struct _stCactusNode stCactusNode;
 
 typedef struct _stCactusEdgeEnd stCactusEdgeEnd;
@@ -99,5 +103,9 @@ stSet *stCactusGraph_collapseLongChainsOfBigFlowers(stCactusGraph *graph, stCact
 stCactusNode *stCactusGraph_breakChainsByEndsNotInChains(stCactusGraph *graph,
         stCactusNode *startNode, void *(*mergeNodeObjects)(void *, void *),
         bool (*endIsNotInChain)(stCactusEdgeEnd *, void *), void *extraArg);
+        
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* ST_CACTUS_GRAPH_H_ */

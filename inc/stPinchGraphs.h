@@ -10,6 +10,10 @@
 
 #include "sonLib.h"
 
+#ifdef __cplusplus
+extern "C"{
+#endif
+
 //Datastructures
 
 typedef struct _stPinchThreadSet stPinchThreadSet;
@@ -243,5 +247,9 @@ void stPinchInterval_destruct(stPinchInterval *pinchInterval);
 stSortedSet *stPinchThreadSet_getLabelIntervals(stPinchThreadSet *threadSet, stHash *pinchEndsToLabels);
 
 stPinchInterval *stPinchIntervals_getInterval(stSortedSet *pinchIntervals, int64_t name, int64_t position);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* ST_PINCH_GRAPHS_H_ */
