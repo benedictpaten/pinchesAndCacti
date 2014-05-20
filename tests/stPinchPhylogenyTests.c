@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #include "CuTest.h"
 #include "sonLib.h"
 #include "stPinchPhylogeny.h"
@@ -69,6 +70,9 @@ static void staticNeighborJoinTest(CuTest *testCase) {
     CuAssertTrue(testCase, distanceBetweenLeaves(tree, 0, 3) < distanceBetweenLeaves(tree, 3, 1));
     CuAssertTrue(testCase, distanceBetweenLeaves(tree, 0, 2) < distanceBetweenLeaves(tree, 0, 1));
     CuAssertTrue(testCase, distanceBetweenLeaves(tree, 0, 2) < distanceBetweenLeaves(tree, 2, 1));
+
+    stPhylogenyInfo_destructOnTree(tree);
+    stTree_destruct(tree);
 }
 
 CuSuite* stPinchPhylogenyTestSuite(void) {

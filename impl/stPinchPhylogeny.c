@@ -285,6 +285,25 @@ stFeatureMatrix *stFeatureMatrix_constructFromBreakPoints(stList *featureColumns
     return matrix;
 }
 
+// Free a stPhylogenyInfo struct
+void stPhylogenyInfo_destruct(stPhylogenyInfo *info)
+{
+    assert(info != NULL);
+    free(info->leavesBelow);
+    free(info);
+}
+
+// Free the stPhylogenyInfo struct for this node and all nodes below it.
+void stPhylogenyInfo_destructOnTree(stTree *tree)
+{
+    int64_t i;
+    stPhylogenyInfo_destruct(stTree_getClientData(tree));
+    stTree_setClientData(tree, NULL);
+    for(i = 0; i < stTree_getChildNumber(tree); i++) {
+        stPhylogenyInfo_destructOnTree(stTree_getChild(tree, i));
+    }
+}
+
 // Set (and allocate) the leavesBelow and totalNumLeaves attribute in
 // the phylogenyInfo for the given tree and all subtrees. The
 // phylogenyInfo structure (in the clientData field) must already be
