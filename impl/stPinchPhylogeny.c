@@ -11,6 +11,10 @@
 #include <ctype.h>
 #include "sonLib.h"
 #include "stPinchGraphs.h"
+#include "stPinchPhylogeny.h"
+#include "quicktree_1.1/include/cluster.h"
+#include "quicktree_1.1/include/tree.h"
+#include "quicktree_1.1/include/buildtree.h"
 
 /*
  * Represents a segment for the purposes of building trees from SNPs and breakpoints, making
@@ -23,7 +27,7 @@ struct _stFeatureSegment {
     bool reverseComplement; //If reverse complement then the start is the end (exclusive), and the base must be reverse complemented to read.
     stPinchEnd nPinchEnd; //The next adjacent block.
     stPinchEnd pPinchEnd; //The previous adjacent block.
-    int64_t distance; //The distance of the first base in the segment from the mid-point of the chosen segment.
+    int64_t distance; //The distance of the first base in the segment from the id-point of the chosen segment.
     stFeatureSegment *nFeatureSegment; //The next tree segment.
     int64_t segmentIndex; //The index of the segment in the distance matrix.
     stPinchSegment *segment; //The underlying pinch segment.
@@ -281,3 +285,196 @@ stFeatureMatrix *stFeatureMatrix_constructFromBreakPoints(stList *featureColumns
     return matrix;
 }
 
+// Set (and allocate) the leavesBelow and totalNumLeaves attribute in
+// the phylogenyInfo for the given tree and all subtrees. The
+// phylogenyInfo structure (in the clientData field) must already be
+// allocated!
+static void setLeavesBelow(stTree *tree, int64_t totalNumLeaves)
+{
+    int64_t i, j;
+    assert(stTree_getClientData(tree) != NULL);
+    stPhylogenyInfo *info = stTree_getClientData(tree);
+    for(i = 0; i < stTree_getChildNumber(tree); i++) {
+        setLeavesBelow(stTree_getChild(tree, i), totalNumLeaves);
+    }
+
+    info->totalNumLeaves = totalNumLeaves;
+    if(info->leavesBelow != NULL) {
+        // leavesBelow has already been allocated somewhere else, free it.
+        free(info->leavesBelow);
+    }
+    info->leavesBelow = st_calloc(totalNumLeaves, sizeof(int64_t));
+    if(stTree_getChildNumber(tree) == 0) {
+        assert(info->matrixIndex < totalNumLeaves);
+        assert(info->matrixIndex >= 0);
+        info->leavesBelow[info->matrixIndex] = 1;
+    } else {
+        for(i = 0; i < totalNumLeaves; i++) {
+            for(j = 0; j < stTree_getChildNumber(tree); j++) {
+                stPhylogenyInfo *childInfo = stTree_getClientData(stTree_getChild(tree, j));
+                info->leavesBelow[i] |= childInfo->leavesBelow[i];
+            }
+        }
+    }
+}
+
+static stTree *quickTreeToStTreeR(struct Tnode *tNode)
+{
+    stTree *ret = stTree_construct();
+    bool hasChild = false;
+    if(tNode->left != NULL) {
+        stTree *left = quickTreeToStTreeR(tNode->left);
+        stTree_setParent(left, ret);
+        hasChild = true;
+    }
+    if(tNode->right != NULL) {
+        stTree *right = quickTreeToStTreeR(tNode->right);
+        stTree_setParent(right, ret);
+        hasChild = true;
+    }
+    if(stTree_getClientData(ret) == NULL) {
+        // Allocate the phylogenyInfo for this node.
+        stPhylogenyInfo *info = st_calloc(1, sizeof(stPhylogenyInfo));
+        if(!hasChild) {
+            info->matrixIndex = tNode->nodenumber;
+        } else {
+            info->matrixIndex = -1;
+        }
+        stTree_setClientData(ret, info);
+    }
+    stTree_setBranchLength(ret, tNode->distance);
+
+    // Can remove if needed, probably not useful except for testing.
+    stTree_setLabel(ret, stString_print("%u", tNode->nodenumber));
+    return ret;
+}
+
+// Helper function for converting an unrooted QuickTree Tree into an
+// stTree, rooted halfway along the longest branch.
+static stTree *quickTreeToStTree(struct Tree *tree)
+{
+    struct Tree *rootedTree = get_root_Tnode(tree);
+    stTree *ret = quickTreeToStTreeR(rootedTree->child[0]);
+    setLeavesBelow(ret, (stTree_getNumNodes(ret)+1)/2);
+    return ret;
+}
+
+// distanceMatrix should have, probably, distFrom, distTo, labelFrom, labelTo
+// (or could just be double and a labeling array passed as a parameter, which is probably better)
+// Only one half of the distanceMatrix is used, distances[i][j] for which i > j
+// Tree returned is labeled by the indices of the distance matrix and is rooted halfway along the longest branch.
+stTree *neighborJoin(double **distances, int64_t numSequences)
+{
+    struct DistanceMatrix *distanceMatrix;
+    struct Tree *tree;
+    int64_t i, j;
+    assert(numSequences > 0);
+    assert(distances != NULL);
+    // Set up the basic QuickTree data structures to represent the sequences.
+    // The data structures are only filled in as much as absolutely
+    // necessary, so they will probably be invalid for anything but
+    // running neighbor-joining.
+    struct ClusterGroup *clusterGroup = empty_ClusterGroup();
+    struct Cluster **clusters = st_malloc(numSequences * sizeof(struct Cluster *));
+    for(i = 0; i < numSequences; i++) {
+        struct Sequence *seq = empty_Sequence();
+        seq->name = stString_print("%" PRIi64, i);
+        clusters[i] = single_Sequence_Cluster(seq);
+    }
+    clusterGroup->clusters = clusters;
+    clusterGroup->numclusters = numSequences;
+    // Fill in the QuickTree distance matrix
+    distanceMatrix = empty_DistanceMatrix(numSequences);
+    for(i = 0; i < numSequences; i++) {
+        for(j = 0; j < i; j++) {
+            distanceMatrix->data[i][j] = distances[i][j];
+        }
+    }
+    clusterGroup->matrix = distanceMatrix;
+    // Finally, run the neighbor-joining algorithm.
+    tree = neighbour_joining_buildtree(clusterGroup, 0);
+    free_ClusterGroup(clusterGroup);
+    return quickTreeToStTree(tree);
+}
+
+// Compare a single partition to a single bootstrap partition.
+void comparePartitions(stTree *partition, stTree *bootstrap)
+{
+    int64_t i, j;
+    stPhylogenyInfo *partitionInfo, *bootstrapInfo;
+    if(stTree_getChildNumber(partition) != stTree_getChildNumber(bootstrap)) {
+        // Can't compare different numbers of partitions
+        return;
+    }
+
+    partitionInfo = stTree_getClientData(partition);
+    bootstrapInfo = stTree_getClientData(bootstrap);
+    assert(partitionInfo != NULL);
+    assert(bootstrapInfo != NULL);
+    assert(partitionInfo->totalNumLeaves == bootstrapInfo->totalNumLeaves);
+    // Check if the set of leaves is equal in both partitions. If not,
+    // the partitions can't be equal.
+    if(memcmp(partitionInfo->leavesBelow, bootstrapInfo->leavesBelow,
+              partitionInfo->totalNumLeaves * sizeof(int64_t))) {
+        return;
+    }
+
+    // The sets of leaves under the nodes are equal; now we need to
+    // check that the sets they are partitioned into are equal.
+    for(i = 0; i < stTree_getChildNumber(partition); i++) {
+        stPhylogenyInfo *childInfo = stTree_getClientData(stTree_getChild(partition, i));
+        bool foundPartition = false;
+        for(j = 0; j < stTree_getChildNumber(bootstrap); j++) {
+            stPhylogenyInfo *bootstrapChildInfo = stTree_getClientData(stTree_getChild(bootstrap, j));
+            if(memcmp(childInfo->leavesBelow, bootstrapChildInfo->leavesBelow,
+                      partitionInfo->totalNumLeaves * sizeof(int64_t)) == 0) {
+                foundPartition = true;
+                break;
+            }
+        }
+        if(!foundPartition) {
+            return;
+        }
+    }
+
+    // The partitions are equal, increase the support 
+    partitionInfo->bootstraps++;
+}
+
+// Score each partition in destTree by how many times the same
+// partition appears in the bootstrapped trees. The information is
+// stored in a double in the clientData field of the tree nodes,
+// indicating the fraction of bootstraps that support the partition.
+// FIXME: right now it is just an int rather than a double.
+void scoreByBootstraps(stTree *destTree, stList *bootstraps)
+{
+    int64_t i;
+    for(i = 0; i < stList_length(bootstraps); i++) {
+        
+    }
+}
+
+// Remove partitions that are poorly-supported from the tree. The tree
+// must have bootstrap-support information in all the nodes.
+stTree *removePoorlySupportedPartitions(stTree *bootstrappedTree,
+                                        double threshold)
+{
+    return NULL;
+}
+
+stList *splitTreeOnOutgroups(stTree *tree, stSet *outgroups)
+{
+    return NULL;
+}
+
+// (Re)root and reconcile a gene tree to conform with the species tree.
+stTree *reconcile(stTree *geneTree, stTree *speciesTree)
+{
+    return NULL;
+}
+
+// Compute the reconciliation cost of a rooted gene tree and a species tree.
+double reconciliationCost(stTree *geneTree, stTree *speciesTree)
+{
+    return 0.0;
+}
