@@ -24,24 +24,32 @@ static double distToLeaf(stTree *tree, int64_t leafIndex)
     return 0.0/0.0;
 }
 
-// Find the distance between leaves (given by their index in the
-// distance matrix.)
-static double distanceBetweenLeaves(stTree *tree, int64_t leaf1,
-                                    int64_t leaf2)
+// Return the MRCA of the given leaves.
+static stTree *getMrca(stTree *tree, int64_t leaf1, int64_t leaf2)
 {
     int64_t i;
     for(i = 0; i < stTree_getChildNumber(tree); i++) {
         stTree *child = stTree_getChild(tree, i);
         stPhylogenyInfo *childInfo = stTree_getClientData(child);
         if(childInfo->leavesBelow[leaf1] && childInfo->leavesBelow[leaf2]) {
-            return distanceBetweenLeaves(child, leaf1, leaf2);
+            return getMrca(child, leaf1, leaf2);
         }
     }
+
     // If we've gotten to this point, then this is the MRCA of the leaves.
-    return distToLeaf(tree, leaf1) + distToLeaf(tree, leaf2);
+    return tree;
 }
 
-static void staticNeighborJoinTest(CuTest *testCase) {
+// Find the distance between leaves (given by their index in the
+// distance matrix.)
+static double distanceBetweenLeaves(stTree *tree, int64_t leaf1,
+                                    int64_t leaf2)
+{
+    stTree *mrca = getMrca(tree, leaf1, leaf2);
+    return distToLeaf(mrca, leaf1) + distToLeaf(mrca, leaf2);
+}
+
+static void testSimpleNeighborJoin(CuTest *testCase) {
     int64_t i;
     // Simple static test, with index 1 very far away from everything,
     // 0 and 3 very close, and 2 closer to (0,3) than to 1.
@@ -75,8 +83,126 @@ static void staticNeighborJoinTest(CuTest *testCase) {
     stTree_destruct(tree);
 }
 
+// Helper function to add the stPhylogenyInfo that is normally
+// generated during neighbor-joining to a tree that has leaf-labels 0,
+// 1, 2, etc.
+void addStPhylogenyInfoR(stTree *tree)
+{
+    stPhylogenyInfo *info = st_calloc(1, sizeof(stPhylogenyInfo));
+    stTree_setClientData(tree, info);
+    if(stTree_getChildNumber(tree) == 0) {
+        int ret;
+        ret = sscanf(stTree_getLabel(tree), "%" PRIi64, &info->matrixIndex);
+        assert(ret == 1);
+    } else {
+        info->matrixIndex = -1;
+        int64_t i;
+        for(i = 0; i < stTree_getChildNumber(tree); i++) {
+            addStPhylogenyInfoR(stTree_getChild(tree, i));
+        }
+    }
+}
+
+void addStPhylogenyInfo(stTree *tree) {
+    addStPhylogenyInfoR(tree);
+    setLeavesBelow(tree, (stTree_getNumNodes(tree)+1)/2);
+}
+
+// Score a tree against a few simple "bootstrapped" trees to check
+// that identical partitions are counted correctly.
+void testSimpleBootstrapScoring(CuTest *testCase)
+{
+    stList *bootstraps = stList_construct();
+    stTree *tree = stTree_parseNewickString("(((0,1),(2,3)),4);");
+    stTree *bootstrap, *result;
+    stPhylogenyInfo *info;
+    addStPhylogenyInfo(tree);
+
+    // An identical tree should give support to all partitions.
+    bootstrap = stTree_parseNewickString("(4,((1,0),(3,2)));");
+    addStPhylogenyInfo(bootstrap);
+    result = scoreFromBootstrap(tree, bootstrap);
+    info = stTree_getClientData(getMrca(result, 4, 0));
+    CuAssertTrue(testCase, info->numBootstraps == 1);
+    CuAssertTrue(testCase, info->bootstrapSupport == 1.0);
+    info = stTree_getClientData(getMrca(result, 3, 0));
+    CuAssertTrue(testCase, info->numBootstraps == 1);
+    info = stTree_getClientData(getMrca(result, 1, 0));
+    CuAssertTrue(testCase, info->numBootstraps == 1);
+    info = stTree_getClientData(getMrca(result, 3, 2));
+    CuAssertTrue(testCase, info->numBootstraps == 1);
+    stPhylogenyInfo_destructOnTree(result);
+    stTree_destruct(result);
+    stList_append(bootstraps, bootstrap);
+
+    // Swapping 0 for 4
+    bootstrap = stTree_parseNewickString("(0,((1,4),(3,2)));");
+    addStPhylogenyInfo(bootstrap);
+    result = scoreFromBootstrap(tree, bootstrap);
+    info = stTree_getClientData(getMrca(result, 4, 0));
+    CuAssertTrue(testCase, info->numBootstraps == 0);
+    CuAssertTrue(testCase, info->bootstrapSupport == 0.0);
+    info = stTree_getClientData(getMrca(result, 3, 0));
+    CuAssertTrue(testCase, info->numBootstraps == 0);
+    info = stTree_getClientData(getMrca(result, 1, 0));
+    CuAssertTrue(testCase, info->numBootstraps == 0);
+    info = stTree_getClientData(getMrca(result, 3, 2));
+    CuAssertTrue(testCase, info->numBootstraps == 1);
+    stPhylogenyInfo_destructOnTree(result);
+    stTree_destruct(result);
+    stList_append(bootstraps, bootstrap);
+
+    // Swapping 0 for 3
+    bootstrap = stTree_parseNewickString("(4,((1,3),(0,2)));");
+    addStPhylogenyInfo(bootstrap);
+    result = scoreFromBootstrap(tree, bootstrap);
+    info = stTree_getClientData(getMrca(result, 4, 0));
+    CuAssertTrue(testCase, info->numBootstraps == 1);
+    CuAssertTrue(testCase, info->bootstrapSupport == 1.0);
+    info = stTree_getClientData(getMrca(result, 3, 0));
+    CuAssertTrue(testCase, info->numBootstraps == 0);
+    info = stTree_getClientData(getMrca(result, 1, 0));
+    CuAssertTrue(testCase, info->numBootstraps == 0);
+    info = stTree_getClientData(getMrca(result, 3, 2));
+    CuAssertTrue(testCase, info->numBootstraps == 0);
+    stPhylogenyInfo_destructOnTree(result);
+    stTree_destruct(result);
+    stList_append(bootstraps, bootstrap);
+
+    // Test all 3 together
+    result = scoreFromBootstraps(tree, bootstraps);
+    info = stTree_getClientData(getMrca(result, 4, 0));
+    CuAssertTrue(testCase, info->numBootstraps == 2);
+    info = stTree_getClientData(getMrca(result, 3, 0));
+    CuAssertTrue(testCase, info->numBootstraps == 1);
+    info = stTree_getClientData(getMrca(result, 1, 0));
+    CuAssertTrue(testCase, info->numBootstraps == 1);
+    info = stTree_getClientData(getMrca(result, 3, 2));
+    CuAssertTrue(testCase, info->numBootstraps == 2);
+    stPhylogenyInfo_destructOnTree(result);
+    stTree_destruct(result);
+}
+
+void testSimpleRemovePoorlySupportedPartitions(CuTest *testCase)
+{
+    int64_t i; 
+    stTree *tree = stTree_parseNewickString("(((((0,1),(2,3)),4),5),(6,(7,8)));");
+    stTree *result;
+    addStPhylogenyInfo(tree);
+
+    // Running on a tree with no support at all should create a star tree.
+    result = removePoorlySupportedPartitions(tree, 1.0);
+    CuAssertIntEquals(testCase, 9, stTree_getChildNumber(result));
+    for(i = 0; i < stTree_getChildNumber(result); i++) {
+        stTree *child = stTree_getChild(result, i);
+        CuAssertIntEquals(testCase, 0, stTree_getChildNumber(child));
+    }
+}
+
 CuSuite* stPinchPhylogenyTestSuite(void) {
     CuSuite* suite = CuSuiteNew();
-    SUITE_ADD_TEST(suite, staticNeighborJoinTest);
+    SUITE_ADD_TEST(suite, testSimpleNeighborJoin);
+    SUITE_ADD_TEST(suite, testSimpleBootstrapScoring);
+    SUITE_ADD_TEST(suite, testSimpleRemovePoorlySupportedPartitions);
     return suite;
 }

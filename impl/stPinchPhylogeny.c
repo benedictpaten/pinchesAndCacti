@@ -293,6 +293,15 @@ void stPhylogenyInfo_destruct(stPhylogenyInfo *info)
     free(info);
 }
 
+stPhylogenyInfo *stPhylogenyInfo_clone(stPhylogenyInfo *info)
+{
+    stPhylogenyInfo *ret = malloc(sizeof(stPhylogenyInfo));
+    memcpy(ret, info, sizeof(stPhylogenyInfo));
+    ret->leavesBelow = malloc(ret->totalNumLeaves * sizeof(int64_t));
+    memcpy(ret->leavesBelow, info->leavesBelow, ret->totalNumLeaves * sizeof(int64_t));
+    return ret;
+}
+
 // Free the stPhylogenyInfo struct for this node and all nodes below it.
 void stPhylogenyInfo_destructOnTree(stTree *tree)
 {
@@ -308,7 +317,7 @@ void stPhylogenyInfo_destructOnTree(stTree *tree)
 // the phylogenyInfo for the given tree and all subtrees. The
 // phylogenyInfo structure (in the clientData field) must already be
 // allocated!
-static void setLeavesBelow(stTree *tree, int64_t totalNumLeaves)
+void setLeavesBelow(stTree *tree, int64_t totalNumLeaves)
 {
     int64_t i, j;
     assert(stTree_getClientData(tree) != NULL);
@@ -378,8 +387,6 @@ static stTree *quickTreeToStTree(struct Tree *tree)
     return ret;
 }
 
-// distanceMatrix should have, probably, distFrom, distTo, labelFrom, labelTo
-// (or could just be double and a labeling array passed as a parameter, which is probably better)
 // Only one half of the distanceMatrix is used, distances[i][j] for which i > j
 // Tree returned is labeled by the indices of the distance matrix and is rooted halfway along the longest branch.
 stTree *neighborJoin(double **distances, int64_t numSequences)
@@ -416,8 +423,9 @@ stTree *neighborJoin(double **distances, int64_t numSequences)
     return quickTreeToStTree(tree);
 }
 
-// Compare a single partition to a single bootstrap partition.
-void comparePartitions(stTree *partition, stTree *bootstrap)
+// Compare a single partition to a single bootstrap partition and
+// update its support if they are identical.
+void updatePartitionSupportFromPartition(stTree *partition, stTree *bootstrap)
 {
     int64_t i, j;
     stPhylogenyInfo *partitionInfo, *bootstrapInfo;
@@ -457,28 +465,141 @@ void comparePartitions(stTree *partition, stTree *bootstrap)
     }
 
     // The partitions are equal, increase the support 
-    partitionInfo->bootstraps++;
+    partitionInfo->numBootstraps++;
 }
 
-// Score each partition in destTree by how many times the same
-// partition appears in the bootstrapped trees. The information is
-// stored in a double in the clientData field of the tree nodes,
-// indicating the fraction of bootstraps that support the partition.
-// FIXME: right now it is just an int rather than a double.
-void scoreByBootstraps(stTree *destTree, stList *bootstraps)
+// Increase a partition's bootstrap support if it appears anywhere in
+// the given bootstrap tree.
+void updatePartitionSupportFromTree(stTree *partition, stTree *bootstrapTree)
 {
-    int64_t i;
-    for(i = 0; i < stList_length(bootstraps); i++) {
-        
+    int64_t i, j;
+    stPhylogenyInfo *partitionInfo = stTree_getClientData(partition);
+    stPhylogenyInfo *bootstrapInfo = stTree_getClientData(bootstrapTree);
+    // This partition should be updated against the bootstrap
+    // partition only if none of the bootstrap's children have a leaf
+    // set that is a superset of the partition's leaf set.
+    bool checkThisPartition = TRUE;
+
+    assert(partitionInfo->totalNumLeaves == bootstrapInfo->totalNumLeaves);
+    // Check that the leaves under the partition are a subset of the
+    // leaves under the current bootstrap node. This should always be
+    // true, since that's checked before running this function
+    for(i = 0; i < partitionInfo->totalNumLeaves; i++) {
+        if(partitionInfo->leavesBelow[i]) {
+            assert(bootstrapInfo->leavesBelow[i]);
+        }
+    }
+    
+    for(i = 0; i < stTree_getChildNumber(bootstrapTree); i++) {
+        stTree *bootstrapChild = stTree_getChild(bootstrapTree, i);
+        stPhylogenyInfo *bootstrapChildInfo = stTree_getClientData(bootstrapChild);
+        // If any of the bootstrap's children has a leaf set that is a
+        // superset of the partition's leaf set, we should update
+        // against that child instead.
+        bool isSuperset = TRUE;
+        for(j = 0; j < partitionInfo->totalNumLeaves; j++) {
+            if(partitionInfo->leavesBelow[j]) {
+                if(!bootstrapChildInfo->leavesBelow[j]) {
+                    isSuperset = FALSE;
+                    break;
+                }
+            }
+        }
+        if(isSuperset) {
+            updatePartitionSupportFromTree(partition, bootstrapChild);
+            checkThisPartition = TRUE;
+            break;
+        }
+    }
+
+    if(checkThisPartition) {
+        // This bootstrap partition is the closest candidate. Check
+        // the partition against this node.
+        updatePartitionSupportFromPartition(partition, bootstrapTree);
     }
 }
 
-// Remove partitions that are poorly-supported from the tree. The tree
-// must have bootstrap-support information in all the nodes.
-stTree *removePoorlySupportedPartitions(stTree *bootstrappedTree,
+// Return a new tree which has its partitions scored by how often they
+// appear in the bootstrap. This fills in the numBootstraps and
+// bootstrapSupport fields of each node. All trees must have valid
+// stPhylogenyInfo.
+stTree *scoreFromBootstrap(stTree *tree, stTree *bootstrap)
+{
+    int64_t i;
+    stTree *ret = stTree_cloneNode(tree);
+    stPhylogenyInfo *info = stPhylogenyInfo_clone(stTree_getClientData(tree));
+    stTree_setClientData(ret, info);
+    // Update child partitions (if any)
+    for(i = 0; i < stTree_getChildNumber(tree); i++) {
+        stTree_setParent(scoreFromBootstrap(stTree_getChild(tree, i), bootstrap), ret);
+    }
+    updatePartitionSupportFromTree(ret, bootstrap);
+
+    info->bootstrapSupport = ((double) info->numBootstraps) / 1.0;
+
+    return ret;
+}
+
+// Return a new tree which has its partitions scored by how often they
+// appear in the bootstraps. This fills in the numBootstraps and
+// bootstrapSupport fields of each node. All trees must have valid
+// stPhylogenyInfo.
+stTree *scoreFromBootstraps(stTree *tree, stList *bootstraps)
+{
+    int64_t i;
+    stTree *ret = stTree_cloneNode(tree);
+    stPhylogenyInfo *info = stPhylogenyInfo_clone(stTree_getClientData(tree));
+    stTree_setClientData(ret, info);
+    // Update child partitions (if any)
+    for(i = 0; i < stTree_getChildNumber(tree); i++) {
+        stTree_setParent(scoreFromBootstraps(stTree_getChild(tree, i), bootstraps), ret);
+    }
+
+    // Check the current partition against all bootstraps
+    for(i = 0; i < stList_length(bootstraps); i++) {
+        updatePartitionSupportFromTree(ret, stList_get(bootstraps, i));
+    }
+
+    info->bootstrapSupport = ((double) info->numBootstraps) / stList_length(bootstraps);
+    return ret;
+}
+
+// Returns a new tree with poorly-supported partitions removed. The
+// tree must have bootstrap-support information for every node.
+stTree *removePoorlySupportedPartitions(stTree *tree,
                                         double threshold)
 {
-    return NULL;
+    int64_t i, j;
+    stTree *ret = stTree_cloneNode(tree);
+    stPhylogenyInfo *info = stPhylogenyInfo_clone(stTree_getClientData(tree));
+    stTree_setClientData(ret, info);
+    for(i = 0; i < stTree_getChildNumber(tree); i++) {
+        stTree *child = stTree_getChild(tree, i);
+        stTree_setParent(removePoorlySupportedPartitions(child, threshold), ret);
+    }
+    if(info->bootstrapSupport < threshold) {
+        // Make all grandchildren (if any) into children instead.
+        for(i = 0; i < stTree_getChildNumber(ret); i++) {
+            stTree *child = stTree_getChild(ret, i);
+            if(stTree_getChildNumber(child) != 0) {
+                for(j = 0; j < stTree_getChildNumber(child); j++) {
+                    stTree *grandChild = stTree_getChild(child, j);
+                    // hacky, but the grandchild number has decreased by 1
+                    j--;
+                    stTree_setParent(grandChild, ret);
+                }
+                // Cleanup the unneeded child
+                stPhylogenyInfo_destruct(stTree_getClientData(child));
+                stTree_setParent(child, NULL);
+                // hacky, but the child number has decreased by 1
+                i--;
+                // FIXME: need to destruct just one node here, not all
+                // the children!
+                // stTree_destruct(child);
+            }
+        }
+    }
+    return ret;
 }
 
 stList *splitTreeOnOutgroups(stTree *tree, stSet *outgroups)
