@@ -17,55 +17,65 @@
 #include "quicktree_1.1/include/buildtree.h"
 
 /*
- * Represents a segment for the purposes of building trees from SNPs and breakpoints, making
- * it easy to extract these differences/similarities, collectively features, from the matrix.
+ * Gets the pinch-end adjacent of the next block connected to the given segment, traversing either 5' or 3' depending on _5PrimeTraversal.
  */
-typedef struct _stFeatureSegment stFeatureSegment;
-struct _stFeatureSegment {
-    const char *string; //The bases of the actual underlying string. This is a pointer to the original sequence or its reverse complement.
-    int64_t stringLength; //The length of the string
-    bool reverseComplement; //If reverse complement then the start is the end (exclusive), and the base must be reverse complemented to read.
-    stPinchEnd nPinchEnd; //The next adjacent block.
-    stPinchEnd pPinchEnd; //The previous adjacent block.
-    int64_t distance; //The distance of the first base in the segment from the id-point of the chosen segment.
-    stFeatureSegment *nFeatureSegment; //The next tree segment.
-    int64_t segmentIndex; //The index of the segment in the distance matrix.
-    stPinchSegment *segment; //The underlying pinch segment.
-};
-
-void featureSegment_destruct(stFeatureSegment *featureSegment) {
-    if(featureSegment->nFeatureSegment) {
-        featureSegment_destruct(featureSegment->nFeatureSegment);
+static inline stPinchEnd getAdjacentPinchEnd(stPinchSegment *segment, bool _5PrimeTraversal) {
+    while (1) {
+        segment = _5PrimeTraversal ? stPinchSegment_get5Prime(segment) : stPinchSegment_get3Prime(segment);
+        if (segment == NULL) {
+            break;
+        }
+        stPinchBlock *block = stPinchSegment_getBlock(segment);
+        if (block != NULL) {
+            return stPinchEnd_constructStatic(block, stPinchEnd_endOrientation(_5PrimeTraversal, segment));
+        }
     }
-    free(featureSegment);
+    return stPinchEnd_constructStatic(NULL, 1);
 }
 
+static stFeatureSegment *stFeatureSegment_construct(stPinchSegment *segment, stHash *pinchThreadsToStrings,
+        int64_t index, int64_t distance) {
+    stFeatureSegment *featureSegment = st_malloc(sizeof(stFeatureSegment));
+    const char *threadString = stHash_search(pinchThreadsToStrings, stPinchSegment_getThread(segment));
+    assert(threadString != NULL);
+    featureSegment->string = threadString + stPinchSegment_getStart(segment)
+            - stPinchThread_getStart(stPinchSegment_getThread(segment));
+    featureSegment->length = stPinchSegment_getLength(segment);
+    featureSegment->reverseComplement = !stPinchSegment_getBlockOrientation(segment);
+    featureSegment->pPinchEnd = getAdjacentPinchEnd(segment, !featureSegment->reverseComplement);
+    featureSegment->nPinchEnd = getAdjacentPinchEnd(segment, featureSegment->reverseComplement);
+    featureSegment->distance = distance;
+    featureSegment->nFeatureSegment = NULL;
+    featureSegment->segment = segment;
+    featureSegment->segmentIndex = index;
+    return featureSegment;
+}
 
-static char reverseComplement(char base) {
-    /*
-     * Why isn't this in sonlib some place!
-     */
-    base = toupper(base);
-    switch(base) {
-        case 'A':
-                return 'T';
-        case 'T':
-                return 'A';
-        case 'C':
-                return 'G';
-        case 'G':
-                return 'C';
-        default:
-            return base;
+static void stFeatureSegment_destruct(stFeatureSegment *featureSegment) {
+    if (featureSegment->nFeatureSegment) {
+        stFeatureSegment_destruct(featureSegment->nFeatureSegment);
     }
+    free(featureSegment);
 }
 
 /*
  * Get the base at a given location in a segment.
  */
 char stFeatureSegment_getBase(stFeatureSegment *featureSegment, int64_t columnIndex) {
-    assert(columnIndex < featureSegment->stringLength);
-    return featureSegment->reverseComplement ? reverseComplement(featureSegment->string[featureSegment->stringLength - 1 - columnIndex]) : featureSegment->string[columnIndex];
+    assert(columnIndex < featureSegment->length);
+    return featureSegment->reverseComplement ?
+            stString_reverseComplement(featureSegment->string[featureSegment->length - 1 - columnIndex]) :
+            featureSegment->string[columnIndex];
+}
+
+/*
+ * Gets distance of given column index from mid point of the segment in the chosen block, in terms of the counted base distance calculated
+ * in stFeatureBlock_getContextualFeatureBlocks.
+ */
+int64_t stFeatureSegment_getColumnDistance(stFeatureSegment *featureSegment, int64_t columnIndex) {
+    assert(columnIndex < featureSegment->length);
+    return featureSegment->reverseComplement ?
+            featureSegment->distance + featureSegment->length - 1 - columnIndex : featureSegment->distance + columnIndex;
 }
 
 /*
@@ -78,51 +88,134 @@ bool stFeatureSegment_basesEqual(stFeatureSegment *fSegment1, stFeatureSegment *
 /*
  * Returns non-zero if the left adjacency of the segments is equal.
  */
-bool stFeatureSegment_leftAdjacenciesEqual(stFeatureSegment *fSegment1, stFeatureSegment *fSegment2, int64_t columnIndex) {
-    return columnIndex > 0 ? 1 : (fSegment1->pPinchEnd.block == fSegment2->pPinchEnd.block && fSegment1->pPinchEnd.orientation == fSegment2->pPinchEnd.orientation);
+static bool stFeatureSegment_leftAdjacenciesEqual(stFeatureSegment *fSegment1, stFeatureSegment *fSegment2,
+        int64_t columnIndex) {
+    return columnIndex > 0 ?
+            1 :
+            (fSegment1->pPinchEnd.block == fSegment2->pPinchEnd.block
+                    && fSegment1->pPinchEnd.orientation == fSegment2->pPinchEnd.orientation);
 }
 
 /*
  * Returns non-zero if the right adjacency of the segments is equal.
  */
-bool stFeatureSegment_rightAdjacenciesEqual(stFeatureSegment *fSegment1, stFeatureSegment *fSegment2, int64_t columnIndex) {
-    return columnIndex < fSegment1->stringLength - 1 ? 1 : (fSegment1->pPinchEnd.block == fSegment2->pPinchEnd.block && fSegment1->pPinchEnd.orientation == fSegment2->pPinchEnd.orientation);
+static bool stFeatureSegment_rightAdjacenciesEqual(stFeatureSegment *fSegment1, stFeatureSegment *fSegment2,
+        int64_t columnIndex) {
+    return columnIndex < fSegment1->length - 1 ?
+            1 :
+            (fSegment1->pPinchEnd.block == fSegment2->pPinchEnd.block
+                    && fSegment1->pPinchEnd.orientation == fSegment2->pPinchEnd.orientation);
 }
 
-/*
- * Represents a block for the purposes of tree building, composed of a set of featureSegments.
- */
-typedef struct _stFeatureBlock {
-    int64_t length; //The length of the block.
-    stFeatureSegment *head; //The first feature segment in the block.
-} stFeatureBlock;
+static stFeatureBlock *stFeatureBlock_construct(stFeatureSegment *firstSegment, stPinchBlock *block) {
+    stFeatureBlock *featureBlock = st_malloc(sizeof(featureBlock));
+    featureBlock->head = firstSegment;
+    featureBlock->tail = firstSegment;
+    firstSegment->nFeatureSegment = NULL; //Defensive assignment.
+    featureBlock->length = stPinchBlock_getLength(block);
+    return featureBlock;
+}
 
-void stFeatureBlock_destruct(stFeatureBlock *featureBlock) {
-    featureSegment_destruct(featureBlock->head);
+static void stFeatureBlock_destruct(stFeatureBlock *featureBlock) {
+    stFeatureSegment_destruct(featureBlock->head);
     free(featureBlock);
 }
 
 /*
- * The returned list is the set of greater than degree 1 blocks that are within baseDistance and blockDistance of the segments in the given block.
- * Each block is represented as a FeatureBlock.
- * Strings is a hash of pinchThreads to actual DNA strings.
+ * Finds the 5' most segment in the thread that contains bases within maxBaseDistance of the mid point of the segment, and within
+ * maxBlockDistance.
  */
-stList *stFeatureBlock_getContextualFeatureBlocks(stPinchBlock *block, int64_t baseDistance,
-        int64_t blockDistance, bool ignoreUnalignedBases, stHash *strings) {
-    stList *featureBlocks = stList_construct3(0, (void (*)(void *))stFeatureBlock_destruct);
-
-    /*TODO*/
-
-    return featureBlocks;
+static stPinchSegment *get5PrimeMostSegment(stPinchSegment *segment, int64_t *baseDistance, int64_t *blockDistance,
+        int64_t maxBaseDistance, int64_t maxBlockDistance,
+        bool ignoreUnalignedBases) {
+    *baseDistance = -stPinchSegment_getLength(segment) / 2;
+    *blockDistance = 0;
+    while (stPinchSegment_get5Prime(segment) != NULL && -*baseDistance < maxBaseDistance
+            && -*blockDistance < maxBlockDistance) {
+        segment = stPinchSegment_get5Prime(segment);
+        if (stPinchSegment_getBlock(segment) != NULL || !ignoreUnalignedBases) {
+            *baseDistance -= stPinchSegment_getLength(segment);
+            (*blockDistance)--;
+        }
+    }
+    return segment;
 }
 
 /*
- * Represents one column of a tree block.
+ * Gets the number of distinct segment indices the featureBlock contains. Relies on the indices of segments being sorted
+ * (as they are by stFeatureBlock_getContextualFeatureBlocks)
  */
-typedef struct _stFeatureColumn {
-    int64_t columnIndex; //The offset in the block of the column.
-    stFeatureBlock *featureBlock; //The block in question.
-} stFeatureColumn;
+static int64_t countDistinctIndices(stFeatureBlock *featureBlock) {
+    stFeatureSegment *segment = featureBlock->head;
+    int64_t i = 1, j = segment->segmentIndex;
+    while ((segment = segment->nFeatureSegment) != NULL) {
+        if (segment->segmentIndex != j) {
+            i++;
+            segment->segmentIndex = j;
+        }
+    }
+    return i;
+}
+
+stList *stFeatureBlock_getContextualFeatureBlocks(stPinchBlock *block, int64_t maxBaseDistance,
+        int64_t maxBlockDistance,
+        bool ignoreUnalignedBases, bool onlyIncludeCompleteFeatureBlocks, stHash *strings) {
+    /*
+     * First build the set of feature blocks, not caring if this produces trivial blocks.
+     */
+    stHash *blocksToFeatureBlocks = stHash_construct(); //Hash to store allow featureBlocks to be progressively added to.
+    int64_t i = 0; //Index of segments in block.
+    stPinchBlockIt it = stPinchBlock_getSegmentIterator(block);
+    stPinchSegment *segment;
+    while ((segment = stPinchBlockIt_getNext(&it)) != NULL) { //For each segment build the feature segment.
+        int64_t blockDistance, baseDistance; //Distances from segment2 to segment
+        //Base distance is the difference from the start coordinate of segment2 to the mid point of segment.
+        stPinchSegment *segment2 = get5PrimeMostSegment(segment, &blockDistance, &baseDistance, maxBaseDistance,
+                maxBlockDistance, ignoreUnalignedBases);
+        do {
+            stPinchBlock *block2;
+            if ((block2 = stPinchSegment_getBlock(segment2)) != NULL) {
+                //Make a new feature segment
+                stFeatureSegment *fSegment = stFeatureSegment_construct(segment2, strings, i, baseDistance);
+                //Attach it to a new block.
+                stFeatureBlock *featureBlock = stHash_search(blocksToFeatureBlocks, block2);
+                if (featureBlock == NULL) { //Create a new feature block
+                    featureBlock = stFeatureBlock_construct(fSegment, block2);
+                    stHash_insert(blocksToFeatureBlocks, block2, featureBlock);
+                } else { //Link it to the existing feature block
+                    featureBlock->tail->nFeatureSegment = fSegment;
+                    featureBlock->tail = fSegment;
+                }
+                baseDistance += stPinchSegment_getLength(segment2);
+                blockDistance++;
+            } else if (!ignoreUnalignedBases) { //Only add the unaligned segment if not ignoring such segments.
+                baseDistance += stPinchSegment_getLength(segment2);
+                blockDistance++;
+            }
+            segment2 = stPinchSegment_get3Prime(segment2);
+        } while (segment2 != NULL && baseDistance <= maxBaseDistance && blockDistance <= maxBlockDistance);
+        i++; //Increase segment block index.
+    }
+    /*
+     * Now filter the set of blocks so that only blocks containing at least two sequences are present.
+     */
+    stList *unfilteredFeatureBlocks = stHash_getValues(blocksToFeatureBlocks);
+    stList *featureBlocks = stList_construct3(0, (void (*)(void *)) stFeatureBlock_destruct);
+    stHash_destruct(blocksToFeatureBlocks); //Cleanup now, as no longer needed, and values freed.
+    for (int64_t i = 0; i < stList_length(unfilteredFeatureBlocks); i++) {
+        stFeatureBlock *featureBlock = stList_get(unfilteredFeatureBlocks, i);
+        if (featureBlock->head != featureBlock->tail
+                && (!onlyIncludeCompleteFeatureBlocks
+                        || countDistinctIndices(featureBlock) == stPinchBlock_getDegree(block))) { //Is non-trivial
+            stList_append(featureBlocks, featureBlock);
+        } else {
+            stFeatureBlock_destruct(featureBlock); //This is a trivial/unneeded feature block, so remove.
+        }
+    }
+    stList_destruct(unfilteredFeatureBlocks);
+
+    return featureBlocks;
+}
 
 stFeatureColumn *stFeatureColumn_construct(stFeatureBlock *featureBlock, int64_t columnIndex) {
     stFeatureColumn *featureColumn = st_malloc(sizeof(stFeatureColumn));
@@ -135,130 +228,37 @@ void stFeatureColumn_destruct(stFeatureColumn *featureColumn) {
     free(featureColumn); //Does not own the block.
 }
 
-/*
- * Gets a list of feature columns for the blocks in the input list of featureBlocks,
- * to allow sampling with replacement for bootstrapping. The ordering of the columns
- * follows the ordering of the feature blocks.
- */
-stList *stFeatureColumn_getFeatureColumns(stList *featureBlocks, stPinchBlock *block, bool onlyIncludeCompleteColumns) {
-    stList *featureColumns = stList_construct3(0, (void (*)(void *))stFeatureColumn_destruct);
-    for(int64_t i=0; i<stList_length(featureBlocks); i++) {
+stList *stFeatureColumn_getFeatureColumns(stList *featureBlocks, stPinchBlock *block) {
+    stList *featureColumns = stList_construct3(0, (void (*)(void *)) stFeatureColumn_destruct);
+    for (int64_t i = 0; i < stList_length(featureBlocks); i++) {
         stFeatureBlock *featureBlock = stList_get(featureBlocks, i);
-        if(!onlyIncludeCompleteColumns || 0) { /*todo*/
-            for(int64_t j=0; j<featureBlock->length; j++) {
-                stList_append(featureColumns, stFeatureColumn_construct(featureBlock, j));
-            }
+        for (int64_t j = 0; j < featureBlock->length; j++) {
+            stList_append(featureColumns, stFeatureColumn_construct(featureBlock, j));
         }
     }
     return featureColumns;
 }
 
 /*
- * Represents counts of similarities and differences between a set of sequences.
- *
- * This is so basic it should probably be a set of functions in sonLib in some form or other.
+ * Adds to a feature matrix by iterating through the feature columns and adding in features of the column, according to the given function.
  */
-typedef struct _stFeatureMatrix {
-    int64_t n; //Matrix is n x n.
-    int64_t *featureMatrix; //Matrix containing counts of places where sequences agree and are different.
-} stFeatureMatrix;
-
-stFeatureMatrix *stFeatureMatrix_construct(int64_t n) {
-    stFeatureMatrix *featureMatrix = st_malloc(sizeof(featureMatrix));
-    featureMatrix->n = n;
-    featureMatrix->featureMatrix = st_calloc(n * n, sizeof(int64_t));
-    return featureMatrix;
-}
-
-void stFeatureMatrix_destruct(stFeatureMatrix *featureMatrix) {
-    free(featureMatrix->featureMatrix);
-    free(featureMatrix);
-}
-
-static int64_t *stFeatureMatrix_offsetFn(stFeatureMatrix *matrix, int64_t index1, int64_t index2) {
-    assert(index1 >= 0 && index1 < matrix->n);
-    assert(index2 >= 0 && index2 < matrix->n);
-    return &matrix->featureMatrix[index1 * matrix->n + index2];
-}
-
-/*
- * Increase similarity count between two indices.
- */
-void stFeatureMatrix_increaseIdentityCount(stFeatureMatrix *matrix, int64_t index1, int64_t index2) {
-    assert(index1 < index2);
-    (*stFeatureMatrix_offsetFn(matrix, index1, index2))++;
-}
-
-/*
- * Increase difference count between two indices.
- */
-void stFeatureMatrix_increaseDifferenceCount(stFeatureMatrix *matrix, int64_t index1, int64_t index2) {
-    assert(index1 < index2);
-    (*stFeatureMatrix_offsetFn(matrix, index2, index1))++;
-}
-
-/*
- * Get number of sites where two indices agree.
- */
-int64_t stFeatureMatrix_getIdentityCount(stFeatureMatrix *matrix, int64_t index1, int64_t index2) {
-    assert(index1 < index2);
-    return *stFeatureMatrix_offsetFn(matrix, index1, index2);
-}
-
-/*
- * Get number of sites where two indices disagree.
- */
-int64_t stFeatureMatrix_getDifferenceCount(stFeatureMatrix *matrix, int64_t index1, int64_t index2) {
-    assert(index1 < index2);
-    return *stFeatureMatrix_offsetFn(matrix, index2, index1);
-}
-
-/*
- * Gets a symmetric distance matrix representing the feature matrix.
- */
-double *stFeatureMatrix_getSymmetricDistanceMatrix(stFeatureMatrix *featureMatrix) {
-    double *matrix = st_calloc(featureMatrix->n * featureMatrix->n, sizeof(double));
-    for(int64_t i=0; i<featureMatrix->n; i++) {
-        matrix[i * featureMatrix->n] = 0.0;
-        for(int64_t j=i+1; j<featureMatrix->n; j++) {
-            int64_t similarities = stFeatureMatrix_getIdentityCount(featureMatrix, i, j);
-            int64_t differences = stFeatureMatrix_getDifferenceCount(featureMatrix, i, j);
-            matrix[i * featureMatrix->n + j] = ((double)differences) / (similarities + differences);
-            matrix[j * featureMatrix->n + i] = matrix[i * featureMatrix->n + j];
-        }
-    }
-    return matrix;
-}
-
-/*
- * Merges together two feature matrices, weighting them by the given integers. This
- * allows substitution and breakpoint matrices to be combined.
- */
-stFeatureMatrix *stFeatureMatrix_merge(stFeatureMatrix *featureMatrix1, int64_t weight1, stFeatureMatrix *featureMatrix2, int64_t weight2) {
-    assert(featureMatrix1->n == featureMatrix2->n);
-    stFeatureMatrix *mergedMatrix = stFeatureMatrix_construct(featureMatrix1->n);
-    for(int64_t i=0; i<featureMatrix1->n * featureMatrix1->n; i++) {
-        mergedMatrix->featureMatrix[i] = featureMatrix1->featureMatrix[i] * weight1 + featureMatrix2->featureMatrix[i] * weight2;
-    }
-    return mergedMatrix;
-}
-
-/*
- * Gets a feature matrix representing SNPs
- */
-void stFeatureMatrix_add(stFeatureMatrix *matrix, stList *featureColumns, stPinchBlock *block,
-                                             double distanceWeighting, bool sampleColumns, bool (*equalFn)(stFeatureSegment *, stFeatureSegment *, int64_t)) {
-    for(int64_t i=0; i<stList_length(featureColumns); i++) {
-        stFeatureColumn *featureColumn = stList_get(featureColumns, sampleColumns ? st_randomInt(0, stList_length(featureColumns)): i);
+static void addFeaturesToMatrix(stMatrix *matrix, stList *featureColumns, double distanceWeightFn(int64_t, int64_t),
+bool sampleColumns, bool (*equalFn)(stFeatureSegment *, stFeatureSegment *, int64_t)) {
+    for (int64_t i = 0; i < stList_length(featureColumns); i++) {
+        stFeatureColumn *featureColumn = stList_get(featureColumns,
+                sampleColumns ? st_randomInt(0, stList_length(featureColumns)) : i);
         stFeatureSegment *fSegment = featureColumn->featureBlock->head;
-        while(fSegment != NULL) {
+        int64_t distance1 = stFeatureSegment_getColumnDistance(fSegment, featureColumn->columnIndex);
+        while (fSegment != NULL) {
             stFeatureSegment *nSegment = fSegment->nFeatureSegment;
-            while(nSegment != NULL) {
-                if(equalFn(fSegment, nSegment, i)) {
-                    stFeatureMatrix_increaseIdentityCount(matrix, fSegment->segmentIndex, nSegment->segmentIndex);
-                }
-                else {
-                    stFeatureMatrix_increaseDifferenceCount(matrix, fSegment->segmentIndex, nSegment->segmentIndex);
+            while (nSegment != NULL) {
+                int64_t distance2 = stFeatureSegment_getColumnDistance(nSegment, featureColumn->columnIndex);
+                if (equalFn(fSegment, nSegment, featureColumn->columnIndex)) {
+                    *stMatrix_getCell(matrix, fSegment->segmentIndex, nSegment->segmentIndex) = distanceWeightFn(
+                            distance1, distance2);
+                } else {
+                    *stMatrix_getCell(matrix, fSegment->segmentIndex, nSegment->segmentIndex) = distanceWeightFn(
+                            distance1, distance2);
                 }
                 nSegment = nSegment->nFeatureSegment;
             }
@@ -267,27 +267,41 @@ void stFeatureMatrix_add(stFeatureMatrix *matrix, stList *featureColumns, stPinc
     }
 }
 
-stFeatureMatrix *stFeatureMatrix_constructFromSubstitutions(stList *featureColumns, stPinchBlock *block,
-                                             double distanceWeighting, bool sampleColumns) {
-    stFeatureMatrix *matrix = stFeatureMatrix_construct(stPinchBlock_getDegree(block));
-    stFeatureMatrix_add(matrix, featureColumns, block, distanceWeighting, sampleColumns, stFeatureSegment_basesEqual);
+stMatrix *stPinchPhylogeny_getMatrixFromSubstitutions(stList *featureColumns, stPinchBlock *block,
+        double distanceWeightFn(int64_t, int64_t), bool sampleColumns) {
+    stMatrix *matrix = stMatrix_construct(stPinchBlock_getDegree(block), stPinchBlock_getDegree(block));
+    addFeaturesToMatrix(matrix, featureColumns, distanceWeightFn, sampleColumns, stFeatureSegment_basesEqual);
+    return matrix;
+}
+
+stMatrix *stPinchPhylogeny_getMatrixFromBreakPoints(stList *featureColumns, stPinchBlock *block,
+        double distanceWeightFn(int64_t, int64_t), bool sampleColumns) {
+    stMatrix *matrix = stMatrix_construct(stPinchBlock_getDegree(block), stPinchBlock_getDegree(block));
+    addFeaturesToMatrix(matrix, featureColumns, distanceWeightFn, sampleColumns, stFeatureSegment_leftAdjacenciesEqual);
+    addFeaturesToMatrix(matrix, featureColumns, distanceWeightFn, sampleColumns,
+            stFeatureSegment_rightAdjacenciesEqual);
     return matrix;
 }
 
 /*
- * Gets a feature matrix representing breakpoints.
+ * Gets a symmetric distance matrix representing the feature matrix.
  */
-stFeatureMatrix *stFeatureMatrix_constructFromBreakPoints(stList *featureColumns, stPinchBlock *block,
-                                             double distanceWeighting, bool sampleColumns) {
-    stFeatureMatrix *matrix = stFeatureMatrix_construct(stPinchBlock_getDegree(block));
-    stFeatureMatrix_add(matrix, featureColumns, block, distanceWeighting, sampleColumns, stFeatureSegment_leftAdjacenciesEqual);
-    stFeatureMatrix_add(matrix, featureColumns, block, distanceWeighting, sampleColumns, stFeatureSegment_rightAdjacenciesEqual);
-    return matrix;
+stMatrix *stPinchPhylogeny_getSymmetricDistanceMatrix(stMatrix *matrix) {
+    assert(stMatrix_n(matrix) == stMatrix_m(matrix));
+    stMatrix *distanceMatrix = stMatrix_construct(stMatrix_n(matrix), stMatrix_m(matrix));
+    for (int64_t i = 0; i < stMatrix_n(matrix); i++) {
+        for (int64_t j = i + 1; j < stMatrix_n(matrix); j++) {
+            double similarities = *stMatrix_getCell(matrix, i, j); //The similarity count
+            double differences = *stMatrix_getCell(matrix, j, i); //The difference count
+            *stMatrix_getCell(distanceMatrix, i, j) = ((double) differences) / (similarities + differences);
+            *stMatrix_getCell(distanceMatrix, j, i) = *stMatrix_getCell(distanceMatrix, i, j);
+        }
+    }
+    return distanceMatrix;
 }
 
 // Free a stPhylogenyInfo struct
-void stPhylogenyInfo_destruct(stPhylogenyInfo *info)
-{
+void stPhylogenyInfo_destruct(stPhylogenyInfo *info) {
     assert(info != NULL);
     free(info->leavesBelow);
     free(info);
@@ -303,12 +317,11 @@ stPhylogenyInfo *stPhylogenyInfo_clone(stPhylogenyInfo *info)
 }
 
 // Free the stPhylogenyInfo struct for this node and all nodes below it.
-void stPhylogenyInfo_destructOnTree(stTree *tree)
-{
+void stPhylogenyInfo_destructOnTree(stTree *tree) {
     int64_t i;
     stPhylogenyInfo_destruct(stTree_getClientData(tree));
     stTree_setClientData(tree, NULL);
-    for(i = 0; i < stTree_getChildNumber(tree); i++) {
+    for (i = 0; i < stTree_getChildNumber(tree); i++) {
         stPhylogenyInfo_destructOnTree(stTree_getChild(tree, i));
     }
 }
@@ -322,23 +335,23 @@ void setLeavesBelow(stTree *tree, int64_t totalNumLeaves)
     int64_t i, j;
     assert(stTree_getClientData(tree) != NULL);
     stPhylogenyInfo *info = stTree_getClientData(tree);
-    for(i = 0; i < stTree_getChildNumber(tree); i++) {
+    for (i = 0; i < stTree_getChildNumber(tree); i++) {
         setLeavesBelow(stTree_getChild(tree, i), totalNumLeaves);
     }
 
     info->totalNumLeaves = totalNumLeaves;
-    if(info->leavesBelow != NULL) {
+    if (info->leavesBelow != NULL) {
         // leavesBelow has already been allocated somewhere else, free it.
         free(info->leavesBelow);
     }
     info->leavesBelow = st_calloc(totalNumLeaves, sizeof(int64_t));
-    if(stTree_getChildNumber(tree) == 0) {
+    if (stTree_getChildNumber(tree) == 0) {
         assert(info->matrixIndex < totalNumLeaves);
         assert(info->matrixIndex >= 0);
         info->leavesBelow[info->matrixIndex] = 1;
     } else {
-        for(i = 0; i < totalNumLeaves; i++) {
-            for(j = 0; j < stTree_getChildNumber(tree); j++) {
+        for (i = 0; i < totalNumLeaves; i++) {
+            for (j = 0; j < stTree_getChildNumber(tree); j++) {
                 stPhylogenyInfo *childInfo = stTree_getClientData(stTree_getChild(tree, j));
                 info->leavesBelow[i] |= childInfo->leavesBelow[i];
             }
@@ -346,24 +359,23 @@ void setLeavesBelow(stTree *tree, int64_t totalNumLeaves)
     }
 }
 
-static stTree *quickTreeToStTreeR(struct Tnode *tNode)
-{
+static stTree *quickTreeToStTreeR(struct Tnode *tNode) {
     stTree *ret = stTree_construct();
     bool hasChild = false;
-    if(tNode->left != NULL) {
+    if (tNode->left != NULL) {
         stTree *left = quickTreeToStTreeR(tNode->left);
         stTree_setParent(left, ret);
         hasChild = true;
     }
-    if(tNode->right != NULL) {
+    if (tNode->right != NULL) {
         stTree *right = quickTreeToStTreeR(tNode->right);
         stTree_setParent(right, ret);
         hasChild = true;
     }
-    if(stTree_getClientData(ret) == NULL) {
+    if (stTree_getClientData(ret) == NULL) {
         // Allocate the phylogenyInfo for this node.
         stPhylogenyInfo *info = st_calloc(1, sizeof(stPhylogenyInfo));
-        if(!hasChild) {
+        if (!hasChild) {
             info->matrixIndex = tNode->nodenumber;
         } else {
             info->matrixIndex = -1;
@@ -379,18 +391,16 @@ static stTree *quickTreeToStTreeR(struct Tnode *tNode)
 
 // Helper function for converting an unrooted QuickTree Tree into an
 // stTree, rooted halfway along the longest branch.
-static stTree *quickTreeToStTree(struct Tree *tree)
-{
+static stTree *quickTreeToStTree(struct Tree *tree) {
     struct Tree *rootedTree = get_root_Tnode(tree);
     stTree *ret = quickTreeToStTreeR(rootedTree->child[0]);
-    setLeavesBelow(ret, (stTree_getNumNodes(ret)+1)/2);
+    setLeavesBelow(ret, (stTree_getNumNodes(ret) + 1) / 2);
     return ret;
 }
 
 // Only one half of the distanceMatrix is used, distances[i][j] for which i > j
 // Tree returned is labeled by the indices of the distance matrix and is rooted halfway along the longest branch.
-stTree *neighborJoin(double **distances, int64_t numSequences)
-{
+stTree *neighborJoin(double **distances, int64_t numSequences) {
     struct DistanceMatrix *distanceMatrix;
     struct Tree *tree;
     int64_t i, j;
@@ -402,7 +412,7 @@ stTree *neighborJoin(double **distances, int64_t numSequences)
     // running neighbor-joining.
     struct ClusterGroup *clusterGroup = empty_ClusterGroup();
     struct Cluster **clusters = st_malloc(numSequences * sizeof(struct Cluster *));
-    for(i = 0; i < numSequences; i++) {
+    for (i = 0; i < numSequences; i++) {
         struct Sequence *seq = empty_Sequence();
         seq->name = stString_print("%" PRIi64, i);
         clusters[i] = single_Sequence_Cluster(seq);
@@ -411,8 +421,8 @@ stTree *neighborJoin(double **distances, int64_t numSequences)
     clusterGroup->numclusters = numSequences;
     // Fill in the QuickTree distance matrix
     distanceMatrix = empty_DistanceMatrix(numSequences);
-    for(i = 0; i < numSequences; i++) {
-        for(j = 0; j < i; j++) {
+    for (i = 0; i < numSequences; i++) {
+        for (j = 0; j < i; j++) {
             distanceMatrix->data[i][j] = distances[i][j];
         }
     }
@@ -429,7 +439,7 @@ void updatePartitionSupportFromPartition(stTree *partition, stTree *bootstrap)
 {
     int64_t i, j;
     stPhylogenyInfo *partitionInfo, *bootstrapInfo;
-    if(stTree_getChildNumber(partition) != stTree_getChildNumber(bootstrap)) {
+    if (stTree_getChildNumber(partition) != stTree_getChildNumber(bootstrap)) {
         // Can't compare different numbers of partitions
         return;
     }
@@ -441,25 +451,25 @@ void updatePartitionSupportFromPartition(stTree *partition, stTree *bootstrap)
     assert(partitionInfo->totalNumLeaves == bootstrapInfo->totalNumLeaves);
     // Check if the set of leaves is equal in both partitions. If not,
     // the partitions can't be equal.
-    if(memcmp(partitionInfo->leavesBelow, bootstrapInfo->leavesBelow,
-              partitionInfo->totalNumLeaves * sizeof(int64_t))) {
+    if (memcmp(partitionInfo->leavesBelow, bootstrapInfo->leavesBelow,
+            partitionInfo->totalNumLeaves * sizeof(int64_t))) {
         return;
     }
 
     // The sets of leaves under the nodes are equal; now we need to
     // check that the sets they are partitioned into are equal.
-    for(i = 0; i < stTree_getChildNumber(partition); i++) {
+    for (i = 0; i < stTree_getChildNumber(partition); i++) {
         stPhylogenyInfo *childInfo = stTree_getClientData(stTree_getChild(partition, i));
         bool foundPartition = false;
-        for(j = 0; j < stTree_getChildNumber(bootstrap); j++) {
+        for (j = 0; j < stTree_getChildNumber(bootstrap); j++) {
             stPhylogenyInfo *bootstrapChildInfo = stTree_getClientData(stTree_getChild(bootstrap, j));
-            if(memcmp(childInfo->leavesBelow, bootstrapChildInfo->leavesBelow,
-                      partitionInfo->totalNumLeaves * sizeof(int64_t)) == 0) {
+            if (memcmp(childInfo->leavesBelow, bootstrapChildInfo->leavesBelow,
+                    partitionInfo->totalNumLeaves * sizeof(int64_t)) == 0) {
                 foundPartition = true;
                 break;
             }
         }
-        if(!foundPartition) {
+        if (!foundPartition) {
             return;
         }
     }
@@ -602,19 +612,16 @@ stTree *removePoorlySupportedPartitions(stTree *tree,
     return ret;
 }
 
-stList *splitTreeOnOutgroups(stTree *tree, stSet *outgroups)
-{
+stList *splitTreeOnOutgroups(stTree *tree, stSet *outgroups) {
     return NULL;
 }
 
 // (Re)root and reconcile a gene tree to conform with the species tree.
-stTree *reconcile(stTree *geneTree, stTree *speciesTree)
-{
+stTree *reconcile(stTree *geneTree, stTree *speciesTree) {
     return NULL;
 }
 
 // Compute the reconciliation cost of a rooted gene tree and a species tree.
-double reconciliationCost(stTree *geneTree, stTree *speciesTree)
-{
+double reconciliationCost(stTree *geneTree, stTree *speciesTree) {
     return 0.0;
 }

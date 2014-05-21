@@ -3,11 +3,46 @@
 #include "sonLib.h"
 #include "stPinchPhylogeny.h"
 
+/*
+ * Tests that from random pinch graphs we get reliable set of contextual feature blocks.
+ */
+static void testStFeatureBlock_getContextualFeatureBlocks(CuTest *testCase) {
+
+}
+
+/*
+ * Tests that for a random set of feature blocks we get set of correct feature columns.
+ */
+static void testStFeatureColumn_getFeatureColumns(CuTest *testCase) {
+
+}
+
+/*
+ * Tests that for random sequence graphs the counts of substitutions is accurate.
+ */
+static void testStPinchPhylogeny_getMatrixFromSubstitutions(CuTest *testCase) {
+
+}
+/*
+ * Tests that for random sequence graphs the counts of breakpoints is accurate.
+ */
+static void testStPinchPhylogeny_getMatrixFromBreakPoints(CuTest *testCase) {
+
+}
+
+/*
+ * Tests that the symmetric distance matrix is calculated as expected.
+ */
+static void testStPinchPhylogeny_getSymmetricDistanceMatrix(CuTest *testCase) {
+
+}
+
 // Get the distance to a leaf from an internal node
 static double distToLeaf(stTree *tree, int64_t leafIndex)
 {
     int64_t i;
     stPhylogenyInfo *info = stTree_getClientData(tree);
+    (void)info;
     assert(info->leavesBelow[leafIndex]);
     if(stTree_getChildNumber(tree) == 0) {
         return 0.0;
@@ -204,5 +239,10 @@ CuSuite* stPinchPhylogenyTestSuite(void) {
     SUITE_ADD_TEST(suite, testSimpleNeighborJoin);
     SUITE_ADD_TEST(suite, testSimpleBootstrapScoring);
     SUITE_ADD_TEST(suite, testSimpleRemovePoorlySupportedPartitions);
+    SUITE_ADD_TEST(suite, testStFeatureBlock_getContextualFeatureBlocks);
+    SUITE_ADD_TEST(suite, testStFeatureColumn_getFeatureColumns);
+    SUITE_ADD_TEST(suite, testStPinchPhylogeny_getMatrixFromSubstitutions);
+    SUITE_ADD_TEST(suite, testStPinchPhylogeny_getMatrixFromBreakPoints);
+    SUITE_ADD_TEST(suite, testStPinchPhylogeny_getSymmetricDistanceMatrix);
     return suite;
 }
