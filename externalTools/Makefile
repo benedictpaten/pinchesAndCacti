@@ -1,5 +1,5 @@
 # order is important, libraries first
-modules = threeEdgeConnected quicktree_1.1
+modules = threeEdgeConnected
 #pulldown
 .PHONY: all %.all clean %.clean
 
