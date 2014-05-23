@@ -12,6 +12,7 @@
 #include "sonLib.h"
 #include "stPinchGraphs.h"
 #include "stPinchPhylogeny.h"
+#include "stPhylogeny.h"
 
 /*
  * Gets the pinch-end adjacent of the next block connected to the given segment, traversing either 5' or 3' depending on _5PrimeTraversal.
@@ -55,9 +56,6 @@ static void stFeatureSegment_destruct(stFeatureSegment *featureSegment) {
     free(featureSegment);
 }
 
-/*
- * Get the base at a given location in a segment.
- */
 char stFeatureSegment_getBase(stFeatureSegment *featureSegment, int64_t columnIndex) {
     assert(columnIndex < featureSegment->length);
     return featureSegment->reverseComplement ?

@@ -39,6 +39,11 @@ stList *stFeatureBlock_getContextualFeatureBlocks(stPinchBlock *block, int64_t m
         bool ignoreUnalignedBases, bool onlyIncludeCompleteFeatureBlocks, stHash *strings);
 
 /*
+ * Get the base at a given location in a segment.
+ */
+char stFeatureSegment_getBase(stFeatureSegment *featureSegment, int64_t columnIndex);
+
+/*
  * Represents one column of a tree block.
  */
 typedef struct _stFeatureColumn {

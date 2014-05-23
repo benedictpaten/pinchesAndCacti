@@ -2,6 +2,7 @@
 #include "CuTest.h"
 #include "sonLib.h"
 #include "stPinchPhylogeny.h"
+#include <ctype.h>
 
 static char getRandomNucleotide() {
     double d = st_random();
@@ -9,8 +10,8 @@ static char getRandomNucleotide() {
 }
 
 char *getRandomDNAString(int64_t length) {
-    char *string = st_malloc(sizeof(char)*(length+1));
-    for(int64_t i=0; i<length; i++) {
+    char *string = st_malloc(sizeof(char) * (length + 1));
+    for (int64_t i = 0; i < length; i++) {
         string[i] = getRandomNucleotide();
     }
     string[length] = '\0';
@@ -24,7 +25,7 @@ static stHash *getRandomStringsForGraph(stPinchThreadSet *randomGraph) {
     stHash *randomStrings = stHash_construct2(NULL, free);
     stPinchThreadSetIt threadIt = stPinchThreadSet_getIt(randomGraph);
     stPinchThread *thread;
-    while((thread = stPinchThreadSetIt_getNext(&threadIt)) != NULL) {
+    while ((thread = stPinchThreadSetIt_getNext(&threadIt)) != NULL) {
         stHash_insert(randomStrings, thread, getRandomDNAString(stPinchThread_getLength(thread)));
     }
     return randomStrings;
@@ -37,10 +38,10 @@ stPinchEnd getAdjacentPinchEnd(stFeatureSegment *featureSegment, bool traverse5P
     stPinchSegment *segment = featureSegment->segment;
     do {
         segment = traverse5Prime ? stPinchSegment_get5Prime(segment) : stPinchSegment_get3Prime(segment);
-        if(segment == NULL) {
+        if (segment == NULL) {
             return stPinchEnd_constructStatic(NULL, 0);
         }
-    } while(stPinchSegment_getBlock(segment) == NULL);
+    } while (stPinchSegment_getBlock(segment) == NULL);
     return stPinchEnd_constructStatic(stPinchSegment_getBlock(segment), !traverse5Prime);
 }
 
@@ -48,14 +49,14 @@ static void getDistances(stPinchSegment *segment, stPinchSegment *segment2, bool
         int64_t *distance, int64_t *blockDistance) {
     *distance = 0;
     *blockDistance = 0;
-    while(segment != segment2) {
-        if(!ignoreUnalignedBases || stPinchSegment_getBlock(segment2) != NULL) {
+    while (segment != segment2) {
+        if (!ignoreUnalignedBases || stPinchSegment_getBlock(segment2) != NULL) {
             *distance += stPinchSegment_getLength(segment);
             (*blockDistance)++;
         }
         segment = stPinchSegment_get3Prime(segment);
     }
-    *distance += stPinchSegment_getLength(segment2)/2;
+    *distance += stPinchSegment_getLength(segment2) / 2;
 }
 
 /*
@@ -63,8 +64,7 @@ static void getDistances(stPinchSegment *segment, stPinchSegment *segment2, bool
  */
 static int64_t getDistance(stPinchSegment *segment, stPinchSegment *segment2, bool ignoreUnalignedBases) {
     int64_t distance, blockDistance;
-    getDistances(segment, segment2, ignoreUnalignedBases,
-            &distance, &blockDistance);
+    getDistances(segment, segment2, ignoreUnalignedBases, &distance, &blockDistance);
     return distance;
 }
 
@@ -73,16 +73,22 @@ static int64_t getDistance(stPinchSegment *segment, stPinchSegment *segment2, bo
  */
 static int64_t getBlockDistance(stPinchSegment *segment, stPinchSegment *segment2, bool ignoreUnalignedBases) {
     int64_t distance, blockDistance;
-    getDistances(segment, segment2, ignoreUnalignedBases,
-            &distance, &blockDistance);
+    getDistances(segment, segment2, ignoreUnalignedBases, &distance, &blockDistance);
     return blockDistance;
 }
 
 /*
- * Walk from the segment to the segment contained in the block of interest, using distance.
+ * Get the feature segment in the given feature block with the same index as the index of the given feature segment.
  */
-stFeatureSegment *traceToMidFeatureSegmentUsingDistance(stFeatureSegment *featureSegment) {
-
+stFeatureSegment *getCorrespondingFeatureSegment(stFeatureSegment *featureSegment, stFeatureBlock *featureBlock) {
+    stFeatureSegment *featureSegment2 = featureBlock->head;
+    while (featureSegment2 != NULL) {
+        if (featureSegment->segmentIndex == featureSegment2->segmentIndex) {
+            return featureSegment2;
+        }
+        featureSegment2 = featureSegment2->nFeatureSegment;
+    }
+    return NULL;
 }
 
 /*
@@ -91,9 +97,9 @@ stFeatureSegment *traceToMidFeatureSegmentUsingDistance(stFeatureSegment *featur
 int64_t indexOfSegment(stPinchSegment *segment) {
     stPinchBlockIt segmentIt = stPinchBlock_getSegmentIterator(stPinchSegment_getBlock(segment));
     stPinchSegment *segment2;
-    int64_t i=0;
-    while((segment2 = stPinchBlockIt_getNext(&segmentIt)) != NULL) {
-        if(segment2 == segment) {
+    int64_t i = 0;
+    while ((segment2 = stPinchBlockIt_getNext(&segmentIt)) != NULL) {
+        if (segment2 == segment) {
             return i;
         }
         i++;
@@ -140,6 +146,18 @@ static void makeAndTestRandomFeatureBlocks(CuTest *testCase,
             //Make hash of pinch segments to feature segments, so we can validate we get the correct list.
             stHash *pinchSegmentsToFeatureSegments = stHash_construct();
 
+            //Get the feature block corresponding to block
+            stFeatureBlock *midFeatureBlock = NULL;
+            for (int64_t i = 0; i < stList_length(featureBlocks); i++) {
+                stFeatureBlock *featureBlock = stList_get(featureBlocks, i);
+                CuAssertTrue(testCase, featureBlock->head != NULL);
+                if (stPinchSegment_getBlock(featureBlock->head->segment) == block) {
+                    midFeatureBlock = featureBlock;
+                    break;
+                }
+            }
+            CuAssertTrue(testCase, midFeatureBlock != NULL);
+
             //Check that each feature block corresponds to a given block, and contains the correct segments.
             //and that they have the correct properties.
             for (int64_t i = 0; i < stList_length(featureBlocks); i++) {
@@ -160,7 +178,8 @@ static void makeAndTestRandomFeatureBlocks(CuTest *testCase,
 
                     //Check lengths
                     CuAssertIntEquals(testCase, featureBlock->length, featureSegment->length);
-                    CuAssertIntEquals(testCase, featureSegment->length, stPinchSegment_getLength(featureSegment->segment));
+                    CuAssertIntEquals(testCase, featureSegment->length,
+                            stPinchSegment_getLength(featureSegment->segment));
 
                     //Check orientation is as expected
                     CuAssertTrue(testCase,
@@ -179,28 +198,33 @@ static void makeAndTestRandomFeatureBlocks(CuTest *testCase,
 
                     //Check pinch ends
                     if (featureSegment->reverseComplement) {
-                        CuAssertPtrEquals(testCase,
-                                featureSegment->nPinchEnd.block,
-                                        getAdjacentPinchEnd(featureSegment, featureSegment->reverseComplement).block);
-                        CuAssertTrue(testCase,featureSegment->nPinchEnd.orientation
-                                     == getAdjacentPinchEnd(featureSegment, featureSegment->reverseComplement).orientation);
-                        CuAssertPtrEquals(testCase,
-                                featureSegment->pPinchEnd.block,
-                                        getAdjacentPinchEnd(featureSegment, !featureSegment->reverseComplement).block);
-                        CuAssertTrue(testCase, featureSegment->pPinchEnd.orientation
-                                                                == getAdjacentPinchEnd(featureSegment, !featureSegment->reverseComplement).orientation);
+                        CuAssertPtrEquals(testCase, featureSegment->nPinchEnd.block,
+                                getAdjacentPinchEnd(featureSegment, featureSegment->reverseComplement).block);
+                        CuAssertTrue(testCase,
+                                featureSegment->nPinchEnd.orientation
+                                        == getAdjacentPinchEnd(featureSegment, featureSegment->reverseComplement).orientation);
+                        CuAssertPtrEquals(testCase, featureSegment->pPinchEnd.block,
+                                getAdjacentPinchEnd(featureSegment, !featureSegment->reverseComplement).block);
+                        CuAssertTrue(testCase,
+                                featureSegment->pPinchEnd.orientation
+                                        == getAdjacentPinchEnd(featureSegment, !featureSegment->reverseComplement).orientation);
                     }
 
-                    //Check distance and index
-                    stFeatureSegment *midFeatureSegment = traceToMidFeatureSegmentUsingDistance(featureSegment);
+                    //Check distance and index between the given feature segment and the corresponding feature segment in the feature block representing the original block.
+                    stFeatureSegment *midFeatureSegment = getCorrespondingFeatureSegment(featureSegment,
+                            midFeatureBlock);
+                    CuAssertTrue(testCase, midFeatureSegment != NULL);
                     CuAssertIntEquals(testCase, featureSegment->segmentIndex, midFeatureSegment->segmentIndex);
                     CuAssertIntEquals(testCase, featureSegment->segmentIndex,
                             indexOfSegment(midFeatureSegment->segment));
-                    if(featureSegment->distance) {
-                        CuAssertIntEquals(testCase, getDistance(featureSegment->segment, midFeatureSegment->segment, ignoreUnalignedBases), featureSegment->distance);
-                    }
-                    else {
-                        CuAssertIntEquals(testCase, getDistance(midFeatureSegment->segment, featureSegment->segment, ignoreUnalignedBases), featureSegment->distance);
+                    if (featureSegment->distance < 0) {
+                        CuAssertIntEquals(testCase,
+                                getDistance(featureSegment->segment, midFeatureSegment->segment, ignoreUnalignedBases),
+                                featureSegment->distance);
+                    } else {
+                        CuAssertIntEquals(testCase,
+                                getDistance(midFeatureSegment->segment, featureSegment->segment, ignoreUnalignedBases),
+                                featureSegment->distance);
                     }
 
                     //Check tail pointer is correct
@@ -282,12 +306,12 @@ static void featureColumnTestFn(stPinchBlock *block, stList *featureBlocks, CuTe
     stList *featureColumns = stFeatureColumn_getFeatureColumns(featureBlocks, block);
 
     //Check every feature block is covered by a sequence of feature columns
-    int64_t j=0;
-    for(int64_t i=0; i<stList_length(featureBlocks); i++) {
+    int64_t j = 0;
+    for (int64_t i = 0; i < stList_length(featureBlocks); i++) {
         stFeatureBlock *featureBlock = stList_get(featureBlocks, i);
-        for(int64_t k=0; k<featureBlock->length; k++) {
+        for (int64_t k = 0; k < featureBlock->length; k++) {
             stFeatureColumn *featureColumn = stList_get(featureColumns, j++);
-            CuAssertIntEquals(testCase, featureColumn->columnIndex,  k);
+            CuAssertIntEquals(testCase, featureColumn->columnIndex, k);
             CuAssertPtrEquals(testCase, featureColumn->featureBlock, featureBlock);
         }
     }
@@ -305,13 +329,42 @@ static void testStFeatureColumn_getFeatureColumns(CuTest *testCase) {
  * Tests that for random sequence graphs the counts of substitutions is accurate.
  */
 
-static double constantDistanceWeightFn(int64_t i, int64_t) {
+static double constantDistanceWeightFn(int64_t i, int64_t j) {
     //Let's do the simple case.
     return 1;
 }
 
-stMatrix *getSubstitutionMatrixSimply(stList *featureColumns) {
+/*
+ * Function to increase similarty/difference matrix.
+ */
+static void incrementIdentityOrDifferenceCount(stMatrix *matrix, stFeatureSegment *featureSegment,
+        stFeatureSegment *featureSegment2, bool identity) {
+    if (featureSegment->segmentIndex < featureSegment2->segmentIndex || !identity) {
+        *stMatrix_getCell(matrix, featureSegment->segmentIndex, featureSegment2->segmentIndex) += 1;
+    } else {
+        *stMatrix_getCell(matrix, featureSegment2->segmentIndex, featureSegment->segmentIndex) += 1;
+    }
+}
 
+/*
+ * Stupid algorithm for getting substitution matrix.
+ */
+stMatrix *getSubstitutionMatrixSimply(stList *featureColumns, int64_t n) {
+    stMatrix *matrix = stMatrix_construct(n, n);
+    for (int64_t i = 0; i < stList_length(featureColumns); i++) {
+        stFeatureColumn *featureColumn = stList_get(featureColumns, i);
+        stFeatureSegment *featureSegment = featureColumn->featureBlock->head;
+        while (featureSegment != NULL) {
+            stFeatureSegment *featureSegment2 = featureSegment->nFeatureSegment;
+            while (featureSegment2 != NULL) {
+                char c = stFeatureSegment_getBase(featureSegment, featureColumn->columnIndex);
+                char c2 = stFeatureSegment_getBase(featureSegment2, featureColumn->columnIndex);
+                incrementIdentityOrDifferenceCount(matrix, featureSegment, featureSegment2, toupper(c) == toupper(c2));
+                featureSegment2 = featureSegment2->nFeatureSegment;
+            }
+        }
+    }
+    return matrix;
 }
 
 static void substitutionMatrixTestFn(stPinchBlock *block, stList *featureBlocks, CuTest *testCase) {
@@ -322,10 +375,10 @@ static void substitutionMatrixTestFn(stPinchBlock *block, stList *featureBlocks,
     stMatrix *matrix = stPinchPhylogeny_getMatrixFromSubstitutions(featureColumns, block, constantDistanceWeightFn, 0);
 
     //Build substitution matrix independently from feature columns
-    stMatrix *matrix2 = getSubstitutionMatrixSimply(featureColumns);
+    stMatrix *matrix2 = getSubstitutionMatrixSimply(featureColumns, stPinchBlock_getDegree(block));
 
     //Now check matrices agree
-    CuAssertTrue(testCase, stMatrix_equal(matrix, matrix2));
+    CuAssertTrue(testCase, stMatrix_equal(matrix, matrix2, 0.00001));
 
     //Cleanup
     stMatrix_destruct(matrix);
@@ -339,8 +392,25 @@ static void testStPinchPhylogeny_getMatrixFromSubstitutions(CuTest *testCase) {
  * Tests that for random sequence graphs the counts of breakpoints is accurate.
  */
 
-stMatrix *getBreakpointMatrixSimply(stList *featureColumns) {
-
+stMatrix *getBreakpointMatrixSimply(stList *featureColumns, int64_t n) {
+    stMatrix *matrix = stMatrix_construct(n, n);
+    for (int64_t i = 0; i < stList_length(featureColumns); i++) {
+        stFeatureColumn *featureColumn = stList_get(featureColumns, i);
+        stFeatureSegment *featureSegment = featureColumn->featureBlock->head;
+        while (featureSegment != NULL) {
+            stFeatureSegment *featureSegment2 = featureSegment->nFeatureSegment;
+            while (featureSegment2 != NULL) {
+                incrementIdentityOrDifferenceCount(matrix, featureSegment, featureSegment,
+                        featureColumn->columnIndex != 0
+                                || stPinchEnd_equalsFn(&featureSegment->pPinchEnd, &featureSegment2->pPinchEnd));
+                incrementIdentityOrDifferenceCount(matrix, featureSegment, featureSegment,
+                        featureColumn->columnIndex != featureColumn->featureBlock->length - 1
+                                || stPinchEnd_equalsFn(&featureSegment->nPinchEnd, &featureSegment2->nPinchEnd));
+                featureSegment2 = featureSegment2->nFeatureSegment;
+            }
+        }
+    }
+    return matrix;
 }
 
 static void breakpointMatrixTestFn(stPinchBlock *block, stList *featureBlocks, CuTest *testCase) {
@@ -351,10 +421,10 @@ static void breakpointMatrixTestFn(stPinchBlock *block, stList *featureBlocks, C
     stMatrix *matrix = stPinchPhylogeny_getMatrixFromSubstitutions(featureColumns, block, constantDistanceWeightFn, 0);
 
     //Build substitution matrix independently from feature columns
-    stMatrix *matrix2 = getBreakpointMatrixSimply(featureColumns);
+    stMatrix *matrix2 = getBreakpointMatrixSimply(featureColumns, stPinchBlock_getDegree(block));
 
     //Now check matrices agree
-    CuAssertTrue(testCase, stMatrix_equal(matrix, matrix2));
+    CuAssertTrue(testCase, stMatrix_equal(matrix, matrix2, 0.00001));
 
     //Cleanup
     stMatrix_destruct(matrix);
