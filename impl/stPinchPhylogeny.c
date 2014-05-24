@@ -81,14 +81,23 @@ bool stFeatureSegment_basesEqual(stFeatureSegment *fSegment1, stFeatureSegment *
 }
 
 /*
+ * Returns nonzero if the base is a wild card.
+ */
+bool stFeatureSegment_baseIsWildCard(stFeatureSegment *fSegment, int64_t columnIndex) {
+    char b = toupper(stFeatureSegment_getBase(fSegment, columnIndex));
+    return !(b == 'A' || b == 'C' || b == 'G' || b == 'T');
+}
+
+/*
  * Returns non-zero if the left adjacency of the segments is equal.
  */
 static bool stFeatureSegment_leftAdjacenciesEqual(stFeatureSegment *fSegment1, stFeatureSegment *fSegment2,
         int64_t columnIndex) {
-    return columnIndex > 0 ?
-            1 :
-            (fSegment1->pPinchEnd.block == fSegment2->pPinchEnd.block
-                    && fSegment1->pPinchEnd.orientation == fSegment2->pPinchEnd.orientation);
+    return columnIndex > 0 ? 1 : stPinchEnd_equalsFn(&(fSegment1->pPinchEnd), &(fSegment2->pPinchEnd));
+}
+
+static bool stFeatureSegment_leftAdjacencyIsWildCard(stFeatureSegment *fSegment, int64_t columnIndex) {
+    return columnIndex > 0 ? 0 : fSegment->pPinchEnd.block == NULL;
 }
 
 /*
@@ -96,10 +105,11 @@ static bool stFeatureSegment_leftAdjacenciesEqual(stFeatureSegment *fSegment1, s
  */
 static bool stFeatureSegment_rightAdjacenciesEqual(stFeatureSegment *fSegment1, stFeatureSegment *fSegment2,
         int64_t columnIndex) {
-    return columnIndex < fSegment1->length - 1 ?
-            1 :
-            (fSegment1->pPinchEnd.block == fSegment2->pPinchEnd.block
-                    && fSegment1->pPinchEnd.orientation == fSegment2->pPinchEnd.orientation);
+    return columnIndex < fSegment1->length - 1 ? 1 : stPinchEnd_equalsFn(&(fSegment1->nPinchEnd), &(fSegment2->nPinchEnd));
+}
+
+static bool stFeatureSegment_rightAdjacencyIsWildCard(stFeatureSegment *fSegment, int64_t columnIndex) {
+    return columnIndex < fSegment->length - 1 ? 0 : fSegment->nPinchEnd.block == NULL;
 }
 
 static stFeatureBlock *stFeatureBlock_construct(stFeatureSegment *firstSegment, stPinchBlock *block) {
@@ -133,6 +143,7 @@ static stPinchSegment *get5PrimeMostSegment(stPinchSegment *segment, int64_t *ba
             (*blockDistance)--;
         }
     }
+    assert(segment != NULL);
     return segment;
 }
 
@@ -146,7 +157,7 @@ static int64_t countDistinctIndices(stFeatureBlock *featureBlock) {
     while ((segment = segment->nFeatureSegment) != NULL) {
         if (segment->segmentIndex != j) {
             i++;
-            segment->segmentIndex = j;
+            j = segment->segmentIndex;
         }
     }
     return i;
@@ -158,13 +169,13 @@ stList *stFeatureBlock_getContextualFeatureBlocks(stPinchBlock *block, int64_t m
     /*
      * First build the set of feature blocks, not caring if this produces trivial blocks.
      */
-    stHash *blocksToFeatureBlocks = stHash_construct(); //Hash to store allow featureBlocks to be progressively added to.
+    stHash *blocksToFeatureBlocks = stHash_construct(); //Hash to map blocks to featureBlocks.
     int64_t i = 0; //Index of segments in block.
     stPinchBlockIt it = stPinchBlock_getSegmentIterator(block);
     stPinchSegment *segment;
     while ((segment = stPinchBlockIt_getNext(&it)) != NULL) { //For each segment build the feature segment.
         int64_t blockDistance, baseDistance; //Distances from segment2 to segment
-        //Base distance is the difference from the start coordinate of segment2 to the mid point of segment.
+        //Base distance is the difference from the start coordinate of segment2 to the mid point of the segment.
         stPinchSegment *segment2 = get5PrimeMostSegment(segment, &blockDistance, &baseDistance, maxBaseDistance,
                 maxBlockDistance, ignoreUnalignedBases);
         do {
@@ -235,27 +246,40 @@ stList *stFeatureColumn_getFeatureColumns(stList *featureBlocks, stPinchBlock *b
 }
 
 /*
- * Adds to a feature matrix by iterating through the feature columns and adding in features of the column, according to the given function.
+ * Adds to a feature matrix by iterating through the feature columns and adding in features of the column,
+ * according to the given function.
  */
 static void addFeaturesToMatrix(stMatrix *matrix, stList *featureColumns, double distanceWeightFn(int64_t, int64_t),
-bool sampleColumns, bool (*equalFn)(stFeatureSegment *, stFeatureSegment *, int64_t)) {
+bool sampleColumns, bool (*equalFn)(stFeatureSegment *, stFeatureSegment *, int64_t),
+       bool (*nullFeature)(stFeatureSegment *, int64_t)) {
     for (int64_t i = 0; i < stList_length(featureColumns); i++) {
         stFeatureColumn *featureColumn = stList_get(featureColumns,
                 sampleColumns ? st_randomInt(0, stList_length(featureColumns)) : i);
         stFeatureSegment *fSegment = featureColumn->featureBlock->head;
         int64_t distance1 = stFeatureSegment_getColumnDistance(fSegment, featureColumn->columnIndex);
         while (fSegment != NULL) {
-            stFeatureSegment *nSegment = fSegment->nFeatureSegment;
-            while (nSegment != NULL) {
-                int64_t distance2 = stFeatureSegment_getColumnDistance(nSegment, featureColumn->columnIndex);
-                if (equalFn(fSegment, nSegment, featureColumn->columnIndex)) {
-                    *stMatrix_getCell(matrix, fSegment->segmentIndex, nSegment->segmentIndex) = distanceWeightFn(
-                            distance1, distance2);
-                } else {
-                    *stMatrix_getCell(matrix, fSegment->segmentIndex, nSegment->segmentIndex) = distanceWeightFn(
-                            distance1, distance2);
+            if(!nullFeature(fSegment, featureColumn->columnIndex)) {
+                stFeatureSegment *nSegment = fSegment->nFeatureSegment;
+                while (nSegment != NULL) {
+                    if(!nullFeature(nSegment, featureColumn->columnIndex)) {
+                        int64_t distance2 = stFeatureSegment_getColumnDistance(nSegment, featureColumn->columnIndex);
+                        int64_t j = fSegment->segmentIndex, k = nSegment->segmentIndex;
+                        if(j > k) { //Swap the ordering of the indices so that j < k.
+                            int64_t l = j;
+                            j = k;
+                            k = l;
+                        }
+                        assert(j < k);
+                        if (equalFn(fSegment, nSegment, featureColumn->columnIndex)) {
+                            *stMatrix_getCell(matrix, j, k) += distanceWeightFn(
+                                    distance1, distance2);
+                        } else {
+                            *stMatrix_getCell(matrix, j, k) += distanceWeightFn(
+                                    distance1, distance2);
+                        }
+                    }
+                    nSegment = nSegment->nFeatureSegment;
                 }
-                nSegment = nSegment->nFeatureSegment;
             }
             fSegment = fSegment->nFeatureSegment;
         }
@@ -265,16 +289,15 @@ bool sampleColumns, bool (*equalFn)(stFeatureSegment *, stFeatureSegment *, int6
 stMatrix *stPinchPhylogeny_getMatrixFromSubstitutions(stList *featureColumns, stPinchBlock *block,
         double distanceWeightFn(int64_t, int64_t), bool sampleColumns) {
     stMatrix *matrix = stMatrix_construct(stPinchBlock_getDegree(block), stPinchBlock_getDegree(block));
-    addFeaturesToMatrix(matrix, featureColumns, distanceWeightFn, sampleColumns, stFeatureSegment_basesEqual);
+    addFeaturesToMatrix(matrix, featureColumns, distanceWeightFn, sampleColumns, stFeatureSegment_basesEqual, stFeatureSegment_baseIsWildCard);
     return matrix;
 }
 
 stMatrix *stPinchPhylogeny_getMatrixFromBreakPoints(stList *featureColumns, stPinchBlock *block,
         double distanceWeightFn(int64_t, int64_t), bool sampleColumns) {
     stMatrix *matrix = stMatrix_construct(stPinchBlock_getDegree(block), stPinchBlock_getDegree(block));
-    addFeaturesToMatrix(matrix, featureColumns, distanceWeightFn, sampleColumns, stFeatureSegment_leftAdjacenciesEqual);
-    addFeaturesToMatrix(matrix, featureColumns, distanceWeightFn, sampleColumns,
-            stFeatureSegment_rightAdjacenciesEqual);
+    addFeaturesToMatrix(matrix, featureColumns, distanceWeightFn, sampleColumns, stFeatureSegment_leftAdjacenciesEqual, stFeatureSegment_leftAdjacencyIsWildCard);
+    addFeaturesToMatrix(matrix, featureColumns, distanceWeightFn, sampleColumns, stFeatureSegment_rightAdjacenciesEqual, stFeatureSegment_rightAdjacencyIsWildCard);
     return matrix;
 }
 

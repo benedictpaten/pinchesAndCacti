@@ -14,8 +14,8 @@ CuSuite* stPinchPhylogenyTestSuite(void);
 int stPinchesAndCactiRunAllTests(void) {
     CuString *output = CuStringNew();
     CuSuite* suite = CuSuiteNew();
-    CuSuiteAddSuite(suite, stPinchGraphsTestSuite());
-    CuSuiteAddSuite(suite, stCactusGraphsTestSuite());
+    //CuSuiteAddSuite(suite, stPinchGraphsTestSuite());
+    //CuSuiteAddSuite(suite, stCactusGraphsTestSuite());
     CuSuiteAddSuite(suite, stPinchPhylogenyTestSuite());
 
     CuSuiteRun(suite);
