@@ -69,7 +69,7 @@ stMatrix *stPinchPhylogeny_getMatrixFromSubstitutions(stList *featureColumns, st
 /*
  * Gets a matrix representing breakpoints.
  */
-stMatrix *stPinchPhylogeny_getMatrixFromBreakPoints(stList *featureColumns, stPinchBlock *block,
+stMatrix *stPinchPhylogeny_getMatrixFromBreakpoints(stList *featureColumns, stPinchBlock *block,
         double distanceWeightFn(int64_t, int64_t), bool sampleColumns);
 
 /*
