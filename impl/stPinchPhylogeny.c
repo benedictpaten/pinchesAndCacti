@@ -311,10 +311,14 @@ bool (*nullFeature)(stFeatureSegment *, int64_t)) {
     }
 }
 
+double stPinchPhylogeny_constantDistanceWeightFn(int64_t i, int64_t j) {
+    return 1;
+}
+
 stMatrix *stPinchPhylogeny_getMatrixFromSubstitutions(stList *featureColumns, stPinchBlock *block,
         double distanceWeightFn(int64_t, int64_t), bool sampleColumns) {
     stMatrix *matrix = stMatrix_construct(stPinchBlock_getDegree(block), stPinchBlock_getDegree(block));
-    addFeaturesToMatrix(matrix, featureColumns, distanceWeightFn, sampleColumns, stFeatureSegment_basesEqual,
+    addFeaturesToMatrix(matrix, featureColumns, distanceWeightFn == NULL ? stPinchPhylogeny_constantDistanceWeightFn : distanceWeightFn, sampleColumns, stFeatureSegment_basesEqual,
             stFeatureSegment_baseIsWildCard);
     return matrix;
 }
@@ -322,9 +326,9 @@ stMatrix *stPinchPhylogeny_getMatrixFromSubstitutions(stList *featureColumns, st
 stMatrix *stPinchPhylogeny_getMatrixFromBreakpoints(stList *featureColumns, stPinchBlock *block,
         double distanceWeightFn(int64_t, int64_t), bool sampleColumns) {
     stMatrix *matrix = stMatrix_construct(stPinchBlock_getDegree(block), stPinchBlock_getDegree(block));
-    addFeaturesToMatrix(matrix, featureColumns, distanceWeightFn, sampleColumns, stFeatureSegment_leftAdjacenciesEqual,
+    addFeaturesToMatrix(matrix, featureColumns, distanceWeightFn == NULL ? stPinchPhylogeny_constantDistanceWeightFn : distanceWeightFn, sampleColumns, stFeatureSegment_leftAdjacenciesEqual,
             stFeatureSegment_leftAdjacencyIsWildCard);
-    addFeaturesToMatrix(matrix, featureColumns, distanceWeightFn, sampleColumns, stFeatureSegment_rightAdjacenciesEqual,
+    addFeaturesToMatrix(matrix, featureColumns, distanceWeightFn == NULL ? stPinchPhylogeny_constantDistanceWeightFn : distanceWeightFn, sampleColumns, stFeatureSegment_rightAdjacenciesEqual,
             stFeatureSegment_rightAdjacencyIsWildCard);
     return matrix;
 }

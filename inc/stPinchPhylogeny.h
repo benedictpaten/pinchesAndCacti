@@ -62,15 +62,22 @@ stList *stFeatureColumn_getFeatureColumns(stList *featureBlocks, stPinchBlock *b
  * Gets a feature matrix representing SNPs.
  * The distance weight function is the amount of pairwise weight to place on a given feature, where its inputs
  * are, for each thread involved in the pair,  the distance between the midpoint of the thread and the location of the feature.
+ * If distanceWeightFn = null then stPinchPhylogeny_constantDistanceWeightFn is used.
  */
 stMatrix *stPinchPhylogeny_getMatrixFromSubstitutions(stList *featureColumns, stPinchBlock *block,
         double distanceWeightFn(int64_t, int64_t), bool sampleColumns);
 
 /*
  * Gets a matrix representing breakpoints.
+ * If distanceWeightFn = null then stPinchPhylogeny_constantDistanceWeightFn is used.
  */
 stMatrix *stPinchPhylogeny_getMatrixFromBreakpoints(stList *featureColumns, stPinchBlock *block,
         double distanceWeightFn(int64_t, int64_t), bool sampleColumns);
+
+/*
+ * Returns 1 for any pair of distances, used to weight all features, no matter separation, constantly.
+ */
+double stPinchPhylogeny_constantDistanceWeightFn(int64_t i, int64_t j);
 
 /*
  * Gets a symmetric distance matrix representing the feature matrix.
@@ -81,6 +88,7 @@ stMatrix *stPinchPhylogeny_getSymmetricDistanceMatrix(stMatrix *matrix);
 // tree must have bootstrap-support information for every node.
 stTree *removePoorlySupportedPartitions(stTree *tree,
                                         double threshold);
+
 
 
 #endif

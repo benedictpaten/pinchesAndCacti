@@ -320,10 +320,6 @@ static void testStFeatureColumn_getFeatureColumns(CuTest *testCase) {
  * Tests that for random sequence graphs the counts of substitutions is accurate.
  */
 
-static double constantDistanceWeightFn(int64_t i, int64_t j) {
-    //Let's do the simple case.
-    return 1;
-}
 
 /*
  * Function to increase similarty/difference matrix.
@@ -370,7 +366,7 @@ static void substitutionMatrixTestFn(stPinchBlock *block, stList *featureBlocks,
     stList *featureColumns = stFeatureColumn_getFeatureColumns(featureBlocks, block);
 
     //Make substitution matrix
-    stMatrix *matrix = stPinchPhylogeny_getMatrixFromSubstitutions(featureColumns, block, constantDistanceWeightFn, 0);
+    stMatrix *matrix = stPinchPhylogeny_getMatrixFromSubstitutions(featureColumns, block, NULL, 0);
 
     //Build substitution matrix independently from feature columns
     stMatrix *matrix2 = getSubstitutionMatrixSimply(featureColumns, stPinchBlock_getDegree(block));
@@ -420,7 +416,7 @@ static void breakpointMatrixTestFn(stPinchBlock *block, stList *featureBlocks, C
     stList *featureColumns = stFeatureColumn_getFeatureColumns(featureBlocks, block);
 
     //Make substitution matrix
-    stMatrix *matrix = stPinchPhylogeny_getMatrixFromBreakpoints(featureColumns, block, constantDistanceWeightFn, 0);
+    stMatrix *matrix = stPinchPhylogeny_getMatrixFromBreakpoints(featureColumns, block, NULL, 0);
 
     //Build substitution matrix independently from feature columns
     stMatrix *matrix2 = getBreakpointMatrixSimply(featureColumns, stPinchBlock_getDegree(block));
