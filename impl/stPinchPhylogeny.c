@@ -105,7 +105,8 @@ static bool stFeatureSegment_leftAdjacencyIsWildCard(stFeatureSegment *fSegment,
  */
 static bool stFeatureSegment_rightAdjacenciesEqual(stFeatureSegment *fSegment1, stFeatureSegment *fSegment2,
         int64_t columnIndex) {
-    return columnIndex < fSegment1->length - 1 ? 1 : stPinchEnd_equalsFn(&(fSegment1->nPinchEnd), &(fSegment2->nPinchEnd));
+    return columnIndex < fSegment1->length - 1 ?
+            1 : stPinchEnd_equalsFn(&(fSegment1->nPinchEnd), &(fSegment2->nPinchEnd));
 }
 
 static bool stFeatureSegment_rightAdjacencyIsWildCard(stFeatureSegment *fSegment, int64_t columnIndex) {
@@ -170,30 +171,51 @@ stList *stFeatureBlock_getContextualFeatureBlocks(stPinchBlock *block, int64_t m
      * First build the set of feature blocks, not caring if this produces trivial blocks.
      */
     stHash *blocksToFeatureBlocks = stHash_construct(); //Hash to map blocks to featureBlocks.
+    stHash *segmentsToFeatureSegments = stHash_construct(); //Hash to map segments to featureSegments, to remove overlaps.
     int64_t i = 0; //Index of segments in block.
     stPinchBlockIt it = stPinchBlock_getSegmentIterator(block);
     stPinchSegment *segment;
     while ((segment = stPinchBlockIt_getNext(&it)) != NULL) { //For each segment build the feature segment.
         int64_t blockDistance, baseDistance; //Distances from segment2 to segment
         //Base distance is the difference from the start coordinate of segment2 to the mid point of the segment.
-        stPinchSegment *segment2 = get5PrimeMostSegment(segment, &baseDistance, &blockDistance,
-                maxBaseDistance, maxBlockDistance, ignoreUnalignedBases);
+        stPinchSegment *segment2 = get5PrimeMostSegment(segment, &baseDistance, &blockDistance, maxBaseDistance,
+                maxBlockDistance, ignoreUnalignedBases);
+
         do {
             stPinchBlock *block2;
             if ((block2 = stPinchSegment_getBlock(segment2)) != NULL) {
-                //Make a new feature segment
-                stFeatureSegment *fSegment = stFeatureSegment_construct(segment2, strings, i, baseDistance);
-
-                //Attach it to a new block.
-                stFeatureBlock *featureBlock = stHash_search(blocksToFeatureBlocks, block2);
-                if (featureBlock == NULL) { //Create a new feature block
-                    featureBlock = stFeatureBlock_construct(fSegment, block2);
-                    stHash_insert(blocksToFeatureBlocks, block2, featureBlock);
-                } else { //Link it to the existing feature block
-                    featureBlock->tail->nFeatureSegment = fSegment;
-                    featureBlock->tail = fSegment;
+                //The following checks that if baseDistance + stPinchSegment_getLength(segment2) / 2 == 0 then the segment has to be the mid segment
+                if (baseDistance + stPinchSegment_getLength(segment2) / 2 == 0) {
+                    assert(segment2 == segment);
+                } else {
+                    assert(segment2 != segment);
                 }
 
+                stFeatureSegment *fSegment = stHash_search(segmentsToFeatureSegments, segment2);
+                if (fSegment == NULL) {
+                    //Make a new feature segment
+                    fSegment = stFeatureSegment_construct(segment2, strings, i, baseDistance);
+                    //Attach it to the related block.
+                    stFeatureBlock *featureBlock = stHash_search(blocksToFeatureBlocks, block2);
+                    if (featureBlock == NULL) { //Create a new feature block
+                        featureBlock = stFeatureBlock_construct(fSegment, block2);
+                        stHash_insert(blocksToFeatureBlocks, block2, featureBlock);
+                    } else { //Link it to the existing feature block
+                        featureBlock->tail->nFeatureSegment = fSegment;
+                        featureBlock->tail = fSegment;
+                    }
+                    stHash_insert(segmentsToFeatureSegments, segment2, fSegment);
+                } else {
+                    assert(segment2 == fSegment->segment);
+                    assert(stPinchSegment_getLength(segment2) == fSegment->length);
+                    assert(fSegment->distance != baseDistance); //It is not possible for these two distances to be equal.
+                    //If the midpoint of segment2 is closer to the mid point of segment than the midpoint of featureSegment->segment, then switch
+                    if (llabs(fSegment->distance + fSegment->length / 2)
+                            > llabs(baseDistance + fSegment->length / 2)) {
+                        fSegment->segmentIndex = i;
+                        fSegment->distance = baseDistance;
+                    }
+                }
                 baseDistance += stPinchSegment_getLength(segment2);
                 blockDistance++;
             } else if (!ignoreUnalignedBases) { //Only add the unaligned segment if not ignoring such segments.
@@ -204,6 +226,7 @@ stList *stFeatureBlock_getContextualFeatureBlocks(stPinchBlock *block, int64_t m
         } while (segment2 != NULL && baseDistance <= maxBaseDistance && blockDistance <= maxBlockDistance);
         i++; //Increase segment block index.
     }
+    stHash_destruct(segmentsToFeatureSegments);
     /*
      * Now filter the set of blocks so that only desired blocks are present.
      */
@@ -213,8 +236,7 @@ stList *stFeatureBlock_getContextualFeatureBlocks(stPinchBlock *block, int64_t m
     for (int64_t i = 0; i < stList_length(unfilteredFeatureBlocks); i++) {
         stFeatureBlock *featureBlock = stList_get(unfilteredFeatureBlocks, i);
         assert(featureBlock != NULL);
-        if (!onlyIncludeCompleteFeatureBlocks
-                        || countDistinctIndices(featureBlock) == stPinchBlock_getDegree(block)) {
+        if (!onlyIncludeCompleteFeatureBlocks || countDistinctIndices(featureBlock) == stPinchBlock_getDegree(block)) {
             stList_append(featureBlocks, featureBlock);
         } else {
             stFeatureBlock_destruct(featureBlock); //This is a trivial/unneeded feature block, so remove.
@@ -253,32 +275,31 @@ stList *stFeatureColumn_getFeatureColumns(stList *featureBlocks, stPinchBlock *b
  */
 static void addFeaturesToMatrix(stMatrix *matrix, stList *featureColumns, double distanceWeightFn(int64_t, int64_t),
 bool sampleColumns, bool (*equalFn)(stFeatureSegment *, stFeatureSegment *, int64_t),
-       bool (*nullFeature)(stFeatureSegment *, int64_t)) {
+bool (*nullFeature)(stFeatureSegment *, int64_t)) {
     for (int64_t i = 0; i < stList_length(featureColumns); i++) {
         stFeatureColumn *featureColumn = stList_get(featureColumns,
                 sampleColumns ? st_randomInt(0, stList_length(featureColumns)) : i);
         stFeatureSegment *fSegment = featureColumn->featureBlock->head;
         int64_t distance1 = stFeatureSegment_getColumnDistance(fSegment, featureColumn->columnIndex);
         while (fSegment != NULL) {
-            if(!nullFeature(fSegment, featureColumn->columnIndex)) {
+            if (!nullFeature(fSegment, featureColumn->columnIndex)) {
                 stFeatureSegment *nSegment = fSegment->nFeatureSegment;
                 while (nSegment != NULL) {
-                    if(!nullFeature(nSegment, featureColumn->columnIndex)) {
+                    if (!nullFeature(nSegment, featureColumn->columnIndex)) {
                         int64_t j = fSegment->segmentIndex, k = nSegment->segmentIndex;
-                        if(j != k) {
+                        if (j != k) {
                             if (j > k) { //Swap the ordering of the indices so that j < k.
                                 int64_t l = j;
                                 j = k;
                                 k = l;
                             }
                             assert(j < k);
-                            int64_t distance2 = stFeatureSegment_getColumnDistance(nSegment, featureColumn->columnIndex);
+                            int64_t distance2 = stFeatureSegment_getColumnDistance(nSegment,
+                                    featureColumn->columnIndex);
                             if (equalFn(fSegment, nSegment, featureColumn->columnIndex)) {
-                                *stMatrix_getCell(matrix, j, k) += distanceWeightFn(
-                                        distance1, distance2);
+                                *stMatrix_getCell(matrix, j, k) += distanceWeightFn(distance1, distance2);
                             } else {
-                                *stMatrix_getCell(matrix, k, j) += distanceWeightFn(
-                                        distance1, distance2);
+                                *stMatrix_getCell(matrix, k, j) += distanceWeightFn(distance1, distance2);
                             }
                         }
                     }
@@ -293,15 +314,18 @@ bool sampleColumns, bool (*equalFn)(stFeatureSegment *, stFeatureSegment *, int6
 stMatrix *stPinchPhylogeny_getMatrixFromSubstitutions(stList *featureColumns, stPinchBlock *block,
         double distanceWeightFn(int64_t, int64_t), bool sampleColumns) {
     stMatrix *matrix = stMatrix_construct(stPinchBlock_getDegree(block), stPinchBlock_getDegree(block));
-    addFeaturesToMatrix(matrix, featureColumns, distanceWeightFn, sampleColumns, stFeatureSegment_basesEqual, stFeatureSegment_baseIsWildCard);
+    addFeaturesToMatrix(matrix, featureColumns, distanceWeightFn, sampleColumns, stFeatureSegment_basesEqual,
+            stFeatureSegment_baseIsWildCard);
     return matrix;
 }
 
 stMatrix *stPinchPhylogeny_getMatrixFromBreakpoints(stList *featureColumns, stPinchBlock *block,
         double distanceWeightFn(int64_t, int64_t), bool sampleColumns) {
     stMatrix *matrix = stMatrix_construct(stPinchBlock_getDegree(block), stPinchBlock_getDegree(block));
-    addFeaturesToMatrix(matrix, featureColumns, distanceWeightFn, sampleColumns, stFeatureSegment_leftAdjacenciesEqual, stFeatureSegment_leftAdjacencyIsWildCard);
-    addFeaturesToMatrix(matrix, featureColumns, distanceWeightFn, sampleColumns, stFeatureSegment_rightAdjacenciesEqual, stFeatureSegment_rightAdjacencyIsWildCard);
+    addFeaturesToMatrix(matrix, featureColumns, distanceWeightFn, sampleColumns, stFeatureSegment_leftAdjacenciesEqual,
+            stFeatureSegment_leftAdjacencyIsWildCard);
+    addFeaturesToMatrix(matrix, featureColumns, distanceWeightFn, sampleColumns, stFeatureSegment_rightAdjacenciesEqual,
+            stFeatureSegment_rightAdjacencyIsWildCard);
     return matrix;
 }
 
@@ -324,23 +348,21 @@ stMatrix *stPinchPhylogeny_getSymmetricDistanceMatrix(stMatrix *matrix) {
 
 // Returns a new tree with poorly-supported partitions removed. The
 // tree must have bootstrap-support information for every node.
-stTree *removePoorlySupportedPartitions(stTree *tree,
-                                        double threshold)
-{
+stTree *removePoorlySupportedPartitions(stTree *tree, double threshold) {
     int64_t i, j;
     stTree *ret = stTree_cloneNode(tree);
     stPhylogenyInfo *info = stPhylogenyInfo_clone(stTree_getClientData(tree));
     stTree_setClientData(ret, info);
-    for(i = 0; i < stTree_getChildNumber(tree); i++) {
+    for (i = 0; i < stTree_getChildNumber(tree); i++) {
         stTree *child = stTree_getChild(tree, i);
         stTree_setParent(removePoorlySupportedPartitions(child, threshold), ret);
     }
-    if(info->bootstrapSupport < threshold) {
+    if (info->bootstrapSupport < threshold) {
         // Make all grandchildren (if any) into children instead.
-        for(i = 0; i < stTree_getChildNumber(ret); i++) {
+        for (i = 0; i < stTree_getChildNumber(ret); i++) {
             stTree *child = stTree_getChild(ret, i);
-            if(stTree_getChildNumber(child) != 0) {
-                for(j = 0; j < stTree_getChildNumber(child); j++) {
+            if (stTree_getChildNumber(child) != 0) {
+                for (j = 0; j < stTree_getChildNumber(child); j++) {
                     stTree *grandChild = stTree_getChild(child, j);
                     // hacky, but the grandchild number has decreased by 1
                     j--;
