@@ -376,6 +376,7 @@ static void substitutionMatrixTestFn(stPinchBlock *block, stList *featureBlocks,
 
     //Cleanup
     stMatrix_destruct(matrix);
+    stMatrix_destruct(matrix2);
     stList_destruct(featureColumns);
 }
 
@@ -426,6 +427,7 @@ static void breakpointMatrixTestFn(stPinchBlock *block, stList *featureBlocks, C
 
     //Cleanup
     stMatrix_destruct(matrix);
+    stMatrix_destruct(matrix2);
     stList_destruct(featureColumns);
 }
 
