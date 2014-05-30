@@ -380,6 +380,7 @@ static void substitutionMatrixTestFn(stPinchBlock *block, stList *featureBlocks,
     stList_destruct(featureColumns);
 }
 
+
 static void testStPinchPhylogeny_getMatrixFromSubstitutions(CuTest *testCase) {
     makeAndTestRandomFeatureBlocks(testCase, substitutionMatrixTestFn);
 }
@@ -442,28 +443,384 @@ static void testStPinchPhylogeny_getSymmetricDistanceMatrix(CuTest *testCase) {
     /* TODO */
 }
 
+static int cmpInt64P(const void *a, const void *b) {
+    int64_t x, y;
+    x = *(int64_t *) a;
+    y = *(int64_t *) b;
+    return (x > y) ? 1 : ((x == y) ? 0 : -1);
+}
+
+// Checks a single leaf set to make sure there are no dups, values out
+// of range, etc
+static void checkLeafSet(CuTest *testCase, stList *leafSet,
+                         int64_t numLeaves, char *seen) {
+    for(int64_t i = 0; i < stList_length(leafSet); i++) {
+        int64_t leaf = *(int64_t *)stList_get(leafSet, i);
+        CuAssertTrue(testCase, leaf >= 0);
+        CuAssertTrue(testCase, leaf < numLeaves);
+        CuAssertTrue(testCase, seen[leaf] == 0);
+        seen[leaf] = 1;
+    }
+}
+
+// Tests a list of leaf-sets returned by splitTreeOnOutgroups to make
+// sure the sets are disjoint, etc
+// TODO: ask for the tree as a parameter, and check that the MRCA of
+// all the ingroups in a set does not have any of the outgroups under it
+static void checkSplitLeafSets(CuTest *testCase, stList *splitSets,
+                               int64_t numLeaves) {
+    char *seen = calloc(numLeaves, sizeof(char));
+    for(int64_t i = 0; i < stList_length(splitSets); i++) {
+        checkLeafSet(testCase, stList_get(splitSets, i), numLeaves, seen);
+    }
+    free(seen);
+}
+
+// Check that the leaf-set list contains a particular leaf-set
+// (represented by a sorted array, to be more compact/readable.)
+// FIXME: this is really stupid, check the overhead on just using stSets
+// instead
+static void checkContainsLeafSet(CuTest *testCase, stList *splitSets,
+                                 int64_t *leaves, int64_t size) {
+    bool found = false;
+    for(int64_t i = 0; i < stList_length(splitSets); i++) {
+        stList *leafSet = stList_get(splitSets, i);
+        if(stList_length(leafSet) == size) {
+            // Could be the same set--sort the list and check
+            stList_sort(leafSet, cmpInt64P);
+            if(*(int64_t *)stList_get(leafSet, 0) == leaves[0]) {
+                // First index matches, could be the right leaf set
+                found = true;
+                for(int64_t j = 0; j < size; j++) {
+                    CuAssertIntEquals(testCase, leaves[j], *(int64_t *)stList_get(leafSet, j));
+                }
+            }
+        }
+    }
+    // Make sure a copy of the leaf set was actually found
+    CuAssertTrue(testCase, found);
+}
+
+static void testSimpleSplitTreeOnOutgroups(CuTest *testCase) {
+    stTree *tree = stTree_parseNewickString("(((((0,1):1,(2,3):1):1,4:1):1,5:1):1,(6:1,(7:1,8:1):1):1);");
+    stList *outgroups = stList_construct();
+    stList *result;
+    stPhylogeny_addStPhylogenyInfo(tree);
+
+    // Simplest test -- running w/ no outgroups should yield a list
+    // containing one leaf set with all leaves.
+    result = stPinchPhylogeny_splitTreeOnOutgroups(tree, outgroups);
+    checkSplitLeafSets(testCase, result, 9);
+    CuAssertIntEquals(testCase, stList_length(result), 1);
+            
+    stList_sort(stList_get(result, 0), cmpInt64P);
+    for(int64_t i = 0; i < stList_length(result); i++) {
+        stList *leafSet = stList_get(result, i);
+        for(int64_t j = 0; j < stList_length(leafSet); j++) {
+            CuAssertIntEquals(testCase, j, *(int64_t *)stList_get(leafSet, j));
+            free(stList_get(leafSet, j));
+        }
+        stList_destruct(leafSet);
+    }
+    stList_destruct(result);
+
+    // Outgroups: 2,3,6
+    // Should split into {0,1,2,3}, {4}, {5}, and {6,7,8}
+    int64_t tmp[] = {2, 3, 6};
+    stList_append(outgroups, tmp + 0);
+    stList_append(outgroups, tmp + 1);
+    stList_append(outgroups, tmp + 2);
+    result = stPinchPhylogeny_splitTreeOnOutgroups(tree, outgroups);
+    checkSplitLeafSets(testCase, result, 9);
+    CuAssertIntEquals(testCase, 4, stList_length(result));
+    int64_t leafSet1[] = {0,1,2,3};
+    checkContainsLeafSet(testCase, result, leafSet1, 4);
+    int64_t leafSet2[] = {4};
+    checkContainsLeafSet(testCase, result, leafSet2, 1);
+    int64_t leafSet3[] = {5};
+    checkContainsLeafSet(testCase, result, leafSet3, 1);
+    int64_t leafSet4[] = {6,7,8};
+    checkContainsLeafSet(testCase, result, leafSet4, 3);
+}
+
+// Test an assert on all nodes of a tree.
+static void testOnTree(CuTest *testCase, stTree *tree,
+                       void (*assertFn)(stTree *, CuTest *)) {
+    int64_t i;
+    assertFn(tree, testCase);
+    for (i = 0; i < stTree_getChildNumber(tree); i++) {
+        testOnTree(testCase, stTree_getChild(tree, i), assertFn);
+    }
+}
+
+// Check that the leavesBelow information is correct for a node.
+static void checkLeavesBelow(stTree *tree, CuTest *testCase) {
+    int64_t i;
+    stPhylogenyInfo *info = stTree_getClientData(tree);
+    for (i = 0; i < info->totalNumLeaves; i++) {
+        char *label = stString_print("%" PRIi64, i);
+        if (info->leavesBelow[i]) {
+            // leavesBelow says it has leaf i under it -- check
+            // that it actually does
+            CuAssertTrue(testCase, stTree_findChild(tree, label) != NULL ||
+                         info->matrixIndex == i);
+        } else {
+            // leavesBelow says leaf i is not under this node, check
+            // that it's not
+            CuAssertTrue(testCase, stTree_findChild(tree, label) == NULL);
+        }
+        free(label);
+    }
+}
+
 static void testSimpleRemovePoorlySupportedPartitions(CuTest *testCase) {
     int64_t i;
     stTree *tree = stTree_parseNewickString("(((((0,1),(2,3)),4),5),(6,(7,8)));");
     stTree *result;
+    stPhylogenyInfo *info;
     stPhylogeny_addStPhylogenyInfo(tree);
 
     // Running on a tree with no support at all should create a star tree.
-    result = removePoorlySupportedPartitions(tree, 1.0);
+    result = stPinchPhylogeny_removePoorlySupportedPartitions(tree, 1.0);
     CuAssertIntEquals(testCase, 9, stTree_getChildNumber(result));
     for (i = 0; i < stTree_getChildNumber(result); i++) {
         stTree *child = stTree_getChild(result, i);
         CuAssertIntEquals(testCase, 0, stTree_getChildNumber(child));
     }
+    // check that the leavesBelow info is set correctly after the fold
+    testOnTree(testCase, result, checkLeavesBelow);
+    stPhylogenyInfo_destructOnTree(result);
+    stTree_destruct(result);
+
+    // Only the two partitions below the root are supported
+    // sufficiently -- result should be ((5,4,3,2,1,0),(6,7,8));
+    info = stTree_getClientData(stPhylogeny_getMRCA(tree, 0, 5));
+    info->bootstrapSupport = 0.4;
+    info = stTree_getClientData(stPhylogeny_getMRCA(tree, 6, 8));
+    info->bootstrapSupport = 1.0;
+    result = stPinchPhylogeny_removePoorlySupportedPartitions(tree, 0.2);
+    CuAssertIntEquals(testCase, 2, stTree_getChildNumber(result));
+    // Check that the leavesBelow attribute is set correctly
+    testOnTree(testCase, result, checkLeavesBelow);
+    for (i = 0; i < stTree_getChildNumber(result); i++) {
+        stTree *child = stTree_getChild(result, i);
+        if (child == stPhylogeny_getMRCA(result, 5, 0)) {
+            CuAssertIntEquals(testCase, 6, stTree_getChildNumber(child));
+        } else {
+            CuAssertIntEquals(testCase, 3, stTree_getChildNumber(child));
+        }
+    }
+    stPhylogenyInfo_destructOnTree(tree);
+    stTree_destruct(tree);
+}
+
+static stMatrix *getRandomDistanceMatrix(int64_t size) {
+    int64_t i, j;
+    assert(size >= 3);
+    stMatrix *ret = stMatrix_construct(size, size);
+    for (i = 0; i < size; i++) {
+        for (j = 0; j <= i; j++) {
+            double *cell = stMatrix_getCell(ret, i, j);
+            double val = st_random();
+            *cell = val;
+            // Make sure the other half of the matrix is identical
+            cell = stMatrix_getCell(ret, size - i - 1, size - j - 1);
+            *cell = val;
+        }
+    }
+    return ret;
+}
+
+// Samples with replacement from the columns of a distance matrix
+static stMatrix *bootstrapMatrix(stMatrix *matrix) {
+    assert(stMatrix_m(matrix) == stMatrix_n(matrix));
+    int64_t size = stMatrix_n(matrix);
+    stMatrix *ret = stMatrix_construct(size, size);
+    for(int64_t j = 0; j < size; j++) {
+        int64_t otherJ = st_randomInt64(0, size - 1);
+        for(int64_t i = 0; i < size; i++) {
+            *stMatrix_getCell(ret, i, j) = *stMatrix_getCell(matrix, i, otherJ);
+        }
+    }
+    return ret;
+}
+
+// Helper method to generate a bootstrapped tree from a random distance matrix
+static stTree *getRandomBootstrappedTree(int64_t numLeaves,
+                                         int64_t numBootstraps) {
+    // Get a random matrix and canonical tree
+    stMatrix *matrix = getRandomDistanceMatrix(numLeaves);
+    stTree *tree = stPhylogeny_neighborJoin(matrix);
+    
+    // Get the bootstraps
+    stList *bootstraps = stList_construct();
+    for(int64_t bootstrapNum = 0; bootstrapNum < numBootstraps; bootstrapNum++) {
+        stMatrix *bootstrappedMatrix = bootstrapMatrix(matrix);
+        stTree *bootstrap = stPhylogeny_neighborJoin(bootstrappedMatrix);
+        stList_append(bootstraps, bootstrap);
+
+        stMatrix_destruct(bootstrappedMatrix);
+    }
+
+    // Score the canonical tree on the bootstraps
+    stTree *ret = stPhylogeny_scoreFromBootstraps(tree, bootstraps);
+
+    // Clean up
+    stMatrix_destruct(matrix);
+    for(int64_t i = 0; i < stList_length(bootstraps); i++) {
+        stTree *bootstrap = stList_get(bootstraps, i);
+        stPhylogenyInfo_destructOnTree(bootstrap);
+        stTree_destruct(bootstrap);
+    }
+    stList_destruct(bootstraps);
+    stPhylogenyInfo_destructOnTree(tree);
+    stTree_destruct(tree);
+    return ret;
+}
+
+// Checks that tree2 has a node with the same leaf set as node1
+static bool isPartitionInOtherTree(stTree *node1, stTree *tree2) {
+    stPhylogenyInfo *nodeInfo = stTree_getClientData(node1);
+    stPhylogenyInfo *otherInfo = stTree_getClientData(tree2);
+
+    assert(nodeInfo->totalNumLeaves == otherInfo->totalNumLeaves);
+
+    if(memcmp(nodeInfo->leavesBelow, otherInfo->leavesBelow, nodeInfo->totalNumLeaves) == 0) {
+        // The two nodes have the same leaf set
+        return true;
+    }
+
+    // Check if any of the children or their descendants could have
+    // the same leaf set as the node
+    for(int64_t i = 0; i < stTree_getChildNumber(tree2); i++) {
+        bool isSuperset = true;
+        stTree *child = stTree_getChild(tree2, i);
+        stPhylogenyInfo *childInfo = stTree_getClientData(child);
+        for(int64_t j = 0; j < nodeInfo->totalNumLeaves; j++) {
+            if(nodeInfo->leavesBelow[j] && !childInfo->leavesBelow[j]) {
+                isSuperset = false;
+                break;
+            }
+        }
+        if(isSuperset) {
+            // This child or one of its descendants could have the
+            // same leaf set as the node.
+            return isPartitionInOtherTree(node1, child);
+        }
+    }
+    return false;
+}
+
+// Check that a tree has all its well-supported nodes preserved after folding,
+// and that none of its poorly-supported nodes still exist.
+static void checkPoorlySupportedFolding(CuTest *testCase, stTree *foldedTree, 
+                                        stTree *origTree, double threshold) {
+    stPhylogenyInfo *info = stTree_getClientData(origTree);
+    if(info->bootstrapSupport >= threshold) {
+        // There should be a node with an identical leaf set still in
+        // the folded tree
+        CuAssertTrue(testCase, isPartitionInOtherTree(origTree, foldedTree));
+    } else {
+        // This node should be gone in the folded tree
+        CuAssertTrue(testCase, !isPartitionInOtherTree(origTree, foldedTree));
+    }
+
+    // Recurse on the original tree's children
+    for(int64_t i = 0; i < stTree_getChildNumber(origTree); i++) {
+        checkPoorlySupportedFolding(testCase, foldedTree,
+                                    stTree_getChild(origTree, i), threshold);
+    }
+}
+
+// Bootstrap random trees and test that
+// removePoorlySupportedPartitions works on them
+static void testRandomRemovePoorlySupportedPartitions(CuTest *testCase) {
+    for(int64_t testNum = 0; testNum < 100; testNum++) {
+        int64_t size = st_randomInt64(3, 100);
+        int64_t numBootstraps = st_randomInt64(1, 100);
+        stTree *tree = getRandomBootstrappedTree(size, numBootstraps);
+        double poorlySupportedLevel = st_random();
+
+        // Remove partitions and check that the poorly supported
+        // partitions are gone, while the supported ones are still
+        // there.
+        stTree *foldedTree = stPinchPhylogeny_removePoorlySupportedPartitions(tree, poorlySupportedLevel);
+        checkPoorlySupportedFolding(testCase, foldedTree, tree,
+                                    poorlySupportedLevel);
+    }
+}
+
+static void testRandomSplitTreeOnOutgroups(CuTest *testCase) {
+    for(int64_t testNum = 0; testNum < 100; testNum++) {
+        int64_t size = st_randomInt64(3, 100);
+        int64_t numBootstraps = st_randomInt64(1, 100);
+        stTree *tree = getRandomBootstrappedTree(size, numBootstraps);
+
+        // Get a random subset of leaves to call outgroups
+        stList *outgroups = stList_construct();
+        for(int64_t i = 0; i < size; i++) {
+            if(st_random() < 0.1) {
+                int64_t *heapI = malloc(sizeof(int64_t));
+                *heapI = i;
+                stList_append(outgroups, heapI);
+            }
+        }
+
+        stList *splitLeafSets = stPinchPhylogeny_splitTreeOnOutgroups(tree, outgroups);
+        checkSplitLeafSets(testCase, splitLeafSets, size);
+    }
+}
+
+static void getLeafSetsFromPinchTestFn(stPinchBlock *block, stList *featureBlocks, CuTest *testCase) {
+    // Make feature columns
+    stList *featureColumns = stFeatureColumn_getFeatureColumns(featureBlocks, block);
+    int64_t numBootstraps = st_randomInt64(1, 100);
+    double confidenceThreshold = st_random();
+    int64_t numLeaves = stPinchBlock_getDegree(block);
+
+    // Get a random subset of leaves to call outgroups
+    stList *outgroups = stList_construct3(0, free);
+    for(int64_t i = 0; i < numLeaves; i++) {
+        if(st_random() < 0.1) {
+            int64_t *heapI = malloc(sizeof(int64_t));
+            *heapI = i;
+            stList_append(outgroups, heapI);
+        }
+    }
+
+    stList *leafSets = stPinchPhylogeny_getLeafSetsFromFeatureColumns(
+        featureColumns, block, numBootstraps, confidenceThreshold, outgroups);
+    checkSplitLeafSets(testCase, leafSets, numLeaves);
+
+    // Check that every leaf is present in one of the leaf sets
+    int64_t numLeavesInSets = 0;
+    for(int64_t i = 0; i < stList_length(leafSets); i++) {
+        stList *leafSet = stList_get(leafSets, i);
+        numLeavesInSets += stList_length(leafSet);
+    }
+    CuAssertTrue(testCase, numLeavesInSets == numLeaves);
+
+    // Clean up
+    stList_destruct(leafSets);
+    stList_destruct(outgroups);
+    stList_destruct(featureColumns);
+}
+
+static void testStPinchPhylogeny_getLeafSetsFromFeatureColumns(CuTest *testCase) {
+    makeAndTestRandomFeatureBlocks(testCase, getLeafSetsFromPinchTestFn);
 }
 
 CuSuite* stPinchPhylogenyTestSuite(void) {
     CuSuite* suite = CuSuiteNew();
     SUITE_ADD_TEST(suite, testSimpleRemovePoorlySupportedPartitions);
+    SUITE_ADD_TEST(suite, testSimpleSplitTreeOnOutgroups);
     SUITE_ADD_TEST(suite, testStFeatureBlock_getContextualFeatureBlocks);
     SUITE_ADD_TEST(suite, testStFeatureColumn_getFeatureColumns);
     SUITE_ADD_TEST(suite, testStPinchPhylogeny_getMatrixFromSubstitutions);
     SUITE_ADD_TEST(suite, testStPinchPhylogeny_getMatrixFromBreakPoints);
     SUITE_ADD_TEST(suite, testStPinchPhylogeny_getSymmetricDistanceMatrix);
+    SUITE_ADD_TEST(suite, testRandomRemovePoorlySupportedPartitions);
+    SUITE_ADD_TEST(suite, testRandomSplitTreeOnOutgroups);
+    SUITE_ADD_TEST(suite, testStPinchPhylogeny_getLeafSetsFromFeatureColumns);
     return suite;
 }

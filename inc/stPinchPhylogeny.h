@@ -86,9 +86,27 @@ stMatrix *stPinchPhylogeny_getSymmetricDistanceMatrix(stMatrix *matrix);
 
 // Returns a new tree with poorly-supported partitions removed. The
 // tree must have bootstrap-support information for every node.
-stTree *removePoorlySupportedPartitions(stTree *tree,
-                                        double threshold);
+stTree *stPinchPhylogeny_removePoorlySupportedPartitions(stTree *tree,
+                                                         double threshold);
 
+// Split tree into subtrees such that no ingroup has a path to another
+// ingroup that includes its MRCA with an outgroup
+// Returns leaf sets (as stLists) from the subtrees
+// Outgroup list should be pointers to int64_ts representing matrix indices
+stList *stPinchPhylogeny_splitTreeOnOutgroups(stTree *tree, stList *outgroups);
 
-
+// Gets a list of disjoint leaf sets (ingroup clades separated by
+// outgroups) from a set of feature columns. The leaves are ints
+// corresponding to the index of their respective feature column
+//
+// NB: "leaf set" is somewhat a misnomer since this just returns an
+// stList of stLists of ints
+//
+// TODO: add distance weight function and matrix-merge function as
+// parameters if necessary
+stList *stPinchPhylogeny_getLeafSetsFromFeatureColumns(stList *featureColumns,
+                                                       stPinchBlock *block,
+                                                       int64_t numBootstraps,
+                                                       double confidenceThreshold,
+                                                       stList *outgroups);
 #endif

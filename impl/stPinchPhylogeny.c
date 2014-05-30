@@ -352,42 +352,207 @@ stMatrix *stPinchPhylogeny_getSymmetricDistanceMatrix(stMatrix *matrix) {
 
 // Returns a new tree with poorly-supported partitions removed. The
 // tree must have bootstrap-support information for every node.
-stTree *removePoorlySupportedPartitions(stTree *tree, double threshold) {
+stTree *stPinchPhylogeny_removePoorlySupportedPartitions(stTree *tree, double threshold) {
     int64_t i, j;
     stTree *ret = stTree_cloneNode(tree);
     stPhylogenyInfo *info = stPhylogenyInfo_clone(stTree_getClientData(tree));
     stTree_setClientData(ret, info);
     for (i = 0; i < stTree_getChildNumber(tree); i++) {
         stTree *child = stTree_getChild(tree, i);
-        stTree_setParent(removePoorlySupportedPartitions(child, threshold), ret);
+        stTree_setParent(stPinchPhylogeny_removePoorlySupportedPartitions(child, threshold), ret);
     }
-    if (info->bootstrapSupport < threshold) {
-        // Make all grandchildren (if any) into children instead.
-        for (i = 0; i < stTree_getChildNumber(ret); i++) {
-            stTree *child = stTree_getChild(ret, i);
-            if (stTree_getChildNumber(child) != 0) {
-                for (j = 0; j < stTree_getChildNumber(child); j++) {
-                    stTree *grandChild = stTree_getChild(child, j);
-                    // hacky, but the grandchild number has decreased by 1
-                    j--;
-                    stTree_setParent(grandChild, ret);
-                }
-                // Cleanup the unneeded child
-                stPhylogenyInfo_destruct(stTree_getClientData(child));
+    for (i = 0; i < stTree_getChildNumber(ret); i++) {
+        stTree *child = stTree_getChild(ret, i);
+        stPhylogenyInfo *childInfo = stTree_getClientData(child);
+        if (childInfo->bootstrapSupport < threshold) {
+            int64_t numGrandChildren = stTree_getChildNumber(child);
+            // The bootstrap support for this child is poor, so make
+            // all grandchildren (if any) into children instead.
+            for (j = 0; j < stTree_getChildNumber(child); j++) {
+                stTree *grandChild = stTree_getChild(child, j);
+                stTree_setParent(grandChild, ret);
+                // hacky, but the grandchild number has decreased by 1
+                j--;
+            }
+            // If there were any grandchildren, then get rid of the
+            // useless node entirely. If it's a leaf, it must be kept.
+            if (numGrandChildren != 0) {
                 stTree_setParent(child, NULL);
                 // hacky, but the child number has decreased by 1
                 i--;
-                // FIXME: need to destruct just one node here, not all
-                // the children!
-                // stTree_destruct(child);
+                stTree_destruct(child);
             }
         }
     }
     return ret;
 }
 
-stList *splitTreeOnOutgroups(stTree *tree, stSet *outgroups) {
-    return NULL;
+// Returns a list of maximal subtrees that contain only ingroups
+static stList *findIngroupClades(stTree *tree, stList *outgroups) {
+    int64_t i, j;
+    stList *ret = stList_construct();
+    bool noChildrenHaveOutgroups = stTree_getChildNumber(tree) != 0;
+    for(i = 0; i < stTree_getChildNumber(tree); i++) {
+        // check if this node has any outgroups below it.
+        stTree *child = stTree_getChild(tree, i);
+        stPhylogenyInfo *childInfo = stTree_getClientData(child);
+        bool hasOutgroup = false;
+        for(j = 0; j < stList_length(outgroups); j++) {
+            int64_t *outgroup = stList_get(outgroups, j); 
+            assert(*outgroup < childInfo->totalNumLeaves);
+            if(childInfo->leavesBelow[*outgroup]) {
+                hasOutgroup = true;
+                break;
+            }
+        }
+        if(hasOutgroup) {
+            stList *subTrees = findIngroupClades(child, outgroups);
+            stList_appendAll(ret, subTrees);
+            stList_destruct(subTrees);
+            noChildrenHaveOutgroups = false;
+        } else {
+            stList_append(ret, child);
+        }
+    }
+    // A little screwy, but it's possible for the tree to have no
+    // children that have outgroups if this is the root and there are
+    // no outgroups in the tree. The contents of ret will be
+    // partitioned incorrectly in this case, so it's fixed here.
+    if(noChildrenHaveOutgroups) {
+        assert(stTree_getParent(tree) == NULL);
+        // Safe to leave the contents unfreed since the tree's memory
+        // is accounted for by the root
+        stList_destruct(ret);
+        ret = stList_construct();
+        stList_append(ret, tree);
+    }
+    return ret;
+}
+
+
+// Split tree into subtrees such that no ingroup has a path to another
+// ingroup that includes its MRCA with an outgroup
+// Returns leaf sets (as stLists) from the subtrees
+// Outgroup list should be pointers to int64_ts representing matrix indices
+// TODO: "leaf set" might be better as its own structure rather than an stList?
+stList *stPinchPhylogeny_splitTreeOnOutgroups(stTree *tree, stList *outgroups) {
+    int64_t i, j;
+    stList *clades = findIngroupClades(tree, outgroups);
+    stList *ret = stList_construct();
+
+    // Create the initial leaf sets from the ingroup clades.
+    for(i = 0; i < stList_length(clades); i++) {
+        stTree *clade = stList_get(clades, i);
+        stPhylogenyInfo *cladeInfo = stTree_getClientData(clade);
+        stList *leafSet = stList_construct();
+        for(j = 0; j < cladeInfo->totalNumLeaves; j++) {
+            if(cladeInfo->leavesBelow[j]) {
+                int64_t *jHeap = malloc(sizeof(int64_t));
+                *jHeap = j;
+                stList_append(leafSet, jHeap);
+            }
+        }
+        stList_append(ret, leafSet);
+    }
+
+    for(i = 0; i < stList_length(outgroups); i++) {
+        int64_t *outgroup = stList_get(outgroups, i);
+        stTree *outgroupNode = stPhylogeny_getLeafByIndex(tree, *outgroup);
+        // Find the closest clade to this outgroup and attach the
+        // outgroup to its returned leaf set
+        double minDistance = -1.0;
+        stList *closestSet;
+        for(j = 0; j < stList_length(clades); j++) {
+            stTree *clade = stList_get(clades, j);
+            stList *returnedSet = stList_get(ret, j);
+            double dist = stPhylogeny_distanceBetweenNodes(outgroupNode, clade);
+            if(dist < minDistance || minDistance == -1.0) {
+                    closestSet = returnedSet;
+                    minDistance = dist;
+            }
+        }
+        assert(closestSet != NULL);
+        stList_append(closestSet, outgroup);
+    }
+    return ret;
+}
+
+// Builds a tree from a set of feature columns.
+// TODO: add distance weight function and matrix-merge function as
+// parameters if necessary
+stTree *stPinchPhylogeny_buildTreeFromFeatureColumns(stList *featureColumns,
+                                                     stPinchBlock *block,
+                                                     bool bootstrap) {
+    stMatrix *snpMatrix = stPinchPhylogeny_getMatrixFromSubstitutions(featureColumns, block, NULL, bootstrap);
+    stMatrix *breakpointMatrix = stPinchPhylogeny_getMatrixFromBreakpoints(featureColumns, block, NULL, bootstrap);
+
+    // Build distance matrix from the two matrices
+    stMatrix *mergedMatrix = stMatrix_add(snpMatrix, breakpointMatrix);
+    stMatrix *matrix = stPinchPhylogeny_getSymmetricDistanceMatrix(mergedMatrix);
+    stTree *tree = stPhylogeny_neighborJoin(matrix);
+
+    // Clean up
+    stMatrix_destruct(snpMatrix);
+    stMatrix_destruct(breakpointMatrix);
+    stMatrix_destruct(mergedMatrix);
+    stMatrix_destruct(matrix);
+    return tree;
+}
+
+// Gets a list of disjoint leaf sets (ingroup clades separated by
+// outgroups) from a set of feature columns. The leaves are ints
+// corresponding to the index of their respective feature column
+// TODO: add distance weight function and matrix-merge function as
+// parameters if necessary
+stList *stPinchPhylogeny_getLeafSetsFromFeatureColumns(stList *featureColumns,
+                                                       stPinchBlock *block,
+                                                       int64_t numBootstraps,
+                                                       double confidenceThreshold,
+                                                       stList *outgroups) {
+    int64_t numLeaves = stPinchBlock_getDegree(block);
+    if(numLeaves < 3) {
+        // No point in building a tree for < 3 nodes, return a set
+        // containing everything
+        stList *ret = stList_construct();
+        stList *inner = stList_construct();
+        for(int64_t i = 0; i < numLeaves; i++) {
+            int64_t *heapI = malloc(sizeof(int64_t));
+            *heapI = i;
+            stList_append(inner, heapI);
+        }
+        stList_append(ret, inner);
+        return ret;
+    }
+
+    // Get the canonical tree, which does not use resampling of the columns.
+    stTree *canonicalTree = stPinchPhylogeny_buildTreeFromFeatureColumns(featureColumns, block, false);
+    stList *bootstraps = stList_construct();
+    if(numBootstraps > 0) {
+        // Make the bootstrap trees and re-score the canonical tree's
+        // partitions according to the bootstraps'.
+        for(int64_t i = 0; i < numBootstraps; i++) {
+            stTree *bootstrap = stPinchPhylogeny_buildTreeFromFeatureColumns(featureColumns, block, true);
+            stList_append(bootstraps, bootstrap);
+        }
+        stPhylogeny_scoreFromBootstraps(canonicalTree, bootstraps);
+
+        // Remove partitions that don't meet the criteria
+        stTree *tmp = stPinchPhylogeny_removePoorlySupportedPartitions(canonicalTree, confidenceThreshold);
+        stPhylogenyInfo_destructOnTree(canonicalTree);
+        stTree_destruct(canonicalTree);
+        canonicalTree = tmp;
+    }
+    // Get the leaf sets.
+    stList *ret = stPinchPhylogeny_splitTreeOnOutgroups(canonicalTree, outgroups);
+
+    // Clean up.
+    for(int64_t i = 0; i < stList_length(bootstraps); i++) {
+        stTree *bootstrap = stList_get(bootstraps, i);
+        stPhylogenyInfo_destructOnTree(bootstrap);
+        stTree_destruct(bootstrap);
+    }
+    stList_destruct(bootstraps);
+    return ret;
 }
 
 // (Re)root and reconcile a gene tree to conform with the species tree.
