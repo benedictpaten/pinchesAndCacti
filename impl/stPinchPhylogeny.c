@@ -343,7 +343,8 @@ stMatrix *stPinchPhylogeny_getSymmetricDistanceMatrix(stMatrix *matrix) {
         for (int64_t j = i + 1; j < stMatrix_n(matrix); j++) {
             double similarities = *stMatrix_getCell(matrix, i, j); //The similarity count
             double differences = *stMatrix_getCell(matrix, j, i); //The difference count
-            *stMatrix_getCell(distanceMatrix, i, j) = ((double) differences) / (similarities + differences);
+            double count = similarities + differences;
+            *stMatrix_getCell(distanceMatrix, i, j) = count == 0.0 ? differences / count : INT64_MAX;
             *stMatrix_getCell(distanceMatrix, j, i) = *stMatrix_getCell(distanceMatrix, i, j);
         }
     }
