@@ -443,21 +443,15 @@ static void testStPinchPhylogeny_getSymmetricDistanceMatrix(CuTest *testCase) {
     /* TODO */
 }
 
-static int cmpInt64P(const void *a, const void *b) {
-    int64_t x, y;
-    x = *(int64_t *) a;
-    y = *(int64_t *) b;
-    return (x > y) ? 1 : ((x == y) ? 0 : -1);
-}
-
 // Checks a single leaf set to make sure there are no dups, values out
 // of range, etc
 static void checkLeafSet(CuTest *testCase, stList *leafSet,
                          int64_t numLeaves, char *seen) {
     for(int64_t i = 0; i < stList_length(leafSet); i++) {
-        int64_t leaf = *(int64_t *)stList_get(leafSet, i);
+        int64_t leaf = stIntTuple_get(stList_get(leafSet, i), 0);
         CuAssertTrue(testCase, leaf >= 0);
         CuAssertTrue(testCase, leaf < numLeaves);
+        assert(seen[leaf] == 0);
         CuAssertTrue(testCase, seen[leaf] == 0);
         seen[leaf] = 1;
     }
@@ -469,7 +463,7 @@ static void checkLeafSet(CuTest *testCase, stList *leafSet,
 // all the ingroups in a set does not have any of the outgroups under it
 static void checkSplitLeafSets(CuTest *testCase, stList *splitSets,
                                int64_t numLeaves) {
-    char *seen = calloc(numLeaves, sizeof(char));
+    char *seen = st_calloc(numLeaves, sizeof(char));
     for(int64_t i = 0; i < stList_length(splitSets); i++) {
         checkLeafSet(testCase, stList_get(splitSets, i), numLeaves, seen);
     }
@@ -487,12 +481,12 @@ static void checkContainsLeafSet(CuTest *testCase, stList *splitSets,
         stList *leafSet = stList_get(splitSets, i);
         if(stList_length(leafSet) == size) {
             // Could be the same set--sort the list and check
-            stList_sort(leafSet, cmpInt64P);
-            if(*(int64_t *)stList_get(leafSet, 0) == leaves[0]) {
+            stList_sort(leafSet, (int (*)(const void *, const void *))stIntTuple_cmpFn);
+            if(stIntTuple_get(stList_get(leafSet, 0), 0) == leaves[0]) {
                 // First index matches, could be the right leaf set
                 found = true;
                 for(int64_t j = 0; j < size; j++) {
-                    CuAssertIntEquals(testCase, leaves[j], *(int64_t *)stList_get(leafSet, j));
+                    CuAssertIntEquals(testCase, leaves[j], stIntTuple_get(stList_get(leafSet, j), 0));
                 }
             }
         }
@@ -503,7 +497,7 @@ static void checkContainsLeafSet(CuTest *testCase, stList *splitSets,
 
 static void testSimpleSplitTreeOnOutgroups(CuTest *testCase) {
     stTree *tree = stTree_parseNewickString("(((((0,1):1,(2,3):1):1,4:1):1,5:1):1,(6:1,(7:1,8:1):1):1);");
-    stList *outgroups = stList_construct();
+    stList *outgroups = stList_construct3(0, (void (*)(void *))stIntTuple_destruct);
     stList *result;
     stPhylogeny_addStPhylogenyInfo(tree);
 
@@ -513,23 +507,20 @@ static void testSimpleSplitTreeOnOutgroups(CuTest *testCase) {
     checkSplitLeafSets(testCase, result, 9);
     CuAssertIntEquals(testCase, stList_length(result), 1);
             
-    stList_sort(stList_get(result, 0), cmpInt64P);
+    stList_sort(stList_get(result, 0), (int (*)(const void *, const void *))stIntTuple_cmpFn);
     for(int64_t i = 0; i < stList_length(result); i++) {
         stList *leafSet = stList_get(result, i);
         for(int64_t j = 0; j < stList_length(leafSet); j++) {
-            CuAssertIntEquals(testCase, j, *(int64_t *)stList_get(leafSet, j));
-            free(stList_get(leafSet, j));
+            CuAssertIntEquals(testCase, j, stIntTuple_get(stList_get(leafSet, j), 0));
         }
-        stList_destruct(leafSet);
     }
     stList_destruct(result);
 
     // Outgroups: 2,3,6
     // Should split into {0,1,2,3}, {4}, {5}, and {6,7,8}
-    int64_t tmp[] = {2, 3, 6};
-    stList_append(outgroups, tmp + 0);
-    stList_append(outgroups, tmp + 1);
-    stList_append(outgroups, tmp + 2);
+    stList_append(outgroups, stIntTuple_construct1(2));
+    stList_append(outgroups, stIntTuple_construct1(3));
+    stList_append(outgroups, stIntTuple_construct1(6));
     result = stPinchPhylogeny_splitTreeOnOutgroups(tree, outgroups);
     checkSplitLeafSets(testCase, result, 9);
     CuAssertIntEquals(testCase, 4, stList_length(result));
@@ -541,6 +532,12 @@ static void testSimpleSplitTreeOnOutgroups(CuTest *testCase) {
     checkContainsLeafSet(testCase, result, leafSet3, 1);
     int64_t leafSet4[] = {6,7,8};
     checkContainsLeafSet(testCase, result, leafSet4, 3);
+
+
+    stPhylogenyInfo_destructOnTree(tree);
+    stTree_destruct(tree);
+    stList_destruct(result);
+    stList_destruct(outgroups);
 }
 
 // Test an assert on all nodes of a tree.
@@ -610,6 +607,10 @@ static void testSimpleRemovePoorlySupportedPartitions(CuTest *testCase) {
             CuAssertIntEquals(testCase, 3, stTree_getChildNumber(child));
         }
     }
+
+    // Clean up
+    stPhylogenyInfo_destructOnTree(result);
+    stTree_destruct(result);
     stPhylogenyInfo_destructOnTree(tree);
     stTree_destruct(tree);
 }
@@ -747,6 +748,12 @@ static void testRandomRemovePoorlySupportedPartitions(CuTest *testCase) {
         stTree *foldedTree = stPinchPhylogeny_removePoorlySupportedPartitions(tree, poorlySupportedLevel);
         checkPoorlySupportedFolding(testCase, foldedTree, tree,
                                     poorlySupportedLevel);
+
+        // Clean up
+        stPhylogenyInfo_destructOnTree(tree);
+        stTree_destruct(tree);
+        stPhylogenyInfo_destructOnTree(foldedTree);
+        stTree_destruct(foldedTree);
     }
 }
 
@@ -757,17 +764,21 @@ static void testRandomSplitTreeOnOutgroups(CuTest *testCase) {
         stTree *tree = getRandomBootstrappedTree(size, numBootstraps);
 
         // Get a random subset of leaves to call outgroups
-        stList *outgroups = stList_construct();
+        stList *outgroups = stList_construct3(0, (void (*)(void *))stIntTuple_destruct);
         for(int64_t i = 0; i < size; i++) {
             if(st_random() < 0.1) {
-                int64_t *heapI = malloc(sizeof(int64_t));
-                *heapI = i;
-                stList_append(outgroups, heapI);
+                stIntTuple *iTuple = stIntTuple_construct1(i);
+                stList_append(outgroups, iTuple);
             }
         }
 
         stList *splitLeafSets = stPinchPhylogeny_splitTreeOnOutgroups(tree, outgroups);
         checkSplitLeafSets(testCase, splitLeafSets, size);
+
+        stPhylogenyInfo_destructOnTree(tree);
+        stTree_destruct(tree);
+        stList_destruct(outgroups);
+        stList_destruct(splitLeafSets);
     }
 }
 
@@ -782,9 +793,8 @@ static void getLeafSetsFromPinchTestFn(stPinchBlock *block, stList *featureBlock
     stList *outgroups = stList_construct3(0, free);
     for(int64_t i = 0; i < numLeaves; i++) {
         if(st_random() < 0.1) {
-            int64_t *heapI = malloc(sizeof(int64_t));
-            *heapI = i;
-            stList_append(outgroups, heapI);
+            stIntTuple *iTuple = stIntTuple_construct1(i);
+            stList_append(outgroups, iTuple);
         }
     }
 
@@ -807,6 +817,7 @@ static void getLeafSetsFromPinchTestFn(stPinchBlock *block, stList *featureBlock
 }
 
 static void testStPinchPhylogeny_getLeafSetsFromFeatureColumns(CuTest *testCase) {
+    // broken currently
     makeAndTestRandomFeatureBlocks(testCase, getLeafSetsFromPinchTestFn);
 }
 

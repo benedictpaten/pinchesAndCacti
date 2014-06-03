@@ -380,6 +380,7 @@ stTree *stPinchPhylogeny_removePoorlySupportedPartitions(stTree *tree, double th
                 stTree_setParent(child, NULL);
                 // hacky, but the child number has decreased by 1
                 i--;
+                stPhylogenyInfo_destructOnTree(child);
                 stTree_destruct(child);
             }
         }
@@ -398,9 +399,9 @@ static stList *findIngroupClades(stTree *tree, stList *outgroups) {
         stPhylogenyInfo *childInfo = stTree_getClientData(child);
         bool hasOutgroup = false;
         for(j = 0; j < stList_length(outgroups); j++) {
-            int64_t *outgroup = stList_get(outgroups, j); 
-            assert(*outgroup < childInfo->totalNumLeaves);
-            if(childInfo->leavesBelow[*outgroup]) {
+            int64_t outgroup = stIntTuple_get(stList_get(outgroups, j), 0);
+            assert(outgroup < childInfo->totalNumLeaves);
+            if(childInfo->leavesBelow[outgroup]) {
                 hasOutgroup = true;
                 break;
             }
@@ -429,39 +430,36 @@ static stList *findIngroupClades(stTree *tree, stList *outgroups) {
     return ret;
 }
 
-
 // Split tree into subtrees such that no ingroup has a path to another
 // ingroup that includes its MRCA with an outgroup
-// Returns leaf sets (as stLists) from the subtrees
-// Outgroup list should be pointers to int64_ts representing matrix indices
-// TODO: "leaf set" might be better as its own structure rather than an stList?
+// Returns leaf sets (as stLists of length-1 stIntTuples) from the subtrees
+// Outgroups should be a list of length-1 stIntTuples representing matrix indices
 stList *stPinchPhylogeny_splitTreeOnOutgroups(stTree *tree, stList *outgroups) {
     int64_t i, j;
     stList *clades = findIngroupClades(tree, outgroups);
-    stList *ret = stList_construct();
+    stList *ret = stList_construct3(0, (void (*)(void *))stList_destruct);
 
     // Create the initial leaf sets from the ingroup clades.
     for(i = 0; i < stList_length(clades); i++) {
         stTree *clade = stList_get(clades, i);
         stPhylogenyInfo *cladeInfo = stTree_getClientData(clade);
-        stList *leafSet = stList_construct();
+        stList *leafSet = stList_construct3(0, (void (*)(void *))stIntTuple_destruct);
         for(j = 0; j < cladeInfo->totalNumLeaves; j++) {
             if(cladeInfo->leavesBelow[j]) {
-                int64_t *jHeap = malloc(sizeof(int64_t));
-                *jHeap = j;
-                stList_append(leafSet, jHeap);
+                stIntTuple *jTuple = stIntTuple_construct1(j);
+                stList_append(leafSet, jTuple);
             }
         }
         stList_append(ret, leafSet);
     }
 
     for(i = 0; i < stList_length(outgroups); i++) {
-        int64_t *outgroup = stList_get(outgroups, i);
-        stTree *outgroupNode = stPhylogeny_getLeafByIndex(tree, *outgroup);
+        int64_t outgroup = stIntTuple_get(stList_get(outgroups, i), 0);
+        stTree *outgroupNode = stPhylogeny_getLeafByIndex(tree, outgroup);
         // Find the closest clade to this outgroup and attach the
         // outgroup to its returned leaf set
         double minDistance = -1.0;
-        stList *closestSet;
+        stList *closestSet = NULL;
         for(j = 0; j < stList_length(clades); j++) {
             stTree *clade = stList_get(clades, j);
             stList *returnedSet = stList_get(ret, j);
@@ -472,8 +470,10 @@ stList *stPinchPhylogeny_splitTreeOnOutgroups(stTree *tree, stList *outgroups) {
             }
         }
         assert(closestSet != NULL);
-        stList_append(closestSet, outgroup);
+        stList_append(closestSet, stIntTuple_construct1(outgroup));
     }
+
+    stList_destruct(clades);
     return ret;
 }
 
@@ -516,9 +516,8 @@ stList *stPinchPhylogeny_getLeafSetsFromFeatureColumns(stList *featureColumns,
         stList *ret = stList_construct();
         stList *inner = stList_construct();
         for(int64_t i = 0; i < numLeaves; i++) {
-            int64_t *heapI = malloc(sizeof(int64_t));
-            *heapI = i;
-            stList_append(inner, heapI);
+            stIntTuple *iTuple = stIntTuple_construct1(i);
+            stList_append(inner, iTuple);
         }
         stList_append(ret, inner);
         return ret;

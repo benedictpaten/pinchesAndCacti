@@ -91,16 +91,16 @@ stTree *stPinchPhylogeny_removePoorlySupportedPartitions(stTree *tree,
 
 // Split tree into subtrees such that no ingroup has a path to another
 // ingroup that includes its MRCA with an outgroup
-// Returns leaf sets (as stLists) from the subtrees
-// Outgroup list should be pointers to int64_ts representing matrix indices
+// Returns leaf sets (as stLists of length-1 stIntTuples) from the subtrees
+// Outgroups should be a list of length-1 stIntTuples representing matrix indices
 stList *stPinchPhylogeny_splitTreeOnOutgroups(stTree *tree, stList *outgroups);
 
 // Gets a list of disjoint leaf sets (ingroup clades separated by
-// outgroups) from a set of feature columns. The leaves are ints
+// outgroups) from a set of feature columns. The leaves are stIntTuples
 // corresponding to the index of their respective feature column
 //
 // NB: "leaf set" is somewhat a misnomer since this just returns an
-// stList of stLists of ints
+// stList of stLists of stIntTuples
 //
 // TODO: add distance weight function and matrix-merge function as
 // parameters if necessary
