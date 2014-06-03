@@ -808,6 +808,7 @@ static void getLeafSetsFromPinchTestFn(stPinchBlock *block, stList *featureBlock
         stList *leafSet = stList_get(leafSets, i);
         numLeavesInSets += stList_length(leafSet);
     }
+    assert(numLeavesInSets == numLeaves);
     CuAssertTrue(testCase, numLeavesInSets == numLeaves);
 
     // Clean up

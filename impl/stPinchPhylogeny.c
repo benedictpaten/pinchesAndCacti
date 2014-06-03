@@ -344,7 +344,7 @@ stMatrix *stPinchPhylogeny_getSymmetricDistanceMatrix(stMatrix *matrix) {
             double similarities = *stMatrix_getCell(matrix, i, j); //The similarity count
             double differences = *stMatrix_getCell(matrix, j, i); //The difference count
             double count = similarities + differences;
-            *stMatrix_getCell(distanceMatrix, i, j) = count == 0.0 ? differences / count : INT64_MAX;
+            *stMatrix_getCell(distanceMatrix, i, j) = (count != 0.0) ? differences / count : INT64_MAX;
             *stMatrix_getCell(distanceMatrix, j, i) = *stMatrix_getCell(distanceMatrix, i, j);
         }
     }
@@ -439,6 +439,17 @@ stList *stPinchPhylogeny_splitTreeOnOutgroups(stTree *tree, stList *outgroups) {
     int64_t i, j;
     stList *clades = findIngroupClades(tree, outgroups);
     stList *ret = stList_construct3(0, (void (*)(void *))stList_destruct);
+    stPhylogenyInfo *info = stTree_getClientData(tree);
+
+    if(stList_length(outgroups) == info->totalNumLeaves) {
+        // Pathological case -- all leaves are outgroups.
+        stList *inner = stList_construct3(0, (void (*)(void *))stIntTuple_destruct);
+        for(i = 0; i < stList_length(outgroups); i++) {
+            stList_append(inner, stIntTuple_construct1(i));
+        }
+        stList_append(ret, inner);
+        return ret;
+    }
 
     // Create the initial leaf sets from the ingroup clades.
     for(i = 0; i < stList_length(clades); i++) {
