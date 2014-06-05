@@ -501,7 +501,7 @@ stTree *stPinchPhylogeny_buildTreeFromFeatureColumns(stList *featureColumns,
     // Build distance matrix from the two matrices
     stMatrix *mergedMatrix = stMatrix_add(snpMatrix, breakpointMatrix);
     stMatrix *matrix = stPinchPhylogeny_getSymmetricDistanceMatrix(mergedMatrix);
-    stTree *tree = stPhylogeny_neighborJoin(matrix);
+    stTree *tree = stPhylogeny_neighborJoin(matrix, NULL);
 
     // Clean up
     stMatrix_destruct(snpMatrix);

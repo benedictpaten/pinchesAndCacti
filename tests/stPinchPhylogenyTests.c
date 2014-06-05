@@ -651,13 +651,13 @@ static stTree *getRandomBootstrappedTree(int64_t numLeaves,
                                          int64_t numBootstraps) {
     // Get a random matrix and canonical tree
     stMatrix *matrix = getRandomDistanceMatrix(numLeaves);
-    stTree *tree = stPhylogeny_neighborJoin(matrix);
+    stTree *tree = stPhylogeny_neighborJoin(matrix, NULL);
     
     // Get the bootstraps
     stList *bootstraps = stList_construct();
     for(int64_t bootstrapNum = 0; bootstrapNum < numBootstraps; bootstrapNum++) {
         stMatrix *bootstrappedMatrix = bootstrapMatrix(matrix);
-        stTree *bootstrap = stPhylogeny_neighborJoin(bootstrappedMatrix);
+        stTree *bootstrap = stPhylogeny_neighborJoin(bootstrappedMatrix, NULL);
         stList_append(bootstraps, bootstrap);
 
         stMatrix_destruct(bootstrappedMatrix);
