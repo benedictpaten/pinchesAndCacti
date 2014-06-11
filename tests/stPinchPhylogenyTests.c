@@ -818,12 +818,31 @@ static void getLeafSetsFromPinchTestFn(stPinchBlock *block, stList *featureBlock
 }
 
 static void testStPinchPhylogeny_getLeafSetsFromFeatureColumns(CuTest *testCase) {
-    // broken currently
     makeAndTestRandomFeatureBlocks(testCase, getLeafSetsFromPinchTestFn);
+}
+
+static void testStPinchPhylogeny_reconcileBinary_simpleTests(CuTest *testCase) {
+    // First off -- sanity check that reconciling a gene tree equal to
+    // a species tree is a no-op.
+    int64_t numLeaves = st_randomInt64(3, 300);
+    stMatrix *matrix = getRandomDistanceMatrix(numLeaves);
+    stTree *speciesTree = stPhylogeny_neighborJoin(matrix, NULL);
+    stTree *geneTree = stTree_clone(speciesTree);
+    stHash *leafToSpecies = stHash_construct();
+    for(int64_t i = 0; i < numLeaves; i++) {
+        stTree *gene = stPhylogeny_getLeafByIndex(geneTree, i);
+        stTree *species = stPhylogeny_getLeafByIndex(speciesTree, i);
+        stHash_insert(leafToSpecies, gene, species);
+    }
+    stTree *rooted = stPinchPhylogeny_reconcileBinary(geneTree, speciesTree, leafToSpecies);
+    printf("%s\n", stTree_getNewickTreeString(geneTree));
+    printf("%s\n", stTree_getNewickTreeString(rooted));
+    CuAssertTrue(testCase, stTree_equals(rooted, geneTree));
 }
 
 CuSuite* stPinchPhylogenyTestSuite(void) {
     CuSuite* suite = CuSuiteNew();
+    SUITE_ADD_TEST(suite, testStPinchPhylogeny_reconcileBinary_simpleTests);
     SUITE_ADD_TEST(suite, testSimpleRemovePoorlySupportedPartitions);
     SUITE_ADD_TEST(suite, testSimpleSplitTreeOnOutgroups);
     SUITE_ADD_TEST(suite, testStFeatureBlock_getContextualFeatureBlocks);

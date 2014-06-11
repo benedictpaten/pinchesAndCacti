@@ -13,6 +13,7 @@
 #include "stPinchGraphs.h"
 #include "stPinchPhylogeny.h"
 #include "stPhylogeny.h"
+#include "stSpimapLayer.h"
 
 /*
  * Gets the pinch-end adjacent of the next block connected to the given segment, traversing either 5' or 3' depending on _5PrimeTraversal.
@@ -566,9 +567,9 @@ stList *stPinchPhylogeny_getLeafSetsFromFeatureColumns(stList *featureColumns,
     return ret;
 }
 
-// (Re)root and reconcile a gene tree to conform with the species tree.
-stTree *reconcile(stTree *geneTree, stTree *speciesTree) {
-    return NULL;
+// (Re)root and a gene tree to a tree with minimal dups and losses.
+stTree *stPinchPhylogeny_reconcileBinary(stTree *geneTree, stTree *speciesTree, stHash *leafToSpecies) {
+    return spimap_rootAndReconcile(geneTree, speciesTree, leafToSpecies);
 }
 
 // Compute the reconciliation cost of a rooted gene tree and a species tree.

@@ -109,4 +109,8 @@ stList *stPinchPhylogeny_getLeafSetsFromFeatureColumns(stList *featureColumns,
                                                        int64_t numBootstraps,
                                                        double confidenceThreshold,
                                                        stList *outgroups);
+
+// (Re)root and a gene tree to a tree with minimal dups and losses.
+stTree *stPinchPhylogeny_reconcileBinary(stTree *geneTree, stTree *speciesTree, stHash *leafToSpecies);
+
 #endif
