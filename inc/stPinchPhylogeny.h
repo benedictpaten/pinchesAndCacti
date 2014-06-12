@@ -110,7 +110,11 @@ stList *stPinchPhylogeny_getLeafSetsFromFeatureColumns(stList *featureColumns,
                                                        double confidenceThreshold,
                                                        stList *outgroups);
 
-// (Re)root and a gene tree to a tree with minimal dups and losses.
+// (Re)root a gene tree to minimize dups and losses.
+// leafToSpecies is a hash from leaves of geneTree to leaves of speciesTree.
+// Both trees must be binary.
 stTree *stPinchPhylogeny_reconcileBinary(stTree *geneTree, stTree *speciesTree, stHash *leafToSpecies);
 
+void stPinchPhylogeny_reconciliationCostBinary(stTree *geneTree, stTree *speciesTree, stHash *leafToSpecies,
+                                               int64_t *dups, int64_t *losses);
 #endif

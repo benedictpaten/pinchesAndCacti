@@ -54,6 +54,24 @@ static SpeciesTree *spimapSpeciesTreeFromStTree(stTree *tree, stHash *nodeToInde
     return ret;
 }
 
+// Gets the gene idx -> species idx array that spimap uses.
+static int *getGene2Species(stHash *leafToSpecies, stHash *geneToIndex,
+                            stHash *speciesToIndex, int64_t numNodes) {
+    int *gene2species = (int *)calloc(numNodes, sizeof(int));
+    stHashIterator *genesIt = stHash_getIterator(leafToSpecies);
+    stTree *curGene = NULL;
+    while((curGene = (stTree *)stHash_getNext(genesIt)) != NULL) {
+        stTree *curSpecies = (stTree *)stHash_search(leafToSpecies, curGene);
+        assert(curSpecies != NULL);
+        stIntTuple *geneIndex = (stIntTuple *)stHash_search(geneToIndex, curGene);
+        stIntTuple *speciesIndex = (stIntTuple *)stHash_search(speciesToIndex, curSpecies);
+        assert(geneIndex != NULL);
+        assert(speciesIndex != NULL);
+        gene2species[stIntTuple_get(geneIndex, 0)] = stIntTuple_get(speciesIndex, 0);
+    }    
+    return gene2species;
+}
+
 extern "C" {
 // Reroot a binary gene tree against a binary species tree to minimize
 // the number of dups and losses using spimap. Uses the algorithm
@@ -65,49 +83,70 @@ stTree *spimap_rootAndReconcile(stTree *geneTree, stTree *speciesTree,
     stHash *speciesToIndex = stHash_construct2(NULL, (void (*)(void *))stIntTuple_destruct);
     Tree *gTree = spimapTreeFromStTree(geneTree, geneToIndex);
     SpeciesTree *sTree = spimapSpeciesTreeFromStTree(speciesTree, speciesToIndex);
-    int *gene2species = (int *)calloc(stTree_getNumNodes(geneTree), sizeof(int));
-    stHashIterator *genesIt = stHash_getIterator(leafToSpecies);
-    stTree *curGene = NULL;
-    while((curGene = (stTree *)stHash_getNext(genesIt)) != NULL) {
-        stTree *curSpecies = (stTree *)stHash_search(leafToSpecies, curGene);
-        assert(curSpecies != NULL);
-        stIntTuple *geneIndex = (stIntTuple *)stHash_search(geneToIndex, curGene);
-        stIntTuple *speciesIndex = (stIntTuple *)stHash_search(speciesToIndex, curSpecies);
-        assert(geneIndex != NULL);
-        assert(speciesIndex != NULL);
-        gene2species[stIntTuple_get(geneIndex, 0)] = stIntTuple_get(speciesIndex, 0);
-    }
+    int *gene2species = getGene2Species(leafToSpecies, geneToIndex, speciesToIndex,
+                                        stTree_getNumNodes(geneTree));
+    // Find the best root.
     reconRoot(gTree, sTree, gene2species);
     // Root our gene tree in the same place.
     // This is a little sketchy since it's somewhat unclear whether
-    // the nodes are renumbered when spimap reroots them.
+    // the nodes are renumbered when spimap reroots the tree.
     Node *root = gTree->root;
     stIntTuple *child1Idx = stIntTuple_construct1(root->children[0]->name);
     stIntTuple *child2Idx = stIntTuple_construct1(root->children[1]->name);
     stHash *indexToGene = stHash_invert(geneToIndex, (uint64_t (*)(const void *))stIntTuple_hashKey,
                                         (int (*)(const void *, const void *))stIntTuple_equalsFn,
                                         NULL, NULL);
+    // Get the two children of the root in the new tree.
     stTree *child1 = (stTree *)stHash_search(indexToGene, child1Idx);
     stTree *child2 = (stTree *)stHash_search(indexToGene, child2Idx);
     assert(child1 != NULL);
     assert(child2 != NULL);
     stTree *ret = NULL;
     if(child1 == stTree_getParent(child2)) {
+        // child1 above child2, root at child2 branch
         ret = stTree_reRoot(child2, stTree_getBranchLength(child2)/2);
     } else if(child2 == stTree_getParent(child1)) {
+        // child2 above child1, root at child1 branch
         ret =  stTree_reRoot(child1, stTree_getBranchLength(child1)/2);
     } else {
         // Can happen if the root hasn't changed.
         assert(stTree_getParent(child1) == stTree_getParent(child2));
         assert(stTree_getParent(stTree_getParent(child1)) == NULL);
-//        ret = stTree_reRoot(child1, stTree_getBranchLength(child1));
         ret = stTree_clone(stTree_getParent(child1));
     }
+    free(gene2species);
     stHash_destruct(indexToGene);
     stHash_destruct(geneToIndex);
     stHash_destruct(speciesToIndex);
     delete sTree;
     delete gTree;
     return ret;
+}
+
+// Reconciles the gene tree against the species tree and fills in the
+// number of dups and losses implied by the reconciliation.
+void spimap_reconciliationCost(stTree *geneTree, stTree *speciesTree,
+                               stHash *leafToSpecies, int64_t *dups,
+                               int64_t *losses) {
+    stHash *geneToIndex = stHash_construct2(NULL, (void (*)(void *))stIntTuple_destruct);
+    stHash *speciesToIndex = stHash_construct2(NULL, (void (*)(void *))stIntTuple_destruct);
+    Tree *gTree = spimapTreeFromStTree(geneTree, geneToIndex);
+    SpeciesTree *sTree = spimapSpeciesTreeFromStTree(speciesTree, speciesToIndex);
+    int *gene2species = getGene2Species(leafToSpecies, geneToIndex, speciesToIndex,
+                                        stTree_getNumNodes(geneTree));
+    
+    int *recon = (int *)calloc(stTree_getNumNodes(geneTree), sizeof(int));
+    reconcile(gTree, sTree, gene2species, recon);
+    *losses = countLoss(gTree, sTree, recon);
+    int *events = (int *)calloc(stTree_getNumNodes(geneTree), sizeof(int));
+    labelEvents(gTree, recon, events);
+    *dups = countDuplications(stTree_getNumNodes(geneTree), events);
+    free(recon);
+    free(gene2species);
+    free(events);
+    delete sTree;
+    delete gTree;
+    stHash_destruct(geneToIndex);
+    stHash_destruct(speciesToIndex);
 }
 }

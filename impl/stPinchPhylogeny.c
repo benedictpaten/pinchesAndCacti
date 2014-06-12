@@ -572,7 +572,7 @@ stTree *stPinchPhylogeny_reconcileBinary(stTree *geneTree, stTree *speciesTree, 
     return spimap_rootAndReconcile(geneTree, speciesTree, leafToSpecies);
 }
 
-// Compute the reconciliation cost of a rooted gene tree and a species tree.
-double reconciliationCost(stTree *geneTree, stTree *speciesTree) {
-    return 0.0;
+void stPinchPhylogeny_reconciliationCostBinary(stTree *geneTree, stTree *speciesTree, stHash *leafToSpecies,
+                                               int64_t *dups, int64_t *losses) {
+    spimap_reconciliationCost(geneTree, speciesTree, leafToSpecies, dups, losses);
 }
