@@ -17,10 +17,9 @@ $(SPIMAPOBJS): %.o: %.cpp
 # UNDEBUG is required!!
 	${cpp} -c $(cppflags) -UNDEBUG -o $@ $<
 
-${libPath}/spimapRecon.a: $(SPIMAPSRCS)
+${libPath}/spimapRecon.a: $(SPIMAPSRCS) $(SPIMAPOBJS)
 	ar rc spimapRecon.a $(SPIMAPOBJS)
 	ranlib spimapRecon.a
-	rm $(SPIMAPOBJS)
 	mv spimapRecon.a ${libPath}
 
 clean:  ${modules:%=clean.%}
