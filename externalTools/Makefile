@@ -24,7 +24,8 @@ ${libPath}/spimapRecon.a: $(SPIMAPSRCS) $(SPIMAPOBJS)
 
 clean:  ${modules:%=clean.%}
 	rm -rf lib/*.h bin/*.dSYM
-	rm ${libPath}/spimapRecon.a
+	rm -f ${libPath}/spimapRecon.a
+	rm -f ${SPIMAPOBJS}
 
 clean.%:
 	cd $* && ${MAKE} clean

@@ -68,7 +68,8 @@ static int *getGene2Species(stHash *leafToSpecies, stHash *geneToIndex,
         assert(geneIndex != NULL);
         assert(speciesIndex != NULL);
         gene2species[stIntTuple_get(geneIndex, 0)] = stIntTuple_get(speciesIndex, 0);
-    }    
+    }
+    stHash_destructIterator(genesIt);
     return gene2species;
 }
 
@@ -114,6 +115,7 @@ stTree *spimap_rootAndReconcile(stTree *geneTree, stTree *speciesTree,
         assert(stTree_getParent(stTree_getParent(child1)) == NULL);
         ret = stTree_clone(stTree_getParent(child1));
     }
+    stPhylogeny_addStPhylogenyInfo(ret);
     free(gene2species);
     stHash_destruct(indexToGene);
     stHash_destruct(geneToIndex);

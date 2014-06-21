@@ -880,6 +880,7 @@ static void checkMinimalReconScore(stTree *tree, CuTest *testCase) {
     stHash_destruct(myLeafToSpecies);
     stPhylogenyInfo_destructOnTree(newRootedTree);
     stTree_destruct(newRootedTree);
+    stHash_destructIterator(hashIt);
 }
 
 // Make sure that the tree given by reconcileBinary is a tree with
