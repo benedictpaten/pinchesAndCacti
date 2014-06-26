@@ -1,8 +1,9 @@
 #include <stdlib.h>
+#include <ctype.h>
+#include <math.h>
 #include "CuTest.h"
 #include "sonLib.h"
 #include "stPinchPhylogeny.h"
-#include <ctype.h>
 
 static char getRandomNucleotide() {
     double d = st_random();
@@ -936,8 +937,89 @@ static void testStPinchPhylogeny_reconcileBinary_random(CuTest *testCase) {
     }
 }
 
+// Replaces all DNA in the given columns with the given character
+// (destructively).
+static stList *replaceBlockStringsWithChar(stList *featureBlocks, char repl) {
+    stList *ret = stList_construct();
+    for(int64_t i = 0; i < stList_length(featureBlocks); i++) {
+        stFeatureBlock *featureBlock = stList_get(featureBlocks, i);
+        stFeatureBlock *retFeatureBlock = malloc(sizeof(stFeatureBlock));
+        retFeatureBlock->length = featureBlock->length;
+        stFeatureSegment *segment = featureBlock->head;
+        stFeatureSegment *curSegment = malloc(sizeof(stFeatureSegment));
+        retFeatureBlock->head = curSegment;
+        while(segment != NULL) {
+            memcpy(curSegment, segment, sizeof(stFeatureSegment));
+            char *string = malloc((segment->length + 1) * sizeof(char));
+            char dna;
+            if(segment->reverseComplement) {
+                dna = stString_reverseComplement(repl);
+            } else {
+                dna = repl;
+            }
+            for(int64_t j = 0; j < segment->length; j++) {
+                string[j] = dna;
+            }
+            string[segment->length] = '\0';
+            curSegment->string = string;
+
+            if(segment->nFeatureSegment != NULL) {
+                stFeatureSegment *newSegment = malloc(sizeof(stFeatureSegment));
+                curSegment->nFeatureSegment = newSegment;
+                curSegment = newSegment;
+            }
+            segment = segment->nFeatureSegment;
+        }
+        retFeatureBlock->tail = curSegment;
+        stList_append(ret, retFeatureBlock);
+    }
+    return ret;
+}
+
+// Check basic sanity tests for the likelihood.
+static void likelihoodTestFn(stPinchBlock *block, stList *featureBlocks, CuTest *testCase) {
+    if(stPinchBlock_getDegree(block) < 3) {
+        // Can't build a tree.
+        return;
+    }
+
+    // Make feature columns
+    stList *featureColumns = stFeatureColumn_getFeatureColumns(featureBlocks, block);
+
+    stTree *tree = stPinchPhylogeny_buildTreeFromFeatureColumns(featureColumns, block, 0);
+
+    double likelihood = stPinchPhylogeny_likelihood(tree, featureColumns);
+
+    // Find the likelihood when all characters are Ns (should be ~0.25)
+    stList *ambiguousBlocks = replaceBlockStringsWithChar(featureBlocks, 'N');
+    stList *ambiguousColumns = stFeatureColumn_getFeatureColumns(ambiguousBlocks, block);
+    double ambiguousLikelihood = stPinchPhylogeny_likelihood(tree, ambiguousColumns);
+
+    // Find the likelihood when all characters are As (should be the
+    // highest possible, or close to it, depending on the model used)
+    stList *maxBlocks = replaceBlockStringsWithChar(featureBlocks, 'A');
+    stList *maxColumns = stFeatureColumn_getFeatureColumns(maxBlocks, block);
+    double maxLikelihood = stPinchPhylogeny_likelihood(tree, maxColumns);
+
+    if(likelihood != -INFINITY) { // Make sure the branch lengths are
+                                  // not 0--this is impossible in
+                                  // reality so the likelihood is 0
+        CuAssertTrue(testCase, ambiguousLikelihood < maxLikelihood);
+        CuAssertTrue(testCase, likelihood <= maxLikelihood);
+    }
+
+    stPhylogenyInfo_destructOnTree(tree);
+    stTree_destruct(tree);
+    stList_destruct(featureColumns);
+}
+
+static void testStPinchPhylogeny_likelihood(CuTest *testCase) {
+    makeAndTestRandomFeatureBlocks(testCase, likelihoodTestFn);
+}
+
 CuSuite* stPinchPhylogenyTestSuite(void) {
     CuSuite* suite = CuSuiteNew();
+    SUITE_ADD_TEST(suite, testStPinchPhylogeny_likelihood);
     SUITE_ADD_TEST(suite, testStPinchPhylogeny_reconcileBinary_simpleTests);
     SUITE_ADD_TEST(suite, testStPinchPhylogeny_reconcileBinary_random);
     SUITE_ADD_TEST(suite, testSimpleRemovePoorlySupportedPartitions);

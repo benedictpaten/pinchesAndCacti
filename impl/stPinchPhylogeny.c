@@ -9,6 +9,7 @@
 
 #include <stdlib.h>
 #include <ctype.h>
+#include <math.h>
 #include "sonLib.h"
 #include "stPinchGraphs.h"
 #include "stPinchPhylogeny.h"
@@ -575,4 +576,147 @@ stTree *stPinchPhylogeny_reconcileBinary(stTree *geneTree, stTree *speciesTree, 
 void stPinchPhylogeny_reconciliationCostBinary(stTree *geneTree, stTree *speciesTree, stHash *leafToSpecies,
                                                int64_t *dups, int64_t *losses) {
     spimap_reconciliationCost(geneTree, speciesTree, leafToSpecies, dups, losses);
+}
+
+// get an index from an unambiguous base for felsenstein likelihood
+static int64_t dnaToIndex(char dna) {
+    switch(dna) {
+    case 'A':
+    case 'a':
+        return 0;
+    case 'T':
+    case 't':
+        return 1;
+    case 'G':
+    case 'g':
+        return 2;
+    case 'C':
+    case 'c':
+        return 3;
+    default:
+        // Should not get here
+        return INT64_MAX;
+    }
+}
+
+// FIXME: will be really slow!!
+static stFeatureSegment *stFeatureBlock_getFeatureSegment(stFeatureBlock *block, int64_t index) {
+    stFeatureSegment *curSegment = block->head;
+    while(curSegment != NULL) {
+        if(curSegment->segmentIndex == index) {
+            return curSegment;
+        }
+        curSegment = curSegment->nFeatureSegment;
+    }
+    return NULL;
+}
+
+// Jukes-Cantor probability of a mutation along a branch
+static double jukesCantor(int64_t dnaIndex1, int64_t dnaIndex2,
+                          double branchLength) {
+    if(dnaIndex1 == dnaIndex2) {
+        return 0.25+0.75*exp(-branchLength);
+    } else {
+        return 0.25-0.25*exp(-branchLength);
+    }
+}
+
+// Calculate the nucleotide portion of the likelihood of a given column.
+static double likelihoodNucColumn(stTree *tree, stFeatureColumn *column) {
+    // Need to modify the client info, so we need to clone the tree
+    tree = stTree_clone(tree);
+
+    // breadth-first (bottom-up)
+    stList *bfQueue = stList_construct();
+
+    // populate queue
+    stList_append(bfQueue, tree);
+    for(int64_t i = 0; i < stList_length(bfQueue); i++) {
+        stTree *node = stList_get(bfQueue, i);
+        for(int64_t j = 0; j < stTree_getChildNumber(node); j++) {
+            stList_append(bfQueue, stTree_getChild(node, j));
+        }
+    }
+
+    assert(stList_length(bfQueue) == stTree_getNumNodes(tree));
+
+    // pop off the end
+    while(stList_length(bfQueue) != 0) {
+        stTree *node = stList_pop(bfQueue);
+
+        stPhylogenyInfo *info = stTree_getClientData(node);
+        if(stTree_getChildNumber(node) == 0) {
+            // Leaf node -- fill in its probability from its base at
+            // this location
+            double *pLeaves = calloc(4, sizeof(double));
+            assert(info->matrixIndex != -1);
+            stFeatureSegment *segment = stFeatureBlock_getFeatureSegment(column->featureBlock, info->matrixIndex);
+            if(segment == NULL || stFeatureSegment_baseIsWildCard(segment, column->columnIndex)) {
+                // leaf base is a wild card (or is not in the column
+                // at all), all possibilities are equal
+                for(int64_t dnaIndex = 0; dnaIndex < 4; dnaIndex++) {
+                    pLeaves[dnaIndex] = 0.25;
+                }
+            } else {
+                // P(actual leaf base) = 1, all other bases 0
+                char dna = stFeatureSegment_getBase(segment, column->columnIndex);
+                int64_t dnaIndex = dnaToIndex(dna);
+                pLeaves[dnaIndex] = 1.0;
+            }
+            stTree_setClientData(node, pLeaves);
+        } else {
+            // Not a leaf node--calculate its probability from its
+            // children
+            assert(info->matrixIndex == -1);
+            double *pLeaves = calloc(4, sizeof(double));
+            for(int64_t dnaIndex = 0; dnaIndex < 4; dnaIndex++) {
+                double prob = 0.25; // Probability for this dna assignment
+                for(int64_t i = 0; i < stTree_getChildNumber(node); i++) {
+                    double probChild = 0.0;
+                    stTree *child = stTree_getChild(node, i);
+                    double *childpLeaves = stTree_getClientData(child);
+                    assert(childpLeaves != NULL);
+                    for(int64_t childDnaIndex = 0; childDnaIndex < 4; childDnaIndex++) {
+                        probChild += childpLeaves[childDnaIndex]*jukesCantor(dnaIndex, childDnaIndex, stTree_getBranchLength(child));
+                    }
+                    prob *= probChild;
+                }
+                pLeaves[dnaIndex] = prob;
+            }
+            stTree_setClientData(node, pLeaves);
+
+            // Clean up the unneeded children data
+            for(int64_t i = 0; i < stTree_getChildNumber(node); i++) {
+                free(stTree_getClientData(stTree_getChild(node, i)));
+            }
+        }
+    }
+
+    // Get p(tree | best root assignment)
+    double *rootProbs = stTree_getClientData(tree);
+    double maxProb = 0.0;
+    for(int64_t rootDnaIndex = 0; rootDnaIndex < 4; rootDnaIndex++) {
+        if(maxProb < rootProbs[rootDnaIndex]) {
+            maxProb = rootProbs[rootDnaIndex];
+        }
+    }
+
+    // Clean up
+    free(rootProbs);
+    stTree_destruct(tree); // Delete our copy
+    stList_destruct(bfQueue);
+    return maxProb;
+}
+
+// Gives the (log)likelihood of the tree given the feature columns.
+double stPinchPhylogeny_likelihood(stTree *tree, stList *featureColumns) {
+    double ret = 0.0;
+
+    // Likelihood of each column -- nucleotide portion
+    for(int64_t i = 0; i < stList_length(featureColumns); i++) {
+        ret += log(likelihoodNucColumn(tree, stList_get(featureColumns, i)))/log(10);
+    }
+    // TODO: likelihood of each column -- breakpoint portion
+
+    return ret;
 }

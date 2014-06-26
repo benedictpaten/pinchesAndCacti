@@ -117,4 +117,12 @@ stTree *stPinchPhylogeny_reconcileBinary(stTree *geneTree, stTree *speciesTree, 
 
 void stPinchPhylogeny_reconciliationCostBinary(stTree *geneTree, stTree *speciesTree, stHash *leafToSpecies,
                                                int64_t *dups, int64_t *losses);
+
+// Gives the likelihood of the tree given the feature columns.
+double stPinchPhylogeny_likelihood(stTree *tree, stList *featureColumns);
+
+stTree *stPinchPhylogeny_buildTreeFromFeatureColumns(stList *featureColumns,
+                                                     stPinchBlock *block,
+                                                     bool bootstrap);
+
 #endif
