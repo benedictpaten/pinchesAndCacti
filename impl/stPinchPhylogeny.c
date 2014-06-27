@@ -115,8 +115,11 @@ static bool stFeatureSegment_rightAdjacencyIsWildCard(stFeatureSegment *fSegment
     return columnIndex < fSegment->length - 1 ? 0 : fSegment->nPinchEnd.block == NULL;
 }
 
-static stFeatureBlock *stFeatureBlock_construct(stFeatureSegment *firstSegment, stPinchBlock *block) {
+static stFeatureBlock *stFeatureBlock_construct(stFeatureSegment *firstSegment, stPinchBlock *block, int64_t totalNumSegments) {
     stFeatureBlock *featureBlock = st_malloc(sizeof(stFeatureBlock));
+    featureBlock->segments = stList_construct2(totalNumSegments);
+    stList_set(featureBlock->segments, firstSegment->segmentIndex,
+               firstSegment);
     featureBlock->head = firstSegment;
     featureBlock->tail = firstSegment;
     firstSegment->nFeatureSegment = NULL; //Defensive assignment.
@@ -124,8 +127,9 @@ static stFeatureBlock *stFeatureBlock_construct(stFeatureSegment *firstSegment, 
     return featureBlock;
 }
 
-static void stFeatureBlock_destruct(stFeatureBlock *featureBlock) {
+void stFeatureBlock_destruct(stFeatureBlock *featureBlock) {
     stFeatureSegment_destruct(featureBlock->head);
+    stList_destruct(featureBlock->segments);
     free(featureBlock);
 }
 
@@ -166,6 +170,13 @@ static int64_t countDistinctIndices(stFeatureBlock *featureBlock) {
     return i;
 }
 
+// Appends a segment to a feature block.
+static void stFeatureBlock_appendSegment(stFeatureBlock *featureBlock, stFeatureSegment *fSegment) {
+    stList_set(featureBlock->segments, fSegment->segmentIndex, fSegment);
+    featureBlock->tail->nFeatureSegment = fSegment;
+    featureBlock->tail = fSegment;
+}
+
 stList *stFeatureBlock_getContextualFeatureBlocks(stPinchBlock *block, int64_t maxBaseDistance,
         int64_t maxBlockDistance,
         bool ignoreUnalignedBases, bool onlyIncludeCompleteFeatureBlocks, stHash *strings) {
@@ -200,11 +211,10 @@ stList *stFeatureBlock_getContextualFeatureBlocks(stPinchBlock *block, int64_t m
                     //Attach it to the related block.
                     stFeatureBlock *featureBlock = stHash_search(blocksToFeatureBlocks, block2);
                     if (featureBlock == NULL) { //Create a new feature block
-                        featureBlock = stFeatureBlock_construct(fSegment, block2);
+                        featureBlock = stFeatureBlock_construct(fSegment, block2, stPinchBlock_getDegree(block));
                         stHash_insert(blocksToFeatureBlocks, block2, featureBlock);
                     } else { //Link it to the existing feature block
-                        featureBlock->tail->nFeatureSegment = fSegment;
-                        featureBlock->tail = fSegment;
+                        stFeatureBlock_appendSegment(featureBlock, fSegment);
                     }
                     stHash_insert(segmentsToFeatureSegments, segment2, fSegment);
                 } else {
@@ -599,16 +609,8 @@ static int64_t dnaToIndex(char dna) {
     }
 }
 
-// FIXME: will be really slow!!
 static stFeatureSegment *stFeatureBlock_getFeatureSegment(stFeatureBlock *block, int64_t index) {
-    stFeatureSegment *curSegment = block->head;
-    while(curSegment != NULL) {
-        if(curSegment->segmentIndex == index) {
-            return curSegment;
-        }
-        curSegment = curSegment->nFeatureSegment;
-    }
-    return NULL;
+    return stList_get(block->segments, index);
 }
 
 // Jukes-Cantor probability of a mutation along a branch

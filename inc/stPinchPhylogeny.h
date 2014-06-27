@@ -27,6 +27,8 @@ typedef struct _stFeatureBlock {
     int64_t length; //The length of the block.
     stFeatureSegment *head; //The first feature segment in the block.
     stFeatureSegment *tail; //The last feature segment in the block.
+    stList *segments; // Indexed by segmentIndex--with NULL if a
+                      // segment with that index is not in the column.
 } stFeatureBlock;
 
 /*
@@ -37,6 +39,11 @@ typedef struct _stFeatureBlock {
 stList *stFeatureBlock_getContextualFeatureBlocks(stPinchBlock *block, int64_t maxBaseDistance,
         int64_t maxBlockDistance,
         bool ignoreUnalignedBases, bool onlyIncludeCompleteFeatureBlocks, stHash *strings);
+
+/*
+ * Free the given feature block
+ */
+void stFeatureBlock_destruct(stFeatureBlock *featureBlock);
 
 /*
  * Get the base at a given location in a segment.

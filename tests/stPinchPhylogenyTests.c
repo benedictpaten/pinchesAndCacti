@@ -939,15 +939,17 @@ static void testStPinchPhylogeny_reconcileBinary_random(CuTest *testCase) {
 
 // Replaces all DNA in the given columns with the given character
 // (destructively).
-static stList *replaceBlockStringsWithChar(stList *featureBlocks, char repl) {
+static stList *replaceBlockStringsWithChar(stList *featureBlocks, char repl, stPinchBlock *pinchBlock) {
     stList *ret = stList_construct();
     for(int64_t i = 0; i < stList_length(featureBlocks); i++) {
         stFeatureBlock *featureBlock = stList_get(featureBlocks, i);
         stFeatureBlock *retFeatureBlock = malloc(sizeof(stFeatureBlock));
+        retFeatureBlock->segments = stList_construct3(stPinchBlock_getDegree(pinchBlock), (void (*)(void *)) stFeatureBlock_destruct);
         retFeatureBlock->length = featureBlock->length;
         stFeatureSegment *segment = featureBlock->head;
         stFeatureSegment *curSegment = malloc(sizeof(stFeatureSegment));
         retFeatureBlock->head = curSegment;
+        stList_set(retFeatureBlock->segments, segment->segmentIndex, curSegment);
         while(segment != NULL) {
             memcpy(curSegment, segment, sizeof(stFeatureSegment));
             char *string = malloc((segment->length + 1) * sizeof(char));
@@ -965,6 +967,7 @@ static stList *replaceBlockStringsWithChar(stList *featureBlocks, char repl) {
 
             if(segment->nFeatureSegment != NULL) {
                 stFeatureSegment *newSegment = malloc(sizeof(stFeatureSegment));
+                stList_set(retFeatureBlock->segments, segment->nFeatureSegment->segmentIndex, newSegment);
                 curSegment->nFeatureSegment = newSegment;
                 curSegment = newSegment;
             }
@@ -991,13 +994,13 @@ static void likelihoodTestFn(stPinchBlock *block, stList *featureBlocks, CuTest 
     double likelihood = stPinchPhylogeny_likelihood(tree, featureColumns);
 
     // Find the likelihood when all characters are Ns (should be ~0.25)
-    stList *ambiguousBlocks = replaceBlockStringsWithChar(featureBlocks, 'N');
+    stList *ambiguousBlocks = replaceBlockStringsWithChar(featureBlocks, 'N', block);
     stList *ambiguousColumns = stFeatureColumn_getFeatureColumns(ambiguousBlocks, block);
     double ambiguousLikelihood = stPinchPhylogeny_likelihood(tree, ambiguousColumns);
 
     // Find the likelihood when all characters are As (should be the
     // highest possible, or close to it, depending on the model used)
-    stList *maxBlocks = replaceBlockStringsWithChar(featureBlocks, 'A');
+    stList *maxBlocks = replaceBlockStringsWithChar(featureBlocks, 'A', block);
     stList *maxColumns = stFeatureColumn_getFeatureColumns(maxBlocks, block);
     double maxLikelihood = stPinchPhylogeny_likelihood(tree, maxColumns);
 
