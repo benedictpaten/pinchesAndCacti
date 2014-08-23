@@ -115,7 +115,6 @@ stTree *spimap_rootAndReconcile(stTree *geneTree, stTree *speciesTree,
         assert(stTree_getParent(stTree_getParent(child1)) == NULL);
         ret = stTree_clone(stTree_getParent(child1));
     }
-    stPhylogeny_addStPhylogenyInfo(ret);
     free(gene2species);
     stHash_destruct(indexToGene);
     stHash_destruct(geneToIndex);
@@ -146,6 +145,50 @@ void spimap_reconciliationCost(stTree *geneTree, stTree *speciesTree,
     free(recon);
     free(gene2species);
     free(events);
+    delete sTree;
+    delete gTree;
+    stHash_destruct(geneToIndex);
+    stHash_destruct(speciesToIndex);
+}
+
+// Reconciles the gene tree against the species tree and replaces ancestor names
+// with species names.
+void spimap_reconcileAndLabel(stTree *geneTree, stTree *speciesTree,
+                              stHash *leafToSpecies) {
+    int64_t numGenes = stTree_getNumNodes(geneTree);
+    stHash *geneToIndex = stHash_construct2(NULL, (void (*)(void *))stIntTuple_destruct);
+    stHash *speciesToIndex = stHash_construct2(NULL, (void (*)(void *))stIntTuple_destruct);
+    Tree *gTree = spimapTreeFromStTree(geneTree, geneToIndex);
+    SpeciesTree *sTree = spimapSpeciesTreeFromStTree(speciesTree, speciesToIndex);
+    int *gene2species = getGene2Species(leafToSpecies, geneToIndex, speciesToIndex,
+                                        numGenes);
+
+    int *recon = (int *)calloc(numGenes, sizeof(int));
+    reconcile(gTree, sTree, gene2species, recon);
+    stHash *indexToGene = stHash_invert(geneToIndex, (uint64_t (*)(const void *))stIntTuple_hashKey,
+                                        (int (*)(const void *, const void *))stIntTuple_equalsFn,
+                                        NULL, NULL);
+    stHash *indexToSpecies = stHash_invert(speciesToIndex, (uint64_t (*)(const void *))stIntTuple_hashKey,
+                                           (int (*)(const void *, const void *))stIntTuple_equalsFn,
+                                           NULL, NULL);
+    for (int64_t i = 0; i < numGenes; i++) {
+        stIntTuple *speciesIndex = stIntTuple_construct1(recon[i]);
+        stIntTuple *geneIndex = stIntTuple_construct1(i);
+        stTree *species = (stTree *) stHash_search(indexToSpecies, speciesIndex);
+        assert(species != NULL);
+        stTree *gene = (stTree *) stHash_search(indexToGene, geneIndex);
+        assert(gene != NULL);
+        if (stTree_getChildNumber(gene) != 0) {
+            // Only change the label on the ancestors.x
+            stTree_setLabel(gene, stString_copy(stTree_getLabel(species)));
+        }
+        stIntTuple_destruct(speciesIndex);
+        stIntTuple_destruct(geneIndex);
+    }
+    stHash_destruct(indexToSpecies);
+    stHash_destruct(indexToGene);
+    free(recon);
+    free(gene2species);
     delete sTree;
     delete gTree;
     stHash_destruct(geneToIndex);

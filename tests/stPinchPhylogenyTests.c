@@ -876,6 +876,8 @@ static void checkMinimalReconScore(stTree *tree, CuTest *testCase) {
     // Check the cost.
     int64_t dups, losses;
     stPinchPhylogeny_reconciliationCostBinary(newRootedTree, globalSpeciesTree, myLeafToSpecies, &dups, &losses);
+    printf("%" PRIi64 ", %" PRIi64 "\n", dups + losses, bestScore);
+    printf("%s\n", stTree_getNewickTreeString(newRootedTree));
     CuAssertTrue(testCase, dups + losses >= bestScore);
     CuAssertTrue(testCase, dups + losses >= 0);
     stHash_destruct(myLeafToSpecies);
@@ -925,6 +927,8 @@ static void testStPinchPhylogeny_reconcileBinary_random(CuTest *testCase) {
         stPinchPhylogeny_reconciliationCostBinary(rooted, globalSpeciesTree, myLeafToSpecies, &dups, &losses);
         bestScore = dups + losses;
         CuAssertTrue(testCase, bestScore >= 0);
+
+        printf("GENE TREE: %s\n", stTree_getNewickTreeString(geneTree));
 
         // Now check all possible roots and confirm that there isn't a
         // better one.

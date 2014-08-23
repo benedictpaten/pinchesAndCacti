@@ -578,9 +578,14 @@ stList *stPinchPhylogeny_getLeafSetsFromFeatureColumns(stList *featureColumns,
     return ret;
 }
 
-// (Re)root and a gene tree to a tree with minimal dups and losses.
+// (Re)root and reconcile a gene tree to a tree with minimal dups and losses.
 stTree *stPinchPhylogeny_reconcileBinary(stTree *geneTree, stTree *speciesTree, stHash *leafToSpecies) {
     return spimap_rootAndReconcile(geneTree, speciesTree, leafToSpecies);
+}
+
+// Reconcile a gene tree and set the ancestor labels to the correct species.
+void stPinchPhylogeny_reconcileAndLabelBinary(stTree *geneTree, stTree *speciesTree, stHash *leafToSpecies) {
+    spimap_reconcileAndLabel(geneTree, speciesTree, leafToSpecies);
 }
 
 void stPinchPhylogeny_reconciliationCostBinary(stTree *geneTree, stTree *speciesTree, stHash *leafToSpecies,
