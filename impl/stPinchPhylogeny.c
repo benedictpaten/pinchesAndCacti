@@ -699,20 +699,15 @@ static double likelihoodNucColumn(stTree *tree, stFeatureColumn *column) {
         }
     }
 
-    // Get p(tree | best root assignment)
+    // Get p(tree)
     double *rootProbs = stTree_getClientData(tree);
-    double maxProb = 0.0;
-    for(int64_t rootDnaIndex = 0; rootDnaIndex < 4; rootDnaIndex++) {
-        if(maxProb < rootProbs[rootDnaIndex]) {
-            maxProb = rootProbs[rootDnaIndex];
-        }
-    }
+    double ret = rootProbs[0] + rootProbs[1] + rootProbs[2] + rootProbs[3];
 
     // Clean up
     free(rootProbs);
     stTree_destruct(tree); // Delete our copy
     stList_destruct(bfQueue);
-    return maxProb;
+    return ret;
 }
 
 // Gives the (log)likelihood of the tree given the feature columns.
