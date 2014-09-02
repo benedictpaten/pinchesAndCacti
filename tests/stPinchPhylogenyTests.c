@@ -822,7 +822,7 @@ static void testStPinchPhylogeny_getLeafSetsFromFeatureColumns(CuTest *testCase)
     makeAndTestRandomFeatureBlocks(testCase, getLeafSetsFromPinchTestFn);
 }
 
-static void testStPinchPhylogeny_reconcileBinary_simpleTests(CuTest *testCase) {
+static void testStPinchPhylogeny_rootAndReconcileBinary_simpleTests(CuTest *testCase) {
     // First off -- sanity check that reconciling a gene tree equal to
     // a species tree is a no-op.
     int64_t numLeaves = st_randomInt64(3, 300);
@@ -835,7 +835,7 @@ static void testStPinchPhylogeny_reconcileBinary_simpleTests(CuTest *testCase) {
         stTree *species = stPhylogeny_getLeafByIndex(speciesTree, i);
         stHash_insert(leafToSpecies, gene, species);
     }
-    stTree *rooted = stPinchPhylogeny_reconcileBinary(geneTree, speciesTree, leafToSpecies);
+    stTree *rooted = stPinchPhylogeny_rootAndReconcileBinary(geneTree, speciesTree, leafToSpecies);
     CuAssertTrue(testCase, stTree_equals(rooted, geneTree));
     // Check that the cost is 0.
     int64_t dups, losses;
@@ -886,9 +886,9 @@ static void checkMinimalReconScore(stTree *tree, CuTest *testCase) {
     stHash_destructIterator(hashIt);
 }
 
-// Make sure that the tree given by reconcileBinary is a tree with
+// Make sure that the tree given by rootAndReconcileBinary is a tree with
 // the lowest possible reconciliation cost.
-static void testStPinchPhylogeny_reconcileBinary_random(CuTest *testCase) {
+static void testStPinchPhylogeny_rootAndReconcileBinary_random(CuTest *testCase) {
     for(int64_t testNum = 0; testNum < 10; testNum++) {
         int64_t numSpecies = st_randomInt64(3, 100);
         stMatrix *matrix = getRandomDistanceMatrix(numSpecies);
@@ -908,7 +908,7 @@ static void testStPinchPhylogeny_reconcileBinary_random(CuTest *testCase) {
         }
 
         // Find the best rooting.
-        stTree *rooted = stPinchPhylogeny_reconcileBinary(geneTree, globalSpeciesTree, globalLeafToSpecies);
+        stTree *rooted = stPinchPhylogeny_rootAndReconcileBinary(geneTree, globalSpeciesTree, globalLeafToSpecies);
         int64_t dups, losses;
 
         // This is pretty stupid, but we have to map from the
@@ -1027,8 +1027,8 @@ static void testStPinchPhylogeny_likelihood(CuTest *testCase) {
 CuSuite* stPinchPhylogenyTestSuite(void) {
     CuSuite* suite = CuSuiteNew();
     SUITE_ADD_TEST(suite, testStPinchPhylogeny_likelihood);
-    SUITE_ADD_TEST(suite, testStPinchPhylogeny_reconcileBinary_simpleTests);
-    SUITE_ADD_TEST(suite, testStPinchPhylogeny_reconcileBinary_random);
+    SUITE_ADD_TEST(suite, testStPinchPhylogeny_rootAndReconcileBinary_simpleTests);
+    SUITE_ADD_TEST(suite, testStPinchPhylogeny_rootAndReconcileBinary_random);
     SUITE_ADD_TEST(suite, testSimpleRemovePoorlySupportedPartitions);
     SUITE_ADD_TEST(suite, testSimpleSplitTreeOnOutgroups);
     SUITE_ADD_TEST(suite, testStFeatureBlock_getContextualFeatureBlocks);

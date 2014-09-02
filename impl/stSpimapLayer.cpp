@@ -1,5 +1,6 @@
 #include "Tree.h"
 #include "phylogeny.h"
+#include "stPinchPhylogeny.h"
 #include "sonLib.h"
 
 using namespace spidir;
@@ -151,10 +152,11 @@ void spimap_reconciliationCost(stTree *geneTree, stTree *speciesTree,
     stHash_destruct(speciesToIndex);
 }
 
-// Reconciles the gene tree against the species tree and replaces ancestor names
-// with species names.
-void spimap_reconcileAndLabel(stTree *geneTree, stTree *speciesTree,
-                              stHash *leafToSpecies) {
+// Reconcile a gene tree (without rerooting), set the
+// stReconcilationInfo as client data on internalNodes, and optionally
+// set the labels of the ancestors to the labels of the species tree.
+void spimap_reconcile(stTree *geneTree, stTree *speciesTree,
+                      stHash *leafToSpecies, bool relabelAncestors) {
     int64_t numGenes = stTree_getNumNodes(geneTree);
     stHash *geneToIndex = stHash_construct2(NULL, (void (*)(void *))stIntTuple_destruct);
     stHash *speciesToIndex = stHash_construct2(NULL, (void (*)(void *))stIntTuple_destruct);
@@ -165,6 +167,8 @@ void spimap_reconcileAndLabel(stTree *geneTree, stTree *speciesTree,
 
     int *recon = (int *)calloc(numGenes, sizeof(int));
     reconcile(gTree, sTree, gene2species, recon);
+    int *events = (int *)calloc(stTree_getNumNodes(geneTree), sizeof(int));
+    labelEvents(gTree, recon, events);
     stHash *indexToGene = stHash_invert(geneToIndex, (uint64_t (*)(const void *))stIntTuple_hashKey,
                                         (int (*)(const void *, const void *))stIntTuple_equalsFn,
                                         NULL, NULL);
@@ -179,8 +183,14 @@ void spimap_reconcileAndLabel(stTree *geneTree, stTree *speciesTree,
         stTree *gene = (stTree *) stHash_search(indexToGene, geneIndex);
         assert(gene != NULL);
         if (stTree_getChildNumber(gene) != 0) {
-            // Only change the label on the ancestors.x
-            stTree_setLabel(gene, stString_copy(stTree_getLabel(species)));
+            stReconciliationInfo *reconInfo = (stReconciliationInfo *) st_malloc(sizeof(stReconciliationInfo));
+            reconInfo->species = species;
+            assert(events[i] == EVENT_DUP || events[i] == EVENT_SPEC);
+            reconInfo->event = (events[i] == EVENT_DUP) ? DUPLICATION : SPECIATION;
+            // Change the label on the ancestors if needed.
+            if (relabelAncestors) {
+                stTree_setLabel(gene, stString_copy(stTree_getLabel(species)));
+            }
         }
         stIntTuple_destruct(speciesIndex);
         stIntTuple_destruct(geneIndex);
@@ -188,6 +198,7 @@ void spimap_reconcileAndLabel(stTree *geneTree, stTree *speciesTree,
     stHash_destruct(indexToSpecies);
     stHash_destruct(indexToGene);
     free(recon);
+    free(events);
     free(gene2species);
     delete sTree;
     delete gTree;

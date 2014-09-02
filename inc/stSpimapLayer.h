@@ -10,9 +10,10 @@ void spimap_reconciliationCost(stTree *geneTree, stTree *speciesTree,
                                stHash *leafToSpecies, int64_t *dups,
                                int64_t *losses);
 
-// Reconciles the gene tree against the species tree and replaces ancestor names
-// with species names.
-void spimap_reconcileAndLabel(stTree *geneTree, stTree *speciesTree,
-                              stHash *leafToSpecies);
+// Reconcile a gene tree (without rerooting), set the
+// stReconcilationInfo as client data on internalNodes, and optionally
+// set the labels of the ancestors to the labels of the species tree.
+void spimap_reconcile(stTree *geneTree, stTree *speciesTree,
+                      stHash *leafToSpecies, bool relabelAncestors);
 
 #endif

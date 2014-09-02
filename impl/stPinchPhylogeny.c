@@ -579,15 +579,19 @@ stList *stPinchPhylogeny_getLeafSetsFromFeatureColumns(stList *featureColumns,
 }
 
 // (Re)root and reconcile a gene tree to a tree with minimal dups and losses.
-stTree *stPinchPhylogeny_reconcileBinary(stTree *geneTree, stTree *speciesTree, stHash *leafToSpecies) {
+stTree *stPinchPhylogeny_rootAndReconcileBinary(stTree *geneTree, stTree *speciesTree, stHash *leafToSpecies) {
     return spimap_rootAndReconcile(geneTree, speciesTree, leafToSpecies);
 }
 
-// Reconcile a gene tree and set the ancestor labels to the correct species.
-void stPinchPhylogeny_reconcileAndLabelBinary(stTree *geneTree, stTree *speciesTree, stHash *leafToSpecies) {
-    spimap_reconcileAndLabel(geneTree, speciesTree, leafToSpecies);
+// Reconcile a gene tree (without rerooting), set the
+// stReconcilationInfo as client data on internalNodes, and optionally
+// set the labels of the ancestors to the labels of the species tree.
+void stPinchPhylogeny_reconcileBinary(stTree *geneTree, stTree *speciesTree, stHash *leafToSpecies,
+                                      bool relabelAncestors) {
+    spimap_reconcile(geneTree, speciesTree, leafToSpecies, relabelAncestors);
 }
 
+// FIXME: does an extra unnecessary reconciliation
 void stPinchPhylogeny_reconciliationCostBinary(stTree *geneTree, stTree *speciesTree, stHash *leafToSpecies,
                                                int64_t *dups, int64_t *losses) {
     spimap_reconciliationCost(geneTree, speciesTree, leafToSpecies, dups, losses);
@@ -721,4 +725,11 @@ double stPinchPhylogeny_likelihood(stTree *tree, stList *featureColumns) {
     // TODO: likelihood of each column -- breakpoint portion
 
     return ret;
+}
+
+// For a tree with stReconcilationInfo on the internal nodes,
+// assigns a likelihood to the events in the tree.
+// Dup-rate and loss-rate are per (sub/site) branch length.
+double stPinchPhylogeny_reconciliationLikelihood(stTree *tree, double dupRate, double lossRate) {
+    return 0.0;
 }
