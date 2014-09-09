@@ -153,7 +153,7 @@ void spimap_reconciliationCost(stTree *geneTree, stTree *speciesTree,
 }
 
 // Reconcile a gene tree (without rerooting), set the
-// stReconcilationInfo as client data on internalNodes, and optionally
+// stReconcilationInfo as client data on all nodes, and optionally
 // set the labels of the ancestors to the labels of the species tree.
 void spimap_reconcile(stTree *geneTree, stTree *speciesTree,
                       stHash *leafToSpecies, bool relabelAncestors) {
@@ -182,18 +182,22 @@ void spimap_reconcile(stTree *geneTree, stTree *speciesTree,
         assert(species != NULL);
         stTree *gene = (stTree *) stHash_search(indexToGene, geneIndex);
         assert(gene != NULL);
-        if (stTree_getChildNumber(gene) != 0) {
-            stReconciliationInfo *reconInfo = (stReconciliationInfo *) st_malloc(sizeof(stReconciliationInfo));
-            reconInfo->species = species;
+        stReconciliationInfo *reconInfo = (stReconciliationInfo *) st_malloc(sizeof(stReconciliationInfo));
+        reconInfo->species = species;
+        if (stTree_getChildNumber(gene) == 0) {
+            assert(events[i] == EVENT_GENE);
+            reconInfo->event = LEAF;
+        } else {
             assert(events[i] == EVENT_DUP || events[i] == EVENT_SPEC);
             reconInfo->event = (events[i] == EVENT_DUP) ? DUPLICATION : SPECIATION;
-            // Change the label on the ancestors if needed.
-            if (relabelAncestors) {
-                stTree_setLabel(gene, stString_copy(stTree_getLabel(species)));
-            }
+        }
+        // Change the label on the ancestors if needed.
+        if (stTree_getChildNumber(gene) == 0 && relabelAncestors) {
+            stTree_setLabel(gene, stString_copy(stTree_getLabel(species)));
         }
         stIntTuple_destruct(speciesIndex);
         stIntTuple_destruct(geneIndex);
+        stTree_setClientData(gene, reconInfo);
     }
     stHash_destruct(indexToSpecies);
     stHash_destruct(indexToGene);
