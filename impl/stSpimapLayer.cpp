@@ -76,7 +76,7 @@ static int *getGene2Species(stHash *leafToSpecies, stHash *geneToIndex,
 
 extern "C" {
 // Reroot a binary gene tree against a binary species tree to minimize
-// the number of dups and losses using spimap. Uses the algorithm
+// the number of dups using spimap. Uses the algorithm
 // described in Zmasek & Eddy, Bioinformatics, 2001.
 // FIXME: oh my god so many extra traversals
 stTree *spimap_rootAndReconcile(stTree *geneTree, stTree *speciesTree,

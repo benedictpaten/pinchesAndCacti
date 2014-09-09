@@ -852,7 +852,7 @@ static void testStPinchPhylogeny_rootAndReconcileBinary_simpleTests(CuTest *test
 // Globals for checkMinimalReconScore
 stTree *globalSpeciesTree;
 stHash *globalLeafToSpecies;
-int64_t bestScore;
+int64_t bestDups;
 
 // Check that the tree rooted above this node doesn't have a lower cost
 // than the "best" cost.
@@ -876,9 +876,7 @@ static void checkMinimalReconScore(stTree *tree, CuTest *testCase) {
     // Check the cost.
     int64_t dups, losses;
     stPinchPhylogeny_reconciliationCostBinary(newRootedTree, globalSpeciesTree, myLeafToSpecies, &dups, &losses);
-    printf("%" PRIi64 ", %" PRIi64 "\n", dups + losses, bestScore);
-    printf("%s\n", stTree_getNewickTreeString(newRootedTree));
-    CuAssertTrue(testCase, dups + losses >= bestScore);
+    CuAssertTrue(testCase, dups >= bestDups);
     CuAssertTrue(testCase, dups + losses >= 0);
     stHash_destruct(myLeafToSpecies);
     stPhylogenyInfo_destructOnTree(newRootedTree);
@@ -887,7 +885,7 @@ static void checkMinimalReconScore(stTree *tree, CuTest *testCase) {
 }
 
 // Make sure that the tree given by rootAndReconcileBinary is a tree with
-// the lowest possible reconciliation cost.
+// the lowest possible reconciliation cost (in terms of dups).
 static void testStPinchPhylogeny_rootAndReconcileBinary_random(CuTest *testCase) {
     for(int64_t testNum = 0; testNum < 10; testNum++) {
         int64_t numSpecies = st_randomInt64(3, 100);
@@ -925,10 +923,9 @@ static void testStPinchPhylogeny_rootAndReconcileBinary_random(CuTest *testCase)
             stHash_insert(myLeafToSpecies, newGene, species);
         }
         stPinchPhylogeny_reconciliationCostBinary(rooted, globalSpeciesTree, myLeafToSpecies, &dups, &losses);
-        bestScore = dups + losses;
-        CuAssertTrue(testCase, bestScore >= 0);
-
-        printf("GENE TREE: %s\n", stTree_getNewickTreeString(geneTree));
+        bestDups = dups;
+        CuAssertTrue(testCase, bestDups >= 0);
+        CuAssertTrue(testCase, losses >= 0);
 
         // Now check all possible roots and confirm that there isn't a
         // better one.
@@ -992,7 +989,6 @@ static void likelihoodTestFn(stPinchBlock *block, stList *featureBlocks, CuTest 
 
     // Make feature columns
     stList *featureColumns = stFeatureColumn_getFeatureColumns(featureBlocks, block);
-
     stTree *tree = stPinchPhylogeny_buildTreeFromFeatureColumns(featureColumns, block, 0);
 
     double likelihood = stPinchPhylogeny_likelihood(tree, featureColumns);
@@ -1024,9 +1020,48 @@ static void testStPinchPhylogeny_likelihood(CuTest *testCase) {
     makeAndTestRandomFeatureBlocks(testCase, likelihoodTestFn);
 }
 
+// Check basic sanity tests for the reconciliation likelihood.
+static void reconciliationLikelihoodTestFn(stPinchBlock *block, stList *featureBlocks, CuTest *testCase) {
+    if (stPinchBlock_getDegree(block) < 3) {
+        // Can't build a tree.
+        return;
+    }
+
+    // Make feature columns
+    stList *featureColumns = stFeatureColumn_getFeatureColumns(featureBlocks, block);
+    stTree *tree = stPinchPhylogeny_buildTreeFromFeatureColumns(featureColumns, block, 0);
+
+    // Get a random assignment to a random species tree roughly the same size as the block tree.
+    stPhylogenyInfo *info = stTree_getClientData(tree);
+    assert(info != NULL);
+    int64_t numSpecies = info->totalNumLeaves + st_randomInt64(-3, 4);
+    numSpecies = (numSpecies > 3) ? numSpecies : 3;
+    stTree *speciesTree = getRandomBootstrappedTree(numSpecies, 0);
+    stHash *leafToSpecies = stHash_construct();
+    for (int64_t i = 0; i < info->totalNumLeaves; i++) {
+        stTree *gene = stPhylogeny_getLeafByIndex(tree, i);
+        stTree *species = stPhylogeny_getLeafByIndex(speciesTree, st_randomInt64(0, numSpecies));
+        stHash_insert(leafToSpecies, gene, species);
+    }
+    stPinchPhylogeny_reconcileBinary(tree, speciesTree, leafToSpecies, true);
+    double likelihood = stPinchPhylogeny_reconciliationLikelihood(tree, speciesTree, 0.01);
+    printf("%s %lf\n", stTree_getNewickTreeString(tree), likelihood);
+
+    stPhylogenyInfo_destructOnTree(tree);
+    stTree_destruct(tree);
+    stPhylogenyInfo_destructOnTree(speciesTree);
+    stTree_destruct(speciesTree);
+    stList_destruct(featureColumns);
+}
+
+static void testStPinchPhylogeny_reconciliationLikelihood(CuTest *testCase) {
+    makeAndTestRandomFeatureBlocks(testCase, reconciliationLikelihoodTestFn);
+}
+
 CuSuite* stPinchPhylogenyTestSuite(void) {
     CuSuite* suite = CuSuiteNew();
     SUITE_ADD_TEST(suite, testStPinchPhylogeny_likelihood);
+    SUITE_ADD_TEST(suite, testStPinchPhylogeny_reconciliationLikelihood);
     SUITE_ADD_TEST(suite, testStPinchPhylogeny_rootAndReconcileBinary_simpleTests);
     SUITE_ADD_TEST(suite, testStPinchPhylogeny_rootAndReconcileBinary_random);
     SUITE_ADD_TEST(suite, testSimpleRemovePoorlySupportedPartitions);

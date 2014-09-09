@@ -64,7 +64,7 @@ typedef enum {
     SPECIATION
 } stReconciliationEvent;
 
-// Reconcilation information. Only defined on internal nodes.
+// Reconciliation information. Only defined on internal nodes.
 typedef struct {
     stTree *species; // The node in the species tree that this node maps to.
     stReconciliationEvent event; // Duplication or speciation node.
@@ -129,7 +129,7 @@ stList *stPinchPhylogeny_getLeafSetsFromFeatureColumns(stList *featureColumns,
                                                        double confidenceThreshold,
                                                        stList *outgroups);
 
-// (Re)root a gene tree to minimize dups and losses.
+// (Re)root a gene tree to minimize dups.
 // leafToSpecies is a hash from leaves of geneTree to leaves of speciesTree.
 // Both trees must be binary.
 stTree *stPinchPhylogeny_rootAndReconcileBinary(stTree *geneTree, stTree *speciesTree, stHash *leafToSpecies);
@@ -139,6 +139,8 @@ stTree *stPinchPhylogeny_rootAndReconcileBinary(stTree *geneTree, stTree *specie
 // set the labels of the ancestors to the labels of the species tree.
 void stPinchPhylogeny_reconcileBinary(stTree *geneTree, stTree *speciesTree, stHash *leafToSpecies,
                                       bool relabelAncestors);
+
+// Calculate the reconciliation cost in dups and losses.
 void stPinchPhylogeny_reconciliationCostBinary(stTree *geneTree, stTree *speciesTree, stHash *leafToSpecies,
                                                int64_t *dups, int64_t *losses);
 
@@ -148,5 +150,12 @@ double stPinchPhylogeny_likelihood(stTree *tree, stList *featureColumns);
 stTree *stPinchPhylogeny_buildTreeFromFeatureColumns(stList *featureColumns,
                                                      stPinchBlock *block,
                                                      bool bootstrap);
+
+// For a tree with stReconciliationInfo on the internal nodes, assigns
+// a log-likelihood to the events in the tree. Uses an approximation that
+// considers only duplication likelihood, rather than the full
+// birth-death process.
+// Dup-rate is per species-tree branch length unit.
+double stPinchPhylogeny_reconciliationLikelihood(stTree *tree, stTree *speciesTree, double dupRate);
 
 #endif

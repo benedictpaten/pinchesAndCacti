@@ -578,7 +578,7 @@ stList *stPinchPhylogeny_getLeafSetsFromFeatureColumns(stList *featureColumns,
     return ret;
 }
 
-// (Re)root and reconcile a gene tree to a tree with minimal dups and losses.
+// (Re)root and reconcile a gene tree to a tree with minimal dups.
 stTree *stPinchPhylogeny_rootAndReconcileBinary(stTree *geneTree, stTree *speciesTree, stHash *leafToSpecies) {
     return spimap_rootAndReconcile(geneTree, speciesTree, leafToSpecies);
 }
@@ -722,14 +722,67 @@ double stPinchPhylogeny_likelihood(stTree *tree, stList *featureColumns) {
     for(int64_t i = 0; i < stList_length(featureColumns); i++) {
         ret += log(likelihoodNucColumn(tree, stList_get(featureColumns, i)))/log(10);
     }
-    // TODO: likelihood of each column -- breakpoint portion
 
     return ret;
 }
 
-// For a tree with stReconcilationInfo on the internal nodes,
-// assigns a likelihood to the events in the tree.
-// Dup-rate and loss-rate are per (sub/site) branch length.
-double stPinchPhylogeny_reconciliationLikelihood(stTree *tree, double dupRate, double lossRate) {
-    return 0.0;
+double poisson(int numOccurrences, double rate) {
+    return pow(numOccurrences, rate)*exp(-rate)/tgamma(numOccurrences + 1);
+}
+
+// For a tree with stReconciliationInfo on the internal nodes, assigns
+// a log-likelihood to the events in the tree. Uses an approximation that
+// considers only duplication likelihood, rather than the full
+// birth-death process.
+// Dup-rate is per species-tree branch length unit.
+double stPinchPhylogeny_reconciliationLikelihood(stTree *tree, stTree *speciesTree, double dupRate) {
+    // Create a species->duplication events mapping so we can get the number of
+    // duplications per (species) lineage.
+    stHash *speciesToDups = stHash_construct2(NULL, (void (*)(void *)) stList_destruct);
+    stList *bfQueue = stList_construct();
+    stList_append(bfQueue, tree);
+    while (stList_length(bfQueue) != 0) {
+        stTree *gene = stList_pop(bfQueue);
+        for (int64_t i = 0; i < stTree_getChildNumber(gene); i++) {
+            stList_append(bfQueue, stTree_getChild(gene, i));
+        }
+        stReconciliationInfo *info = stTree_getClientData(gene);
+        assert(info != NULL);
+        stTree *species = info->species;
+        assert(species != NULL);
+        if (info->event == DUPLICATION) {
+            // Duplication event, we should add it to the list.
+            stList *dupList = stHash_search(speciesToDups, species);
+            if (dupList == NULL) {
+                // Initialize dup list for a particular species.
+                dupList = stList_construct();
+                stHash_insert(speciesToDups, species, dupList);
+            }
+            stList_append(dupList, gene);
+        }
+    }
+
+    // Go through the species tree and add each branch's probability
+    // of receiving x duplications to the likelihood.
+    double logLikelihood = 0.0;
+    stList_append(bfQueue, speciesTree);
+    while (stList_length(bfQueue) != 0) {
+        stTree *species = stList_pop(bfQueue);
+        for (int64_t i = 0; i < stTree_getChildNumber(species); i++) {
+            stList_append(bfQueue, stTree_getChild(species, i));
+        }
+        if (species == speciesTree) {
+            // We ignore the species-tree root since it's difficult to
+            // calculate the probability of x duplications in the root
+            // -- we aren't sure of the branch length.
+            continue;
+        }
+	stList *dups = stHash_search(speciesToDups, species);
+        assert(dups != NULL);
+        logLikelihood += log(poisson(stList_length(dups), dupRate * stTree_getBranchLength(species)))/log(10);
+    }
+
+    stList_destruct(bfQueue);
+    stHash_destruct(speciesToDups);
+    return logLikelihood;
 }
