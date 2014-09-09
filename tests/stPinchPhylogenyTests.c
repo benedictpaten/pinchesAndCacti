@@ -1043,11 +1043,12 @@ static void reconciliationLikelihoodTestFn(stPinchBlock *block, stList *featureB
         stTree *species = stPhylogeny_getLeafByIndex(speciesTree, st_randomInt64(0, numSpecies));
         stHash_insert(leafToSpecies, gene, species);
     }
+    stPhylogenyInfo_destructOnTree(tree);
     stPinchPhylogeny_reconcileBinary(tree, speciesTree, leafToSpecies, true);
     double likelihood = stPinchPhylogeny_reconciliationLikelihood(tree, speciesTree, 0.01);
     printf("%s %lf\n", stTree_getNewickTreeString(tree), likelihood);
 
-    stPhylogenyInfo_destructOnTree(tree);
+    stReconciliationInfo_destructOnTree(tree);
     stTree_destruct(tree);
     stPhylogenyInfo_destructOnTree(speciesTree);
     stTree_destruct(speciesTree);

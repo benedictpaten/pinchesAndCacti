@@ -61,7 +61,8 @@ typedef struct _stFeatureColumn {
 // Used for identifying the event underlying an internal node in a reconciled tree.
 typedef enum {
     DUPLICATION,
-    SPECIATION
+    SPECIATION,
+    LEAF
 } stReconciliationEvent;
 
 // Reconciliation information. Only defined on internal nodes.
@@ -69,6 +70,13 @@ typedef struct {
     stTree *species; // The node in the species tree that this node maps to.
     stReconciliationEvent event; // Duplication or speciation node.
 } stReconciliationInfo;
+
+// Free stReconciliationInfo properly.
+void stReconciliationInfo_destruct(stReconciliationInfo *info);
+
+// Free stReconciliationInfo in the client data field of a tree and
+// all its children recursively.
+void stReconciliationInfo_destructOnTree(stTree *tree);
 
 /*
  * Gets a list of feature columns for the blocks in the input list of featureBlocks,
@@ -135,7 +143,7 @@ stList *stPinchPhylogeny_getLeafSetsFromFeatureColumns(stList *featureColumns,
 stTree *stPinchPhylogeny_rootAndReconcileBinary(stTree *geneTree, stTree *speciesTree, stHash *leafToSpecies);
 
 // Reconcile a gene tree (without rerooting), set the
-// stReconcilationInfo as client data on internalNodes, and optionally
+// stReconcilationInfo as client data on all nodes, and optionally
 // set the labels of the ancestors to the labels of the species tree.
 void stPinchPhylogeny_reconcileBinary(stTree *geneTree, stTree *speciesTree, stHash *leafToSpecies,
                                       bool relabelAncestors);

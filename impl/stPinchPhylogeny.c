@@ -584,7 +584,7 @@ stTree *stPinchPhylogeny_rootAndReconcileBinary(stTree *geneTree, stTree *specie
 }
 
 // Reconcile a gene tree (without rerooting), set the
-// stReconcilationInfo as client data on internalNodes, and optionally
+// stReconcilationInfo as client data on all nodes, and optionally
 // set the labels of the ancestors to the labels of the species tree.
 void stPinchPhylogeny_reconcileBinary(stTree *geneTree, stTree *speciesTree, stHash *leafToSpecies,
                                       bool relabelAncestors) {
@@ -595,6 +595,20 @@ void stPinchPhylogeny_reconcileBinary(stTree *geneTree, stTree *speciesTree, stH
 void stPinchPhylogeny_reconciliationCostBinary(stTree *geneTree, stTree *speciesTree, stHash *leafToSpecies,
                                                int64_t *dups, int64_t *losses) {
     spimap_reconciliationCost(geneTree, speciesTree, leafToSpecies, dups, losses);
+}
+
+// Free stReconciliationInfo properly.
+void stReconciliationInfo_destruct(stReconciliationInfo *info) {
+    free(info);
+}
+
+// Free stReconciliationInfo in the client data field of a tree and
+// all its children recursively.
+void stReconciliationInfo_destructOnTree(stTree *tree) {
+    stReconciliationInfo_destruct(stTree_getClientData(tree));
+    for (int64_t i = 0; i < stTree_getChildNumber(tree); i++) {
+        stReconciliationInfo_destructOnTree(stTree_getChild(tree, i));
+    }
 }
 
 // get an index from an unambiguous base for felsenstein likelihood
@@ -750,17 +764,25 @@ double stPinchPhylogeny_reconciliationLikelihood(stTree *tree, stTree *speciesTr
         assert(info != NULL);
         stTree *species = info->species;
         assert(species != NULL);
+        stList *dupList = stHash_search(speciesToDups, species);
+        if (dupList == NULL) {
+            // Initialize dup list for a particular species.
+            dupList = stList_construct();
+            stHash_insert(speciesToDups, species, dupList);
+        }
         if (info->event == DUPLICATION) {
             // Duplication event, we should add it to the list.
-            stList *dupList = stHash_search(speciesToDups, species);
-            if (dupList == NULL) {
-                // Initialize dup list for a particular species.
-                dupList = stList_construct();
-                stHash_insert(speciesToDups, species, dupList);
-            }
             stList_append(dupList, gene);
         }
     }
+
+    // Get the species tree rooted at the MRCA of the genes so we
+    // don't account for lineages that don't actually have the gene in
+    // question.
+    stReconciliationInfo *rootInfo = stTree_getClientData(tree);
+    assert(rootInfo != NULL);
+    speciesTree = rootInfo->species;
+    assert(speciesTree != NULL);
 
     // Go through the species tree and add each branch's probability
     // of receiving x duplications to the likelihood.
@@ -778,8 +800,41 @@ double stPinchPhylogeny_reconciliationLikelihood(stTree *tree, stTree *speciesTr
             continue;
         }
 	stList *dups = stHash_search(speciesToDups, species);
-        assert(dups != NULL);
-        logLikelihood += log(poisson(stList_length(dups), dupRate * stTree_getBranchLength(species)))/log(10);
+        bool isLost = true;
+        int64_t numDups = 0;
+        if (dups == NULL) {
+            // If the dupe list isn't created, then we didn't see
+            // anything reconciled to this node. We need to check
+            // whether the gene has been lost in this node, if not, we
+            // should assign it zero dups.
+            stList *bfQueue2 = stList_construct();
+            stList_append(bfQueue2, species);
+            // Look in all the children in the subtree under species
+            // and see if there are any that have been reconciled to
+            // it (if not, then we can safely assume the gene is lost
+            // in this lineage)
+            while (stList_length(bfQueue2) != 0) {
+                stTree *childSpecies = stList_pop(bfQueue2);
+                for (int64_t i = 0; i < stTree_getChildNumber(childSpecies); i++) {
+                    stList_append(bfQueue2, stTree_getChild(childSpecies, i));
+                }
+                if (stHash_search(speciesToDups, childSpecies) != NULL) {
+                    isLost = false;
+                    break;
+                }
+            }
+            if (!isLost) {
+                numDups = 0;
+            }
+            stList_destruct(bfQueue2);
+        } else {
+            // Obviously this is not lost.
+            isLost = false;
+            numDups = stList_length(dups);
+        }
+        if (!isLost) {
+            logLikelihood += log(poisson(numDups, dupRate * stTree_getBranchLength(species)))/log(10);
+        }
     }
 
     stList_destruct(bfQueue);
