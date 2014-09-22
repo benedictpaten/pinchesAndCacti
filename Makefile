@@ -2,12 +2,9 @@ rootPath = ./
 include ./include.mk
 
 libSources = impl/*.c
-libCppSources = impl/*.cpp
 libHeaders = inc/*.h
 libTests = tests/*.c
 testBin = tests/testBin
-spimapInc = externalTools/spimap/src/
-spimapReconLib = ${libPath}/spimapRecon.a
 
 all : externalToolsM ${libPath}/stPinchesAndCacti.a ${binPath}/stPinchesAndCactiTests
 
@@ -16,8 +13,6 @@ externalToolsM :
 
 ${libPath}/stPinchesAndCacti.a : ${libSources} ${libCppSources} ${libHeaders} ${basicLibsDependencies} ${spimapReconLib}
 	${cxx} ${cflags} -I inc -I ${libPath}/ -c ${libSources}
-	${cpp} ${cppflags} -I inc -I ${spimapInc} -I ${libPath}/ -c ${libCppSources}
-	ar x ${spimapReconLib}
 	ar rc stPinchesAndCacti.a *.o
 	ranlib stPinchesAndCacti.a 
 	rm *.o

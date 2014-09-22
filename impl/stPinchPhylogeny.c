@@ -578,39 +578,6 @@ stList *stPinchPhylogeny_getLeafSetsFromFeatureColumns(stList *featureColumns,
     return ret;
 }
 
-// (Re)root and reconcile a gene tree to a tree with minimal dups.
-stTree *stPinchPhylogeny_rootAndReconcileBinary(stTree *geneTree, stTree *speciesTree, stHash *leafToSpecies) {
-    return spimap_rootAndReconcile(geneTree, speciesTree, leafToSpecies);
-}
-
-// Reconcile a gene tree (without rerooting), set the
-// stReconcilationInfo as client data on all nodes, and optionally
-// set the labels of the ancestors to the labels of the species tree.
-void stPinchPhylogeny_reconcileBinary(stTree *geneTree, stTree *speciesTree, stHash *leafToSpecies,
-                                      bool relabelAncestors) {
-    spimap_reconcile(geneTree, speciesTree, leafToSpecies, relabelAncestors);
-}
-
-// FIXME: does an extra unnecessary reconciliation
-void stPinchPhylogeny_reconciliationCostBinary(stTree *geneTree, stTree *speciesTree, stHash *leafToSpecies,
-                                               int64_t *dups, int64_t *losses) {
-    spimap_reconciliationCost(geneTree, speciesTree, leafToSpecies, dups, losses);
-}
-
-// Free stReconciliationInfo properly.
-void stReconciliationInfo_destruct(stReconciliationInfo *info) {
-    free(info);
-}
-
-// Free stReconciliationInfo in the client data field of a tree and
-// all its children recursively.
-void stReconciliationInfo_destructOnTree(stTree *tree) {
-    stReconciliationInfo_destruct(stTree_getClientData(tree));
-    for (int64_t i = 0; i < stTree_getChildNumber(tree); i++) {
-        stReconciliationInfo_destructOnTree(stTree_getChild(tree, i));
-    }
-}
-
 // get an index from an unambiguous base for felsenstein likelihood
 static int64_t dnaToIndex(char dna) {
     switch(dna) {

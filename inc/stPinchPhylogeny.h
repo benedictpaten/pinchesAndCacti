@@ -58,26 +58,6 @@ typedef struct _stFeatureColumn {
     stFeatureBlock *featureBlock; //The block in question.
 } stFeatureColumn;
 
-// Used for identifying the event underlying an internal node in a reconciled tree.
-typedef enum {
-    DUPLICATION,
-    SPECIATION,
-    LEAF
-} stReconciliationEvent;
-
-// Reconciliation information. Only defined on internal nodes.
-typedef struct {
-    stTree *species; // The node in the species tree that this node maps to.
-    stReconciliationEvent event; // Duplication or speciation node.
-} stReconciliationInfo;
-
-// Free stReconciliationInfo properly.
-void stReconciliationInfo_destruct(stReconciliationInfo *info);
-
-// Free stReconciliationInfo in the client data field of a tree and
-// all its children recursively.
-void stReconciliationInfo_destructOnTree(stTree *tree);
-
 /*
  * Gets a list of feature columns for the blocks in the input list of featureBlocks,
  * to allow sampling with replacement for bootstrapping. The ordering of the columns
@@ -137,20 +117,6 @@ stList *stPinchPhylogeny_getLeafSetsFromFeatureColumns(stList *featureColumns,
                                                        double confidenceThreshold,
                                                        stList *outgroups);
 
-// (Re)root a gene tree to minimize dups.
-// leafToSpecies is a hash from leaves of geneTree to leaves of speciesTree.
-// Both trees must be binary.
-stTree *stPinchPhylogeny_rootAndReconcileBinary(stTree *geneTree, stTree *speciesTree, stHash *leafToSpecies);
-
-// Reconcile a gene tree (without rerooting), set the
-// stReconcilationInfo as client data on all nodes, and optionally
-// set the labels of the ancestors to the labels of the species tree.
-void stPinchPhylogeny_reconcileBinary(stTree *geneTree, stTree *speciesTree, stHash *leafToSpecies,
-                                      bool relabelAncestors);
-
-// Calculate the reconciliation cost in dups and losses.
-void stPinchPhylogeny_reconciliationCostBinary(stTree *geneTree, stTree *speciesTree, stHash *leafToSpecies,
-                                               int64_t *dups, int64_t *losses);
 
 // Gives the likelihood of the tree given the feature columns.
 double stPinchPhylogeny_likelihood(stTree *tree, stList *featureColumns);
