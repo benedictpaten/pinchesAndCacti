@@ -20,7 +20,7 @@ ${libPath}/stPinchesAndCacti.a : ${libSources} ${libCppSources} ${libHeaders} ${
 	cp ${libHeaders} ${libPath}/
 
 ${binPath}/stPinchesAndCactiTests : ${libTests} ${libSources} ${libHeaders} ${basicLibsDependencies} ${libPath}/3EdgeConnected.a ${libPath}/stPinchesAndCacti.a
-	${cxx} ${cflags} -I inc -I impl -I${libPath} -o ${binPath}/stPinchesAndCactiTests ${libTests} ${libSources} ${basicLibs}  ${libPath}/3EdgeConnected.a ${libPath}/stPinchesAndCacti.a
+	${cxx} ${cflags} -I inc -I impl -I${libPath} -o ${binPath}/stPinchesAndCactiTests ${libTests} ${libSources} ${basicLibs}  ${libPath}/3EdgeConnected.a ${libPath}/stPinchesAndCacti.a -lstdc++
 
 clean : 
 	cd externalTools && make clean
