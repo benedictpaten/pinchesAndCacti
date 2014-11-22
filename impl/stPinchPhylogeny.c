@@ -79,7 +79,7 @@ int64_t stFeatureSegment_getColumnDistance(stFeatureSegment *featureSegment, int
  * Returns non-zero if the bases of the two segments at the given index are equal.
  */
 bool stFeatureSegment_basesEqual(stFeatureSegment *fSegment1, stFeatureSegment *fSegment2, int64_t columnIndex) {
-    return stFeatureSegment_getBase(fSegment1, columnIndex) == stFeatureSegment_getBase(fSegment2, columnIndex);
+    return toupper(stFeatureSegment_getBase(fSegment1, columnIndex)) == toupper(stFeatureSegment_getBase(fSegment2, columnIndex));
 }
 
 /*
