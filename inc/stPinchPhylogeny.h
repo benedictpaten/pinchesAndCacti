@@ -31,12 +31,20 @@ typedef struct _stFeatureBlock {
                       // segment with that index is not in the column.
 } stFeatureBlock;
 
+/*
+ * Represents an addition/subtraction operation on a matrix.
+ */
 typedef struct _stMatrixOp {
     int64_t row;
     int64_t col;
     double diff;
 } stMatrixOp;
 
+/*
+ * A list of "diffs" that is created from a set of feature
+ * columns. Sampling can be done from this list of diffs instead of
+ * from the feature columns themselves to save a bit of time.
+ */
 typedef struct _stMatrixDiffs {
     int64_t rows; // Size of rows of matrix
     int64_t cols; // Size of cols of matrix
@@ -77,6 +85,9 @@ typedef struct _stFeatureColumn {
  */
 stList *stFeatureColumn_getFeatureColumns(stList *featureBlocks, stPinchBlock *block);
 
+/*
+ * Constructs a feature matrix from a list of diffs.
+ */
 stMatrix *stPinchPhylogeny_constructMatrixFromDiffs(stMatrixDiffs *matrixDiffs,
                                                     bool sample);
 
@@ -91,6 +102,9 @@ void stMatrixDiffs_destruct(stMatrixDiffs *diffs);
 stMatrix *stPinchPhylogeny_getMatrixFromSubstitutions(stList *featureColumns, stPinchBlock *block,
                                                       double distanceWeightFn(int64_t, int64_t), bool sampleColumns);
 
+/*
+ * Same as above, but saves as a diff list for more efficient bootstraps.
+ */
 stMatrixDiffs *stPinchPhylogeny_getMatrixDiffsFromSubstitutions(stList *featureColumns, stPinchBlock *block,
         double distanceWeightFn(int64_t, int64_t));
 
@@ -100,6 +114,10 @@ stMatrixDiffs *stPinchPhylogeny_getMatrixDiffsFromSubstitutions(stList *featureC
  */
 stMatrix *stPinchPhylogeny_getMatrixFromBreakpoints(stList *featureColumns, stPinchBlock *block,
                                                     double distanceWeightFn(int64_t, int64_t), bool sampleColumns);
+
+/*
+ * Same as above, but saves as a diff list for more efficient bootstraps.
+ */
 stMatrixDiffs *stPinchPhylogeny_getMatrixDiffsFromBreakpoints(stList *featureColumns, stPinchBlock *block,
         double distanceWeightFn(int64_t, int64_t));
 
