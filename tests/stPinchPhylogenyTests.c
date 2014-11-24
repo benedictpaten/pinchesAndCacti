@@ -500,7 +500,7 @@ static void testSimpleSplitTreeOnOutgroups(CuTest *testCase) {
     stTree *tree = stTree_parseNewickString("(((((0,1):1,(2,3):1):1,4:1):1,5:1):1,(6:1,(7:1,8:1):1):1);");
     stList *outgroups = stList_construct3(0, (void (*)(void *))stIntTuple_destruct);
     stList *result;
-    stPhylogeny_addStPhylogenyInfo(tree);
+    stPhylogeny_addStIndexedTreeInfo(tree);
 
     // Simplest test -- running w/ no outgroups should yield a list
     // containing one leaf set with all leaves.
@@ -555,13 +555,13 @@ static void testOnTree(CuTest *testCase, stTree *tree,
 static void checkLeavesBelow(stTree *tree, CuTest *testCase) {
     int64_t i;
     stPhylogenyInfo *info = stTree_getClientData(tree);
-    for (i = 0; i < info->totalNumLeaves; i++) {
+    for (i = 0; i < info->index->totalNumLeaves; i++) {
         char *label = stString_print("%" PRIi64, i);
-        if (info->leavesBelow[i]) {
+        if (info->index->leavesBelow[i]) {
             // leavesBelow says it has leaf i under it -- check
             // that it actually does
             CuAssertTrue(testCase, stTree_findChild(tree, label) != NULL ||
-                         info->matrixIndex == i);
+                         info->index->matrixIndex == i);
         } else {
             // leavesBelow says leaf i is not under this node, check
             // that it's not
@@ -576,7 +576,7 @@ static void testSimpleRemovePoorlySupportedPartitions(CuTest *testCase) {
     stTree *tree = stTree_parseNewickString("(((((0,1),(2,3)),4),5),(6,(7,8)));");
     stTree *result;
     stPhylogenyInfo *info;
-    stPhylogeny_addStPhylogenyInfo(tree);
+    stPhylogeny_addStIndexedTreeInfo(tree);
 
     // Running on a tree with no support at all should create a star tree.
     result = stPinchPhylogeny_removePoorlySupportedPartitions(tree, 1.0);
@@ -593,9 +593,9 @@ static void testSimpleRemovePoorlySupportedPartitions(CuTest *testCase) {
     // Only the two partitions below the root are supported
     // sufficiently -- result should be ((5,4,3,2,1,0),(6,7,8));
     info = stTree_getClientData(stPhylogeny_getMRCA(tree, 0, 5));
-    info->bootstrapSupport = 0.4;
+    info->index->bootstrapSupport = 0.4;
     info = stTree_getClientData(stPhylogeny_getMRCA(tree, 6, 8));
-    info->bootstrapSupport = 1.0;
+    info->index->bootstrapSupport = 1.0;
     result = stPinchPhylogeny_removePoorlySupportedPartitions(tree, 0.2);
     CuAssertIntEquals(testCase, 2, stTree_getChildNumber(result));
     // Check that the leavesBelow attribute is set correctly
@@ -685,9 +685,10 @@ static bool isPartitionInOtherTree(stTree *node1, stTree *tree2) {
     stPhylogenyInfo *nodeInfo = stTree_getClientData(node1);
     stPhylogenyInfo *otherInfo = stTree_getClientData(tree2);
 
-    assert(nodeInfo->totalNumLeaves == otherInfo->totalNumLeaves);
+    assert(nodeInfo->index->totalNumLeaves == otherInfo->index->totalNumLeaves);
 
-    if(memcmp(nodeInfo->leavesBelow, otherInfo->leavesBelow, nodeInfo->totalNumLeaves) == 0) {
+    if(memcmp(nodeInfo->index->leavesBelow, otherInfo->index->leavesBelow,
+              nodeInfo->index->totalNumLeaves) == 0) {
         // The two nodes have the same leaf set
         return true;
     }
@@ -698,8 +699,8 @@ static bool isPartitionInOtherTree(stTree *node1, stTree *tree2) {
         bool isSuperset = true;
         stTree *child = stTree_getChild(tree2, i);
         stPhylogenyInfo *childInfo = stTree_getClientData(child);
-        for(int64_t j = 0; j < nodeInfo->totalNumLeaves; j++) {
-            if(nodeInfo->leavesBelow[j] && !childInfo->leavesBelow[j]) {
+        for(int64_t j = 0; j < nodeInfo->index->totalNumLeaves; j++) {
+            if(nodeInfo->index->leavesBelow[j] && !childInfo->index->leavesBelow[j]) {
                 isSuperset = false;
                 break;
             }
@@ -718,7 +719,7 @@ static bool isPartitionInOtherTree(stTree *node1, stTree *tree2) {
 static void checkPoorlySupportedFolding(CuTest *testCase, stTree *foldedTree, 
                                         stTree *origTree, double threshold) {
     stPhylogenyInfo *info = stTree_getClientData(origTree);
-    if(info->bootstrapSupport >= threshold) {
+    if(info->index->bootstrapSupport >= threshold) {
         // There should be a node with an identical leaf set still in
         // the folded tree
         CuAssertTrue(testCase, isPartitionInOtherTree(origTree, foldedTree));
@@ -918,21 +919,21 @@ static void reconciliationLikelihoodTestFn(stPinchBlock *block, stList *featureB
     // Get a random assignment to a random species tree roughly the same size as the block tree.
     stPhylogenyInfo *info = stTree_getClientData(tree);
     assert(info != NULL);
-    int64_t numSpecies = info->totalNumLeaves + st_randomInt64(-3, 4);
+    int64_t numSpecies = info->index->totalNumLeaves + st_randomInt64(-3, 4);
     numSpecies = (numSpecies > 3) ? numSpecies : 3;
     stTree *speciesTree = getRandomBootstrappedTree(numSpecies, 0);
     stHash *leafToSpecies = stHash_construct();
-    for (int64_t i = 0; i < info->totalNumLeaves; i++) {
+    for (int64_t i = 0; i < info->index->totalNumLeaves; i++) {
         stTree *gene = stPhylogeny_getLeafByIndex(tree, i);
         stTree *species = stPhylogeny_getLeafByIndex(speciesTree, st_randomInt64(0, numSpecies));
         stHash_insert(leafToSpecies, gene, species);
     }
     stPhylogenyInfo_destructOnTree(tree);
-    stPhylogeny_reconcileBinary(tree, speciesTree, leafToSpecies, true);
+    stPhylogeny_reconcileAtMostBinary(tree, leafToSpecies, true);
     double likelihood = stPinchPhylogeny_reconciliationLikelihood(tree, speciesTree, 0.01);
     printf("%s %lf\n", stTree_getNewickTreeString(tree), likelihood);
 
-    stReconciliationInfo_destructOnTree(tree);
+    stPhylogenyInfo_destructOnTree(tree);
     stTree_destruct(tree);
     stPhylogenyInfo_destructOnTree(speciesTree);
     stTree_destruct(speciesTree);

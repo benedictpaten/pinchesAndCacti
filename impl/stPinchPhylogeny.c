@@ -377,7 +377,7 @@ stTree *stPinchPhylogeny_removePoorlySupportedPartitions(stTree *tree, double th
     for (i = 0; i < stTree_getChildNumber(ret); i++) {
         stTree *child = stTree_getChild(ret, i);
         stPhylogenyInfo *childInfo = stTree_getClientData(child);
-        if (childInfo->bootstrapSupport < threshold) {
+        if (childInfo->index->bootstrapSupport < threshold) {
             int64_t numGrandChildren = stTree_getChildNumber(child);
             // The bootstrap support for this child is poor, so make
             // all grandchildren (if any) into children instead.
@@ -413,8 +413,8 @@ static stList *findIngroupClades(stTree *tree, stList *outgroups) {
         bool hasOutgroup = false;
         for(j = 0; j < stList_length(outgroups); j++) {
             int64_t outgroup = stIntTuple_get(stList_get(outgroups, j), 0);
-            assert(outgroup < childInfo->totalNumLeaves);
-            if(childInfo->leavesBelow[outgroup]) {
+            assert(outgroup < childInfo->index->totalNumLeaves);
+            if(childInfo->index->leavesBelow[outgroup]) {
                 hasOutgroup = true;
                 break;
             }
@@ -453,7 +453,7 @@ stList *stPinchPhylogeny_splitTreeOnOutgroups(stTree *tree, stList *outgroups) {
     stList *ret = stList_construct3(0, (void (*)(void *))stList_destruct);
     stPhylogenyInfo *info = stTree_getClientData(tree);
 
-    if(stList_length(outgroups) == info->totalNumLeaves) {
+    if(stList_length(outgroups) == info->index->totalNumLeaves) {
         // Pathological case -- all leaves are outgroups.
         stList *inner = stList_construct3(0, (void (*)(void *))stIntTuple_destruct);
         for(i = 0; i < stList_length(outgroups); i++) {
@@ -468,8 +468,8 @@ stList *stPinchPhylogeny_splitTreeOnOutgroups(stTree *tree, stList *outgroups) {
         stTree *clade = stList_get(clades, i);
         stPhylogenyInfo *cladeInfo = stTree_getClientData(clade);
         stList *leafSet = stList_construct3(0, (void (*)(void *))stIntTuple_destruct);
-        for(j = 0; j < cladeInfo->totalNumLeaves; j++) {
-            if(cladeInfo->leavesBelow[j]) {
+        for(j = 0; j < cladeInfo->index->totalNumLeaves; j++) {
+            if(cladeInfo->index->leavesBelow[j]) {
                 stIntTuple *jTuple = stIntTuple_construct1(j);
                 stList_append(leafSet, jTuple);
             }
@@ -641,8 +641,8 @@ static double likelihoodNucColumn(stTree *tree, stFeatureColumn *column) {
             // Leaf node -- fill in its probability from its base at
             // this location
             double *pLeaves = calloc(4, sizeof(double));
-            assert(info->matrixIndex != -1);
-            stFeatureSegment *segment = stFeatureBlock_getFeatureSegment(column->featureBlock, info->matrixIndex);
+            assert(info->index->matrixIndex != -1);
+            stFeatureSegment *segment = stFeatureBlock_getFeatureSegment(column->featureBlock, info->index->matrixIndex);
             if(segment == NULL || stFeatureSegment_baseIsWildCard(segment, column->columnIndex)) {
                 // leaf base is a wild card (or is not in the column
                 // at all), all possibilities are equal
@@ -659,7 +659,7 @@ static double likelihoodNucColumn(stTree *tree, stFeatureColumn *column) {
         } else {
             // Not a leaf node--calculate its probability from its
             // children
-            assert(info->matrixIndex == -1);
+            assert(info->index->matrixIndex == -1);
             double *pLeaves = calloc(4, sizeof(double));
             for(int64_t dnaIndex = 0; dnaIndex < 4; dnaIndex++) {
                 double prob = 0.25; // Probability for this dna assignment
@@ -727,9 +727,11 @@ double stPinchPhylogeny_reconciliationLikelihood(stTree *tree, stTree *speciesTr
         for (int64_t i = 0; i < stTree_getChildNumber(gene); i++) {
             stList_append(bfQueue, stTree_getChild(gene, i));
         }
-        stReconciliationInfo *info = stTree_getClientData(gene);
+        stPhylogenyInfo *info = stTree_getClientData(gene);
         assert(info != NULL);
-        stTree *species = info->species;
+        stReconciliationInfo *recon = info->recon;
+        assert(recon != NULL);
+        stTree *species = recon->species;
         assert(species != NULL);
         stList *dupList = stHash_search(speciesToDups, species);
         if (dupList == NULL) {
@@ -737,7 +739,7 @@ double stPinchPhylogeny_reconciliationLikelihood(stTree *tree, stTree *speciesTr
             dupList = stList_construct();
             stHash_insert(speciesToDups, species, dupList);
         }
-        if (info->event == DUPLICATION) {
+        if (recon->event == DUPLICATION) {
             // Duplication event, we should add it to the list.
             stList_append(dupList, gene);
         }
@@ -746,9 +748,11 @@ double stPinchPhylogeny_reconciliationLikelihood(stTree *tree, stTree *speciesTr
     // Get the species tree rooted at the MRCA of the genes so we
     // don't account for lineages that don't actually have the gene in
     // question.
-    stReconciliationInfo *rootInfo = stTree_getClientData(tree);
+    stPhylogenyInfo *rootInfo = stTree_getClientData(tree);
     assert(rootInfo != NULL);
-    speciesTree = rootInfo->species;
+    stReconciliationInfo *rootRecon = rootInfo->recon;
+    assert(rootRecon != NULL);
+    speciesTree = rootRecon->species;
     assert(speciesTree != NULL);
 
     // Go through the species tree and add each branch's probability
