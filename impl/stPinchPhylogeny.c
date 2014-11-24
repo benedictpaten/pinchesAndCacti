@@ -282,17 +282,19 @@ stList *stFeatureColumn_getFeatureColumns(stList *featureBlocks, stPinchBlock *b
 }
 
 /*
- * Adds to a feature matrix by iterating through the feature columns and adding in features of the column,
- * according to the given function.
+ * Gets a list of matrix diffs (one per column) by iterating through
+ * the feature columns and adding in features of the column, according
+ * to the given function.
  */
-static void addFeaturesToMatrix(stMatrix *matrix, stList *featureColumns, double distanceWeightFn(int64_t, int64_t),
-bool sampleColumns, bool (*equalFn)(stFeatureSegment *, stFeatureSegment *, int64_t),
-bool (*nullFeature)(stFeatureSegment *, int64_t)) {
+static void addMatrixDiffs(stMatrixDiffs *matrixDiffs, stList *featureColumns,
+                           double (*distanceWeightFn)(int64_t, int64_t),
+                           bool (*equalFn)(stFeatureSegment *, stFeatureSegment *, int64_t),
+                           bool (*nullFeature)(stFeatureSegment *, int64_t)) {
     for (int64_t i = 0; i < stList_length(featureColumns); i++) {
-        stFeatureColumn *featureColumn = stList_get(featureColumns,
-                sampleColumns ? st_randomInt(0, stList_length(featureColumns)) : i);
+        stFeatureColumn *featureColumn = stList_get(featureColumns, i);
         stFeatureSegment *fSegment = featureColumn->featureBlock->head;
         int64_t distance1 = stFeatureSegment_getColumnDistance(fSegment, featureColumn->columnIndex);
+        stList *ops = stList_construct3(0, free);
         while (fSegment != NULL) {
             if (!nullFeature(fSegment, featureColumn->columnIndex)) {
                 stFeatureSegment *nSegment = fSegment->nFeatureSegment;
@@ -308,11 +310,17 @@ bool (*nullFeature)(stFeatureSegment *, int64_t)) {
                             assert(j < k);
                             int64_t distance2 = stFeatureSegment_getColumnDistance(nSegment,
                                     featureColumn->columnIndex);
+                            stMatrixOp *op = st_malloc(sizeof(stMatrixOp));
                             if (equalFn(fSegment, nSegment, featureColumn->columnIndex)) {
-                                *stMatrix_getCell(matrix, j, k) += distanceWeightFn(distance1, distance2);
+                                op->row = j;
+                                op->col = k;
+                                op->diff = distanceWeightFn(distance1, distance2);
                             } else {
-                                *stMatrix_getCell(matrix, k, j) += distanceWeightFn(distance1, distance2);
+                                op->row = k;
+                                op->col = j;
+                                op->diff = distanceWeightFn(distance1, distance2);
                             }
+                            stList_append(ops, op);
                         }
                     }
                     nSegment = nSegment->nFeatureSegment;
@@ -320,6 +328,7 @@ bool (*nullFeature)(stFeatureSegment *, int64_t)) {
             }
             fSegment = fSegment->nFeatureSegment;
         }
+        stList_append(matrixDiffs->diffs, ops);
     }
 }
 
@@ -327,22 +336,70 @@ double stPinchPhylogeny_constantDistanceWeightFn(int64_t i, int64_t j) {
     return 1;
 }
 
-stMatrix *stPinchPhylogeny_getMatrixFromSubstitutions(stList *featureColumns, stPinchBlock *block,
-        double distanceWeightFn(int64_t, int64_t), bool sampleColumns) {
-    stMatrix *matrix = stMatrix_construct(stPinchBlock_getDegree(block), stPinchBlock_getDegree(block));
-    addFeaturesToMatrix(matrix, featureColumns, distanceWeightFn == NULL ? stPinchPhylogeny_constantDistanceWeightFn : distanceWeightFn, sampleColumns, stFeatureSegment_basesEqual,
-            stFeatureSegment_baseIsWildCard);
+static stMatrixDiffs *stMatrixDiffs_construct(int64_t rows, int64_t cols) {
+    stMatrixDiffs *ret = st_malloc(sizeof(stMatrixDiffs));
+    ret->rows = rows;
+    ret->cols = cols;
+    stList *diffs = stList_construct3(0, (void (*)(void *)) stList_destruct);
+    ret->diffs = diffs;
+    return ret;
+}
+
+stMatrix *stPinchPhylogeny_constructMatrixFromDiffs(stMatrixDiffs *matrixDiffs,
+                                                    bool sample) {
+    int64_t numDiffs = stList_length(matrixDiffs->diffs);
+    stMatrix *matrix = stMatrix_construct(matrixDiffs->rows, matrixDiffs->cols);
+    for (int64_t i = 0; i < numDiffs; i++) {
+        stList *ops = stList_get(matrixDiffs->diffs, sample ? rand() % numDiffs : i);
+        for (int64_t j = 0; j < stList_length(ops); j++) {
+            stMatrixOp *op = stList_get(ops, j);
+            assert(op->row < matrixDiffs->rows);
+            assert(op->col < matrixDiffs->cols);
+            *stMatrix_getCell(matrix, op->row, op->col) += op->diff;
+        }
+    }
     return matrix;
 }
 
-stMatrix *stPinchPhylogeny_getMatrixFromBreakpoints(stList *featureColumns, stPinchBlock *block,
-        double distanceWeightFn(int64_t, int64_t), bool sampleColumns) {
-    stMatrix *matrix = stMatrix_construct(stPinchBlock_getDegree(block), stPinchBlock_getDegree(block));
-    addFeaturesToMatrix(matrix, featureColumns, distanceWeightFn == NULL ? stPinchPhylogeny_constantDistanceWeightFn : distanceWeightFn, sampleColumns, stFeatureSegment_leftAdjacenciesEqual,
-            stFeatureSegment_leftAdjacencyIsWildCard);
-    addFeaturesToMatrix(matrix, featureColumns, distanceWeightFn == NULL ? stPinchPhylogeny_constantDistanceWeightFn : distanceWeightFn, sampleColumns, stFeatureSegment_rightAdjacenciesEqual,
-            stFeatureSegment_rightAdjacencyIsWildCard);
+void stMatrixDiffs_destruct(stMatrixDiffs *diffs) {
+    stList_destruct(diffs->diffs);
+    free(diffs);
+}
+
+stMatrix *stPinchPhylogeny_getMatrixFromSubstitutions(stList *featureColumns, stPinchBlock *block,
+                                                      double distanceWeightFn(int64_t, int64_t), bool sampleColumns) {
+    stMatrixDiffs *diffs = stPinchPhylogeny_getMatrixDiffsFromSubstitutions(featureColumns, block, distanceWeightFn);
+    stMatrix *matrix = stPinchPhylogeny_constructMatrixFromDiffs(diffs, sampleColumns);
+    stMatrixDiffs_destruct(diffs);
     return matrix;
+}
+
+stMatrixDiffs *stPinchPhylogeny_getMatrixDiffsFromSubstitutions(stList *featureColumns, stPinchBlock *block,
+        double distanceWeightFn(int64_t, int64_t)) {
+    stMatrixDiffs *diffs = stMatrixDiffs_construct(stPinchBlock_getDegree(block),
+                                                   stPinchBlock_getDegree(block));
+    addMatrixDiffs(diffs, featureColumns, distanceWeightFn == NULL ? stPinchPhylogeny_constantDistanceWeightFn : distanceWeightFn, stFeatureSegment_basesEqual,
+            stFeatureSegment_baseIsWildCard);
+    return diffs;
+}
+
+stMatrix *stPinchPhylogeny_getMatrixFromBreakpoints(stList *featureColumns, stPinchBlock *block,
+                                                      double distanceWeightFn(int64_t, int64_t), bool sampleColumns) {
+    stMatrixDiffs *diffs = stPinchPhylogeny_getMatrixDiffsFromBreakpoints(featureColumns, block, distanceWeightFn);
+    stMatrix *matrix = stPinchPhylogeny_constructMatrixFromDiffs(diffs, sampleColumns);
+    stMatrixDiffs_destruct(diffs);
+    return matrix;
+}
+
+stMatrixDiffs *stPinchPhylogeny_getMatrixDiffsFromBreakpoints(stList *featureColumns, stPinchBlock *block,
+        double distanceWeightFn(int64_t, int64_t)) {
+    stMatrixDiffs *diffs = stMatrixDiffs_construct(stPinchBlock_getDegree(block),
+                                                   stPinchBlock_getDegree(block));
+    addMatrixDiffs(diffs, featureColumns, distanceWeightFn == NULL ? stPinchPhylogeny_constantDistanceWeightFn : distanceWeightFn, stFeatureSegment_leftAdjacenciesEqual,
+            stFeatureSegment_leftAdjacencyIsWildCard);
+    addMatrixDiffs(diffs, featureColumns, distanceWeightFn == NULL ? stPinchPhylogeny_constantDistanceWeightFn : distanceWeightFn, stFeatureSegment_rightAdjacenciesEqual,
+            stFeatureSegment_rightAdjacencyIsWildCard);
+    return diffs;
 }
 
 /*

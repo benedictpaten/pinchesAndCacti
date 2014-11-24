@@ -31,6 +31,18 @@ typedef struct _stFeatureBlock {
                       // segment with that index is not in the column.
 } stFeatureBlock;
 
+typedef struct _stMatrixOp {
+    int64_t row;
+    int64_t col;
+    double diff;
+} stMatrixOp;
+
+typedef struct _stMatrixDiffs {
+    int64_t rows; // Size of rows of matrix
+    int64_t cols; // Size of cols of matrix
+    stList *diffs; // list of lists of stMatrixOps
+} stMatrixDiffs;
+
 /*
  * The returned list is the set of greater than degree 1 blocks that are within baseDistance and blockDistance of the segments in the given block.
  * Each block is represented as a FeatureBlock.
@@ -65,6 +77,11 @@ typedef struct _stFeatureColumn {
  */
 stList *stFeatureColumn_getFeatureColumns(stList *featureBlocks, stPinchBlock *block);
 
+stMatrix *stPinchPhylogeny_constructMatrixFromDiffs(stMatrixDiffs *matrixDiffs,
+                                                    bool sample);
+
+void stMatrixDiffs_destruct(stMatrixDiffs *diffs);
+
 /*
  * Gets a feature matrix representing SNPs.
  * The distance weight function is the amount of pairwise weight to place on a given feature, where its inputs
@@ -72,14 +89,19 @@ stList *stFeatureColumn_getFeatureColumns(stList *featureBlocks, stPinchBlock *b
  * If distanceWeightFn = null then stPinchPhylogeny_constantDistanceWeightFn is used.
  */
 stMatrix *stPinchPhylogeny_getMatrixFromSubstitutions(stList *featureColumns, stPinchBlock *block,
-        double distanceWeightFn(int64_t, int64_t), bool sampleColumns);
+                                                      double distanceWeightFn(int64_t, int64_t), bool sampleColumns);
+
+stMatrixDiffs *stPinchPhylogeny_getMatrixDiffsFromSubstitutions(stList *featureColumns, stPinchBlock *block,
+        double distanceWeightFn(int64_t, int64_t));
 
 /*
  * Gets a matrix representing breakpoints.
  * If distanceWeightFn = null then stPinchPhylogeny_constantDistanceWeightFn is used.
  */
 stMatrix *stPinchPhylogeny_getMatrixFromBreakpoints(stList *featureColumns, stPinchBlock *block,
-        double distanceWeightFn(int64_t, int64_t), bool sampleColumns);
+                                                    double distanceWeightFn(int64_t, int64_t), bool sampleColumns);
+stMatrixDiffs *stPinchPhylogeny_getMatrixDiffsFromBreakpoints(stList *featureColumns, stPinchBlock *block,
+        double distanceWeightFn(int64_t, int64_t));
 
 /*
  * Returns 1 for any pair of distances, used to weight all features, no matter separation, constantly.
