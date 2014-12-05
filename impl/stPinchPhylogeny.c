@@ -7,6 +7,9 @@
  *      Algorithms to build phylogenetic trees for blocks.
  */
 
+// For rand_r.
+#define _POSIX_C_SOURCE 200809L
+
 #include <stdlib.h>
 #include <ctype.h>
 #include <math.h>
@@ -15,6 +18,8 @@
 #include "stPinchPhylogeny.h"
 #include "stPhylogeny.h"
 #include "stSpimapLayer.h"
+
+#define BINOM_CEILING 10
 
 /*
  * Gets the pinch-end adjacent of the next block connected to the given segment, traversing either 5' or 3' depending on _5PrimeTraversal.
@@ -345,12 +350,72 @@ static stMatrixDiffs *stMatrixDiffs_construct(int64_t rows, int64_t cols) {
     return ret;
 }
 
+// Do a pseudo-bootstrapping of a list of matrix diffs using the binomial
+// distribution to determine whether to add/subtract a diff or not
+// from the canonical matrix. Should be faster than using "sample" in
+// constructMatrixFromDiffs.
+stMatrix *stPinchPhylogeny_bootstrapMatrixWithDiffs(stMatrix *canonicalMatrix,
+                                                    stMatrixDiffs *matrixDiffs)
+{
+    stMatrix *ret = stMatrix_clone(canonicalMatrix);
+    assert(matrixDiffs->rows == matrixDiffs->cols);
+    assert(matrixDiffs->rows == stMatrix_m(canonicalMatrix));
+    assert(stMatrix_m(canonicalMatrix) == stMatrix_n(canonicalMatrix));
+    // Initialize the inverted distribution. We have the advantage of
+    // knowing that values higher than about 8 or so are going to be
+    // exceedingly rare.
+    int64_t n = matrixDiffs->rows;
+    double p = 1.0/n;
+    double *invertedBinom = st_malloc(BINOM_CEILING * sizeof(double));
+    double prev = 0.0;
+    double choose = 1.0;
+    for (int64_t i = 0; i < BINOM_CEILING; i++) {
+        if (i > 0) {
+            choose *= ((double) (n + 1 - i))/i;
+        }
+        if (i <= n) {
+            invertedBinom[i] = prev + choose * pow(n, i) * pow(1 - p, n - i);
+        } else {
+            invertedBinom[i] = 1.0;
+        }
+        prev = invertedBinom[i];
+    }
+    for (int64_t i = 0; i < stList_length(matrixDiffs->diffs); i++) {
+        // Sample from the inverted distribution to see how many times
+        // this column appears in the bootstrap. This is
+        // O(BINOM_CEILING), but we don't do a binary search as
+        // BINOM_CEILING is likely to be very small and this loop can be
+        // very easily unrolled.
+        double invertedProb = st_random();
+        int64_t numAppearances = BINOM_CEILING;
+        for (int64_t j = 0; j < BINOM_CEILING; j++) {
+            if (invertedProb <= invertedBinom[j]) {
+                numAppearances = j;
+            }
+        }
+        if (numAppearances != 1) {
+            // We have to add (or subtract) the influence from this
+            // column in the correct proportions.
+            stList *ops = stList_get(matrixDiffs->diffs, i);
+            int64_t numOps = stList_length(ops);
+            for (int64_t j = 0; j < numOps; j++) {
+                stMatrixOp *op = stList_get(ops, j);
+                assert(op->row < matrixDiffs->rows);
+                assert(op->col < matrixDiffs->cols);
+                *stMatrix_getCell(ret, op->row, op->col) += op->diff * (numAppearances - 1);
+            }
+        }
+    }
+    return ret;
+}
+
 stMatrix *stPinchPhylogeny_constructMatrixFromDiffs(stMatrixDiffs *matrixDiffs,
-                                                    bool sample) {
-    int64_t numDiffs = stList_length(matrixDiffs->diffs);
+                                                    bool sample,
+                                                    unsigned int *seed) {
     stMatrix *matrix = stMatrix_construct(matrixDiffs->rows, matrixDiffs->cols);
+    int64_t numDiffs = stList_length(matrixDiffs->diffs);
     for (int64_t i = 0; i < numDiffs; i++) {
-        stList *ops = stList_get(matrixDiffs->diffs, sample ? rand() % numDiffs : i);
+        stList *ops = stList_get(matrixDiffs->diffs, sample ? rand_r(seed) % numDiffs : i);
         for (int64_t j = 0; j < stList_length(ops); j++) {
             stMatrixOp *op = stList_get(ops, j);
             assert(op->row < matrixDiffs->rows);
@@ -368,8 +433,9 @@ void stMatrixDiffs_destruct(stMatrixDiffs *diffs) {
 
 stMatrix *stPinchPhylogeny_getMatrixFromSubstitutions(stList *featureColumns, stPinchBlock *block,
                                                       double distanceWeightFn(int64_t, int64_t), bool sampleColumns) {
+    unsigned int mySeed = rand();
     stMatrixDiffs *diffs = stPinchPhylogeny_getMatrixDiffsFromSubstitutions(featureColumns, block, distanceWeightFn);
-    stMatrix *matrix = stPinchPhylogeny_constructMatrixFromDiffs(diffs, sampleColumns);
+    stMatrix *matrix = stPinchPhylogeny_constructMatrixFromDiffs(diffs, sampleColumns, &mySeed);
     stMatrixDiffs_destruct(diffs);
     return matrix;
 }
@@ -384,9 +450,10 @@ stMatrixDiffs *stPinchPhylogeny_getMatrixDiffsFromSubstitutions(stList *featureC
 }
 
 stMatrix *stPinchPhylogeny_getMatrixFromBreakpoints(stList *featureColumns, stPinchBlock *block,
-                                                      double distanceWeightFn(int64_t, int64_t), bool sampleColumns) {
+                                                    double distanceWeightFn(int64_t, int64_t), bool sampleColumns) {
+    unsigned int mySeed = rand();
     stMatrixDiffs *diffs = stPinchPhylogeny_getMatrixDiffsFromBreakpoints(featureColumns, block, distanceWeightFn);
-    stMatrix *matrix = stPinchPhylogeny_constructMatrixFromDiffs(diffs, sampleColumns);
+    stMatrix *matrix = stPinchPhylogeny_constructMatrixFromDiffs(diffs, sampleColumns, &mySeed);
     stMatrixDiffs_destruct(diffs);
     return matrix;
 }

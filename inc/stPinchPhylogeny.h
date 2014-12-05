@@ -37,7 +37,7 @@ typedef struct _stFeatureBlock {
 typedef struct _stMatrixOp {
     int64_t row;
     int64_t col;
-    double diff;
+    int64_t diff;
 } stMatrixOp;
 
 /*
@@ -89,7 +89,7 @@ stList *stFeatureColumn_getFeatureColumns(stList *featureBlocks, stPinchBlock *b
  * Constructs a feature matrix from a list of diffs.
  */
 stMatrix *stPinchPhylogeny_constructMatrixFromDiffs(stMatrixDiffs *matrixDiffs,
-                                                    bool sample);
+                                                    bool sample, unsigned int *seed);
 
 void stMatrixDiffs_destruct(stMatrixDiffs *diffs);
 
@@ -120,6 +120,13 @@ stMatrix *stPinchPhylogeny_getMatrixFromBreakpoints(stList *featureColumns, stPi
  */
 stMatrixDiffs *stPinchPhylogeny_getMatrixDiffsFromBreakpoints(stList *featureColumns, stPinchBlock *block,
         double distanceWeightFn(int64_t, int64_t));
+
+// Do a pseudo-bootstrapping of a list of matrix diffs using the binomial
+// distribution to determine whether to add/subtract a diff or not
+// from the canonical matrix. Should be faster than using "sample" in
+// constructMatrixFromDiffs.
+stMatrix *stPinchPhylogeny_bootstrapMatrixWithDiffs(stMatrix *canonicalMatrix,
+                                                    stMatrixDiffs *matrixDiffs);
 
 /*
  * Returns 1 for any pair of distances, used to weight all features, no matter separation, constantly.
