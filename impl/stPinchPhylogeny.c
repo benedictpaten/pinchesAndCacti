@@ -66,7 +66,7 @@ static void stFeatureSegment_destruct(stFeatureSegment *featureSegment) {
 char stFeatureSegment_getBase(stFeatureSegment *featureSegment, int64_t columnIndex) {
     assert(columnIndex < featureSegment->length);
     return featureSegment->reverseComplement ?
-            stString_reverseComplement(featureSegment->string[featureSegment->length - 1 - columnIndex]) :
+            stString_reverseComplementChar(featureSegment->string[featureSegment->length - 1 - columnIndex]) :
             featureSegment->string[columnIndex];
 }
 

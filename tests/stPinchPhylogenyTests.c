@@ -841,7 +841,7 @@ static stList *replaceBlockStringsWithChar(stList *featureBlocks, char repl, stP
             char *string = malloc((segment->length + 1) * sizeof(char));
             char dna;
             if(segment->reverseComplement) {
-                dna = stString_reverseComplement(repl);
+                dna = stString_reverseComplementChar(repl);
             } else {
                 dna = repl;
             }
