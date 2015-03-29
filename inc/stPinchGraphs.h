@@ -178,6 +178,8 @@ stPinchSegment *stPinchBlock_getFirst(stPinchBlock *block);
 
 uint64_t stPinchBlock_getDegree(stPinchBlock *block);
 
+uint64_t stPinchBlock_getNumSupportingHomologies(stPinchBlock *block);
+
 void stPinchBlock_trim(stPinchBlock *block, int64_t blockEndTrim);
 
 //Block ends

@@ -35,6 +35,7 @@ struct _stPinchSegment {
 
 struct _stPinchBlock {
     uint64_t degree;
+    uint64_t numSupportingHomologies;
     stPinchSegment *headSegment;
     stPinchSegment *tailSegment;
 };
@@ -53,6 +54,7 @@ stPinchBlock *stPinchBlock_construct3(stPinchSegment *segment, bool orientation)
     block->tailSegment = segment;
     connectBlockToSegment(segment, orientation, block, NULL);
     block->degree = 1;
+    block->numSupportingHomologies = 0;
     return block;
 }
 
@@ -68,6 +70,7 @@ stPinchBlock *stPinchBlock_construct(stPinchSegment *segment1, bool orientation1
     connectBlockToSegment(segment1, orientation1, block, segment2);
     connectBlockToSegment(segment2, orientation2, block, NULL);
     block->degree = 2;
+    block->numSupportingHomologies = 1;
     return block;
 }
 
@@ -84,6 +87,7 @@ void stPinchBlock_destruct(stPinchBlock *block) {
 
 stPinchBlock *stPinchBlock_pinch(stPinchBlock *block1, stPinchBlock *block2, bool orientation) {
     if (block1 == block2) {
+        block1->numSupportingHomologies++;
         return block1; //Already joined
     }
     if (stPinchBlock_getDegree(block1) < stPinchBlock_getDegree(block2)) { //Avoid merging large blocks into small blocks
@@ -98,6 +102,7 @@ stPinchBlock *stPinchBlock_pinch(stPinchBlock *block1, stPinchBlock *block2, boo
         stPinchBlock_pinch2(block1, segment, (segmentOrientation && orientation) || (!segmentOrientation && !orientation));
         segment = nSegment;
     }
+    block1->numSupportingHomologies += block2->numSupportingHomologies + 1;
     free(block2);
     return block1;
 }
@@ -109,6 +114,7 @@ stPinchBlock *stPinchBlock_pinch2(stPinchBlock *block, stPinchSegment *segment, 
     connectBlockToSegment(segment, orientation, block, NULL);
     block->tailSegment = segment;
     block->degree++;
+    block->numSupportingHomologies++;
     return block;
 }
 
@@ -137,6 +143,10 @@ stPinchSegment *stPinchBlock_getFirst(stPinchBlock *block) {
 
 int64_t stPinchBlock_getLength(stPinchBlock *block) {
     return stPinchSegment_getLength(stPinchBlock_getFirst(block));
+}
+
+uint64_t stPinchBlock_getNumSupportingHomologies(stPinchBlock *block) {
+    return block->numSupportingHomologies;
 }
 
 void stPinchBlock_trim(stPinchBlock *block, int64_t blockEndTrim) {
