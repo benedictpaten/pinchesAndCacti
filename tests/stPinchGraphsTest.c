@@ -1067,6 +1067,93 @@ static void testStPinchThreadSet_getLabelIntervals_randomTests(CuTest *testCase)
     }
 }
 
+// Check that the given thread has the number of supporting homologies
+// for each block specified in supportingHomologiesArray, which is
+// indexed by segment index along the thread.
+static void testStPinchBlock_getNumSupportingHomologiesP(CuTest *testCase,
+                                                          stPinchThread *thread,
+                                                          int64_t *supportingHomologiesArray,
+                                                          size_t supportingHomologiesArraySize) {
+    stPinchSegment *segment = stPinchThread_getFirst(thread);
+    int64_t i = 0;
+    while (segment != NULL) {
+        stPinchBlock *block = stPinchSegment_getBlock(segment);
+        if (block != NULL) {
+            CuAssertTrue(testCase, i < supportingHomologiesArraySize);
+            CuAssertIntEquals(testCase, supportingHomologiesArray[i], stPinchBlock_getNumSupportingHomologies(block));
+        }
+        i++;
+        segment = stPinchSegment_get3Prime(segment);
+    }
+}
+
+// A mirror of test_stPinchBlock_pinch, except that we check that the
+// number of supporting homologies (i.e. total number of times the
+// segments in a block were pinched) makes sense.
+static void testStPinchBlock_getNumSupportingHomologies(CuTest *testCase) {
+    setup();
+    // First pinch
+    stPinchThread_pinch(thread1, thread2, 5, 5, 8, 1);
+    // Here, and in all other cases, -1 is chosen as an impossible
+    // value for the number of supporting homologies--signifying that
+    // the segment doesn't belong to a block.
+    int64_t supportingHomologies1[] = { -1, 1, 1, 1, -1 };
+    testStPinchBlock_getNumSupportingHomologiesP(testCase, thread1, supportingHomologies1,
+                                                 sizeof(supportingHomologies1));
+    st_logInfo("First thread, first pinch okay\n");
+    
+    int64_t supportingHomologies2[] = { -1, 1, 1, 1, -1 };
+    testStPinchBlock_getNumSupportingHomologiesP(testCase, thread2, supportingHomologies2,
+                                                 sizeof(supportingHomologies2));
+    st_logInfo("Second thread, first pinch okay\n");
+
+
+    // Second pinch
+    stPinchThread_pinch(thread1, thread2, 4, 10, 4, 0);
+    int64_t supportingHomologies1b[] = { -1, 1, 3, 3, 3, 1, 3, 3, 3, -1};
+    testStPinchBlock_getNumSupportingHomologiesP(testCase, thread1, supportingHomologies1b,
+                                                 sizeof(supportingHomologies1b));
+    st_logInfo("First thread, second pinch okay\n");
+    int64_t supportingHomologies2b[] = { -1, 3, 3, 3, 1, 3, 3, 3, 1 };
+    testStPinchBlock_getNumSupportingHomologiesP(testCase, thread2, supportingHomologies2b,
+                                                 sizeof(supportingHomologies2b));
+    st_logInfo("Second thread, second pinch okay\n");
+
+    // Third pinch, exactly the same as the second pinch. This should
+    // increase the homology support by 1 for the affected blocks, but leave
+    // everything else the same.
+    stPinchThread_pinch(thread1, thread2, 4, 10, 4, 0);
+    int64_t supportingHomologies1c[] = { -1, 2, 4, 4, 4, 1, 4, 4, 4, -1};
+    testStPinchBlock_getNumSupportingHomologiesP(testCase, thread1, supportingHomologies1c,
+                                                 sizeof(supportingHomologies1c));
+    st_logInfo("First thread, third pinch okay\n");
+    int64_t supportingHomologies2c[] = { -1, 4, 4, 4, 1, 4, 4, 4, 2 };
+    testStPinchBlock_getNumSupportingHomologiesP(testCase, thread2, supportingHomologies2c,
+                                                 sizeof(supportingHomologies2c));
+    st_logInfo("Second thread, third pinch okay\n");
+    st_logInfo("Third pinch okay\n");
+
+    // However, a zero-length pinch should not increase the homology support at all.
+    stPinchThread_pinch(thread1, thread2, 5, 10, 0, 0);
+    testStPinchBlock_getNumSupportingHomologiesP(testCase, thread1, supportingHomologies1c,
+                                                 sizeof(supportingHomologies1c));
+    testStPinchBlock_getNumSupportingHomologiesP(testCase, thread2, supportingHomologies2c,
+                                                 sizeof(supportingHomologies2c));
+    st_logInfo("Fourth pinch okay\n");
+
+    // Now check that the homology support is preserved when splitting.
+    stPinchSegment *segment = stPinchThread_getSegment(thread1, 8);
+    // Add one more support to its block
+    stPinchBlock_pinch(stPinchSegment_getBlock(segment), stPinchSegment_getBlock(segment), 0);
+    stPinchSegment_split(segment, 8);
+    int64_t supportingHomologies1d[] = { -1, 2, 4, 4, 4, 2, 2, 4, 4, 4, -1};
+    testStPinchBlock_getNumSupportingHomologiesP(testCase, thread1, supportingHomologies1d,
+                                                 sizeof(supportingHomologies1d));    
+    
+
+    teardown();    
+}
+
 CuSuite* stPinchGraphsTestSuite(void) {
     CuSuite* suite = CuSuiteNew();
     SUITE_ADD_TEST(suite, testStPinchThreadSet);
@@ -1086,6 +1173,7 @@ CuSuite* stPinchGraphsTestSuite(void) {
     SUITE_ADD_TEST(suite, testStPinchThreadSet_getLabelIntervals_randomTests);
     SUITE_ADD_TEST(suite, testStPinchEnd_hasSelfLoopWithRespectToOtherBlock_randomTests);
     SUITE_ADD_TEST(suite, testStPinchEnd_getSubSequenceLengthsConnectingEnds_randomTests);
+    SUITE_ADD_TEST(suite, testStPinchBlock_getNumSupportingHomologies);
 
     return suite;
 }
