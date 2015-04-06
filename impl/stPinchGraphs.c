@@ -99,9 +99,20 @@ stPinchBlock *stPinchBlock_pinch(stPinchBlock *block1, stPinchBlock *block2, boo
     while (segment != NULL) {
         stPinchSegment *nSegment = stPinchBlockIt_getNext(&blockIt);
         bool segmentOrientation = stPinchSegment_getBlockOrientation(segment);
-        stPinchBlock_pinch2(block1, segment, (segmentOrientation && orientation) || (!segmentOrientation && !orientation));
+
+        // Code duplication from stPinchBlock_pinch2 -- but it's
+        // essential that we *don't* increase the number of supporting
+        // homologies each time we add these segments.
+        assert(block1->tailSegment != NULL);
+        assert(block1->tailSegment->nBlockSegment == NULL);
+        block1->tailSegment->nBlockSegment = segment;
+        connectBlockToSegment(segment, (segmentOrientation && orientation) || (!segmentOrientation && !orientation), block1, NULL);
+        block1->tailSegment = segment;
+        block1->degree++;
+
         segment = nSegment;
     }
+    printf("stPinchBlock_pinch on two blocks increasing homology support from %" PRIi64 " to %" PRIi64 "\n", block1->numSupportingHomologies, block1->numSupportingHomologies + block2->numSupportingHomologies + 1);
     block1->numSupportingHomologies += block2->numSupportingHomologies + 1;
     free(block2);
     return block1;
