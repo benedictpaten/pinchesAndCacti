@@ -930,8 +930,7 @@ static void reconciliationLikelihoodTestFn(stPinchBlock *block, stList *featureB
     }
     stPhylogenyInfo_destructOnTree(tree);
     stPhylogeny_reconcileAtMostBinary(tree, leafToSpecies, true);
-    double likelihood = stPinchPhylogeny_reconciliationLikelihood(tree, speciesTree, 0.01);
-    printf("%s %lf\n", stTree_getNewickTreeString(tree), likelihood);
+    stPinchPhylogeny_reconciliationLikelihood(tree, speciesTree, 0.01);
 
     stPhylogenyInfo_destructOnTree(tree);
     stTree_destruct(tree);
