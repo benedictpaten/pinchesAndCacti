@@ -85,6 +85,13 @@ void stPinchBlock_destruct(stPinchBlock *block) {
     free(block);
 }
 
+// Same as stPinchBlock_pinch2, but doesn't increase the support value.
+stPinchBlock *stPinchBlock_pinch2_noSupport(stPinchBlock *block, stPinchSegment *segment, bool orientation) {
+    stPinchBlock *ret = stPinchBlock_pinch2(block, segment, orientation);
+    ret->numSupportingHomologies--;
+    return ret;
+}
+
 stPinchBlock *stPinchBlock_pinch(stPinchBlock *block1, stPinchBlock *block2, bool orientation) {
     if (block1 == block2) {
         block1->numSupportingHomologies++;
@@ -99,20 +106,12 @@ stPinchBlock *stPinchBlock_pinch(stPinchBlock *block1, stPinchBlock *block2, boo
     while (segment != NULL) {
         stPinchSegment *nSegment = stPinchBlockIt_getNext(&blockIt);
         bool segmentOrientation = stPinchSegment_getBlockOrientation(segment);
-
-        // Code duplication from stPinchBlock_pinch2 -- but it's
-        // essential that we *don't* increase the number of supporting
-        // homologies each time we add these segments.
-        assert(block1->tailSegment != NULL);
-        assert(block1->tailSegment->nBlockSegment == NULL);
-        block1->tailSegment->nBlockSegment = segment;
-        connectBlockToSegment(segment, (segmentOrientation && orientation) || (!segmentOrientation && !orientation), block1, NULL);
-        block1->tailSegment = segment;
-        block1->degree++;
-
+        // It's essential that we don't increase the support while
+        // adding segments, since we will be doing that later on in
+        // the function.
+        stPinchBlock_pinch2_noSupport(block1, segment, (segmentOrientation && orientation) || (!segmentOrientation && !orientation));
         segment = nSegment;
     }
-    printf("stPinchBlock_pinch on two blocks increasing homology support from %" PRIi64 " to %" PRIi64 "\n", block1->numSupportingHomologies, block1->numSupportingHomologies + block2->numSupportingHomologies + 1);
     block1->numSupportingHomologies += block2->numSupportingHomologies + 1;
     free(block2);
     return block1;
@@ -296,7 +295,7 @@ void stPinchSegment_split(stPinchSegment *segment, int64_t leftSideOfSplitPoint)
         while ((segment = stPinchBlockIt_getNext(&blockIt)) != NULL) {
             if (stPinchSegment_getBlockOrientation(segment)) {
                 stPinchSegment *segment2 = stPinchSegment_splitP(segment, leftSegmentLength);
-                stPinchBlock_pinch2(block2, segment2, 1);
+                stPinchBlock_pinch2_noSupport(block2, segment2, 1);
                 pSegment = segment;
             } else {
                 stPinchSegment *segment2 = stPinchSegment_splitP(segment, rightSegmentLength);
@@ -305,9 +304,10 @@ void stPinchSegment_split(stPinchSegment *segment, int64_t leftSideOfSplitPoint)
                 if (segment2->nBlockSegment == NULL) {
                     block->tailSegment = segment2;
                 }
-                stPinchBlock_pinch2(block2, segment, 0);
+                stPinchBlock_pinch2_noSupport(block2, segment, 0);
                 pSegment = segment2;
             }
+            block2->numSupportingHomologies = block->numSupportingHomologies;
         }
     } else {
         stPinchSegment_splitP(segment, leftSegmentLength);
