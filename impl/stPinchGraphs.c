@@ -178,7 +178,7 @@ void stPinchBlock_trim(stPinchBlock *block, int64_t blockEndTrim) {
         block = stPinchSegment_getBlock(segment);
         assert(block != NULL);
         stPinchBlock_destruct(block);
-    } else { //Two short, so we just destroy it
+    } else { //Too short, so we just destroy it
         stPinchBlock_destruct(block);
     }
 }
