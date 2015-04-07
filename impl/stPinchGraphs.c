@@ -864,8 +864,11 @@ bool stPinchEnd_boundaryIsTrivial(stPinchEnd end) {
     bool _5PrimeTraversal = stPinchEnd_traverse5Prime(end.orientation, segment);
     segment = _5PrimeTraversal ? stPinchSegment_get5Prime(segment) : stPinchSegment_get3Prime(segment);
     stPinchBlock *block;
-    if (segment == NULL || (block = stPinchSegment_getBlock(segment)) == NULL || block == end.block || stPinchBlock_getDegree(block)
-            != stPinchBlock_getDegree(end.block)) {
+    if (segment == NULL
+        || (block = stPinchSegment_getBlock(segment)) == NULL
+        || block == end.block
+        || stPinchBlock_getDegree(block) != stPinchBlock_getDegree(end.block)
+        || stPinchBlock_getNumSupportingHomologies(block) != stPinchBlock_getNumSupportingHomologies(end.block)) {
         return 0;
     }
     bool endOrientation = stPinchEnd_endOrientation(_5PrimeTraversal, segment);

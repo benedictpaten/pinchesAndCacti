@@ -1148,10 +1148,34 @@ static void testStPinchBlock_getNumSupportingHomologies(CuTest *testCase) {
     stPinchSegment_split(segment, 8);
     int64_t supportingHomologies1d[] = { -1, 2, 4, 4, 4, 2, 2, 4, 4, 4, -1};
     testStPinchBlock_getNumSupportingHomologiesP(testCase, thread1, supportingHomologies1d,
-                                                 sizeof(supportingHomologies1d));    
-    
+                                                 sizeof(supportingHomologies1d));
 
-    teardown();    
+    // Ensure that when joining trivial boundaries,
+    // a) blocks that have trivial boundaries and identical support
+    // are joined together
+    stPinchThreadSet_joinTrivialBoundaries(threadSet);
+    int64_t supportingHomologies1e[] = { -1, 2, 4, 2, 4, -1};
+    testStPinchBlock_getNumSupportingHomologiesP(testCase, thread1, supportingHomologies1e,
+                                                 sizeof(supportingHomologies1e));
+    int64_t supportingHomologies2e[] = { -1, 4, 2, 4, 2 };
+    testStPinchBlock_getNumSupportingHomologiesP(testCase, thread2, supportingHomologies2e,
+                                                 sizeof(supportingHomologies2e));
+
+    // and b) blocks with different homology support but trivial
+    // boundaries are *not* joined together.
+    segment = stPinchThread_getSegment(thread1, 8);
+    stPinchSegment_split(segment, 8);
+    // Add one more support to the left block only
+    segment = stPinchThread_getSegment(thread1, 8);
+    stPinchBlock_pinch(stPinchSegment_getBlock(segment), stPinchSegment_getBlock(segment), 0);
+    int64_t supportingHomologies1f[] = { -1, 2, 4, 3, 2, 4, -1};
+    testStPinchBlock_getNumSupportingHomologiesP(testCase, thread1, supportingHomologies1f,
+                                                 sizeof(supportingHomologies1f));
+    int64_t supportingHomologies2f[] = { -1, 4, 3, 2, 4, 2 };
+    testStPinchBlock_getNumSupportingHomologiesP(testCase, thread2, supportingHomologies2f,
+                                                 sizeof(supportingHomologies2f));
+
+    teardown();
 }
 
 CuSuite* stPinchGraphsTestSuite(void) {
