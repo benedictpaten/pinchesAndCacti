@@ -76,6 +76,8 @@ typedef struct _stPinchInterval {
     void *label;
 } stPinchInterval;
 
+typedef struct _stPinchUndo stPinchUndo;
+
 /*
  * Functions relating to "thread sets," which are collections of
  * threads. The main object, through which you can access the entirety
@@ -575,6 +577,37 @@ stSortedSet *stPinchThreadSet_getLabelIntervals(stPinchThreadSet *threadSet, stH
  * from a set of pinch intervals.
  */
 stPinchInterval *stPinchIntervals_getInterval(stSortedSet *pinchIntervals, int64_t name, int64_t position);
+
+/*
+ * Functions for undoing pinches. Not for undoing homologies in
+ * general (this is impossible in the current code), but for allowing
+ * the possiblity of taking back a pinch.
+ *
+ * Undos can only be applied once (per total pinch region), and must
+ * be applied in the reverse of the order that the corresponding
+ * pinches were applied in. Any modification of the graph (not
+ * including undone pinches, but including kept pinches) between a
+ * pinch and its undo invalidates the undo, resulting in undefined
+ * behavior.
+ */
+
+/*
+ * Prepare an undo for a pinch.
+ */
+stPinchUndo *stPinchThread_prepareUndo(stPinchThread *thread1, stPinchThread *thread2, int64_t start1, int64_t start2, int64_t length, bool strand2);
+
+/*
+ * Undo a pinch, restoring all alignment relationships to be the same
+ * as before the pinch. Extra trivial boundaries may still exist, and
+ * any degree-1 blocks present in the pinched regions may have been
+ * undone.
+ */
+void stPinchThreadSet_undoPinch(stPinchThreadSet *threadSet, stPinchUndo *undo);
+
+/*
+ * Free an undo.
+ */
+void stPinchUndo_destruct(stPinchUndo *undo);
 
 #ifdef __cplusplus
 }
