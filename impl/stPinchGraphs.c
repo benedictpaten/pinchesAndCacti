@@ -1470,11 +1470,12 @@ void stPinchThreadSet_undoPinch(stPinchThreadSet *threadSet, stPinchUndo *undo) 
         // not be modified between a pinch and an undo--otherwise the
         // caller screwed up.
         assert(stPinchSegment_getStart(segment) >= undo->pinchToUndo->start1);
-        assert(stPinchSegment_getStart(segment) + stPinchSegment_getLength(segment) < undo->pinchToUndo->start1 + undo->pinchToUndo->length);
+        assert(stPinchSegment_getStart(segment) + stPinchSegment_getLength(segment) <= undo->pinchToUndo->start1 + undo->pinchToUndo->length);
 
         // Fast-forward to the proper undo block.
         while (stList_length(undo->savedBlocks) != i && !stPinchUndoBlock_segmentPresent(undoBlock, segment)) {
             undoBlock = stList_get(undo->savedBlocks, i);
+            i++;
         }
 
         stPinchBlock *block = stPinchSegment_getBlock(segment);
