@@ -1408,12 +1408,12 @@ static stPinchUndoBlock *stPinchUndoBlock_construct2(stPinchSegment *segment) {
 }
 
 static void stPinchUndoBlock_destruct(stPinchUndoBlock *undoBlock) {
-    if (undoBlock->head != NULL) {
-        assert(undoBlock->tail != NULL);
-        stPinchInterval_destruct(undoBlock->head);
-        if (undoBlock->head != undoBlock->tail) {
-            stPinchInterval_destruct(undoBlock->tail);
-        }
+    stPinchInterval_destruct(undoBlock->head);
+    if (undoBlock->head != undoBlock->tail) {
+        stPinchInterval_destruct(undoBlock->tail);
+    }
+    if (undoBlock->refInterval != undoBlock->head && undoBlock->refInterval != undoBlock->tail) {
+        stPinchInterval_destruct(undoBlock->refInterval);
     }
     free(undoBlock);
 }
@@ -1450,50 +1450,75 @@ static bool stPinchInterval_containsSegment(stPinchInterval *interval, stPinchSe
         && stPinchInterval_getStart(interval) + stPinchInterval_getLength(interval) >= stPinchSegment_getStart(segment) + stPinchSegment_getLength(segment);
 }
 
+static bool stPinchBlock_check(stPinchBlock *block) {
+    stPinchSegment *segment = block->headSegment;
+    int64_t i = 0;
+    while (segment->nBlockSegment != NULL) {
+        segment = segment->nBlockSegment;
+        i++;
+    }
+    if (i != block->degree - 1) { 
+        return false;
+    }
+    if (segment != block->tailSegment) {
+        return false;
+    }
+    return true;
+}
+
 static stPinchBlock *splitBlockUsingUndoBlock(stPinchBlock *block, stPinchUndoBlock *undoBlock) {
-    bool refBlockFirst = false, refBlockLast = false;
-    if (stPinchInterval_containsSegment(undoBlock->head, block->headSegment)) {
-        refBlockFirst = true;
-    }
-    if (stPinchInterval_containsSegment(undoBlock->tail, block->tailSegment)) {
-        refBlockLast = true;
-    }
-
-    assert(refBlockFirst || refBlockLast); // This is true unless
-                                           // blocks were re-ordered.
-
+    printf("splitting %p (degree %" PRIi64 ")\n", block, block->degree);
+    printf("undoBlock degree %" PRIi64 "\n", undoBlock->degree);
     if (stPinchBlock_getDegree(block) == undoBlock->degree) {
         // This block was already undone at some point.
-        assert(refBlockFirst && refBlockLast);
         return NULL;
-    }
-
-    stPinchInterval *targetInterval = NULL;
-    if (refBlockFirst) {
-        targetInterval = undoBlock->tail;
-    } else if (refBlockLast) {
-        targetInterval = undoBlock->head;
     }
 
     stPinchSegment *segment = block->headSegment;
     stPinchSegment *prevSegment = NULL;
     int64_t i = 0;
-    int64_t targeti = refBlockFirst ? undoBlock->degree : stPinchBlock_getDegree(block) - undoBlock->degree;
     do {
-        if (i == targeti) {
-            assert(stPinchInterval_containsSegment(targetInterval, prevSegment));
+        if (stPinchInterval_containsSegment(undoBlock->head, segment)) {
+            // Contiguous region representing the old block. (There
+            // may be multiple subregions of the old block in this
+            // block. We just take out one at a time for each thread1
+            // segment. Everything will work out fine unless the
+            // block's been reordered.)
+            int64_t endi = i + undoBlock->degree;
             stPinchBlock *newBlock = st_malloc(sizeof(stPinchBlock));
             newBlock->headSegment = segment;
-            newBlock->tailSegment = block->tailSegment;
-            block->tailSegment = prevSegment;
-            prevSegment->nBlockSegment = NULL;
-            newBlock->degree = block->degree - i;
+            while (i < endi) {
+                segment->block = newBlock;
+                i++;
+                if (i < endi) {
+                    segment = segment->nBlockSegment;
+                    assert(segment != NULL);
+                }
+            }
+
+            // After that loop, segment is the tail segment of the new
+            // block and prevSegment is still the segment before the
+            // head segment.
+            assert(stPinchInterval_containsSegment(undoBlock->tail, segment));
+
+            newBlock->tailSegment = segment;
+            if (prevSegment == NULL) {
+                // The new block we're extracting used to be at the
+                // head of this block.
+                block->headSegment = segment->nBlockSegment;
+            } else {
+                prevSegment->nBlockSegment = segment->nBlockSegment;
+            }
+            if (segment->nBlockSegment == NULL) {
+                block->tailSegment = prevSegment;
+            }
+            segment->nBlockSegment = NULL;
+            newBlock->degree = undoBlock->degree;
+            assert(stPinchBlock_check(newBlock));
             block->degree -= newBlock->degree;
+            assert(stPinchBlock_check(block));
             newBlock->numSupportingHomologies = undoBlock->numSupportingHomologies;
             block->numSupportingHomologies -= newBlock->numSupportingHomologies + 1;
-            do {
-                segment->block = newBlock;
-            } while ((segment = segment->nBlockSegment) != NULL);
             return newBlock;
         }
         i++;
@@ -1508,16 +1533,20 @@ void stPinchThreadSet_undoPinch(stPinchThreadSet *threadSet, stPinchUndo *undo) 
     stPinchSegment *segment = stPinchThread_getSegment(
         stPinchThreadSet_getThread(threadSet, undo->pinchToUndo->name1),
         undo->pinchToUndo->start1);
-    assert(stList_length(undo->savedBlocks) > 0);
+    if (stList_length(undo->savedBlocks) == 0) {
+        // Nothing to undo.
+        return;
+    }
     int64_t i = 0;
     stPinchUndoBlock *undoBlock = stList_get(undo->savedBlocks, i);
     while (segment != NULL && stPinchSegment_getStart(segment) < undo->pinchToUndo->start1 + undo->pinchToUndo->length) {
-        // Check that there is a breakpoint present at the pinch
-        // boundaries. We can assume this is true since the graph must
-        // not be modified between a pinch and an undo--otherwise the
-        // caller screwed up.
-        assert(stPinchSegment_getStart(segment) >= undo->pinchToUndo->start1);
-        assert(stPinchSegment_getStart(segment) + stPinchSegment_getLength(segment) <= undo->pinchToUndo->start1 + undo->pinchToUndo->length);
+        if (stPinchSegment_getStart(segment) < undo->pinchToUndo->start1) {
+            stPinchSegment_split(segment, undo->pinchToUndo->start1 - 1);
+            segment = stPinchSegment_get3Prime(segment);
+        }
+        if (stPinchSegment_getStart(segment) + stPinchSegment_getLength(segment) > undo->pinchToUndo->start1 + undo->pinchToUndo->length) {
+            stPinchSegment_split(segment, undo->pinchToUndo->start1 + undo->pinchToUndo->length);
+        }
 
         // Fast-forward to the proper undo block.
         while (stList_length(undo->savedBlocks) != i && !stPinchInterval_containsSegment(undoBlock->refInterval, segment)) {
@@ -1526,8 +1555,10 @@ void stPinchThreadSet_undoPinch(stPinchThreadSet *threadSet, stPinchUndo *undo) 
         }
 
         stPinchBlock *block = stPinchSegment_getBlock(segment);
-        assert(block != NULL); // If this is NULL, then the block must
-                               // have been modified after the pinch.
+        if (block == NULL) {
+            segment = stPinchSegment_get3Prime(segment);
+            continue;
+        }
 
         stPinchBlock *newBlock = splitBlockUsingUndoBlock(block, undoBlock);
 
