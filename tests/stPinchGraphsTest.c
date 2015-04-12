@@ -581,12 +581,24 @@ static void checkPinchSetsAreEquivalentAndCleanup(CuTest *testCase, stPinchThrea
         bool strand1, strand2;
         stSortedSet *column = stHash_search(columns, key);
         stList *columnList = stSortedSet_getList(column);
+
+        // Check that there's no false positives
+        decodePosition(threadSet, stList_get(columnList, 0), &thread1, &position1, &strand1);
+        stPinchBlock *block = stPinchSegment_getBlock(stPinchThread_getSegment(thread1, position1));
+        int64_t degree = 1;
+        if (block != NULL) {
+            degree = stPinchBlock_getDegree(block);
+        }
+        CuAssertIntEquals(testCase, stList_length(columnList), degree);
+
         for (int64_t i = 0; i < stList_length(columnList); i++) {
             stIntTuple *alignedPosition1 = stList_get(columnList, i);
             decodePosition(threadSet, alignedPosition1, &thread1, &position1, &strand1);
+
             for (int64_t j = i + 1; j < stList_length(columnList); j++) {
                 stIntTuple *alignedPosition2 = stList_get(columnList, j);
                 decodePosition(threadSet, alignedPosition2, &thread2, &position2, &strand2);
+                // Check that there's no false negatives
                 CuAssertTrue(testCase, areAligned(thread1, position1, thread2, position2, strand1 == strand2));
             }
         }
@@ -1178,6 +1190,150 @@ static void testStPinchBlock_getNumSupportingHomologies(CuTest *testCase) {
     teardown();
 }
 
+// A mirror of test_stPinchBlock_pinch, except that we check that
+// pinches can be undone.
+static void testStPinchUndo(CuTest *testCase) {
+    setup();
+
+    // Get rid of the splits on thread1. Undos can leave extra trivial
+    // boundaries, and it's best to join the trivial boundaries to
+    // check that the homologies are preserved instead.
+    stPinchThreadSet_joinTrivialBoundaries(threadSet);
+
+    // Before pinching
+    int64_t lengths1[] = { length1 };
+    int64_t blockDegrees1[] = { 1 };
+    testStPinchThread_pinchP(testCase, 1, start1, lengths1, blockDegrees1, thread1);
+    int64_t lengths2[] = { length2 };
+    int64_t blockDegrees2[] = { 1 };
+    testStPinchThread_pinchP(testCase, 1, start2, lengths2, blockDegrees2, thread2);
+
+    stPinchUndo *undo1 = stPinchThread_prepareUndo(thread1, thread2, 5, 5, 8, 1);
+    stPinchThread_pinch(thread1, thread2, 5, 5, 8, 1);
+    int64_t lengths1a[] = { 4, 8, length1 - 12 };
+    int64_t blockDegrees1a[] = { 1, 2, 1 };
+    testStPinchThread_pinchP(testCase, 3, start1, lengths1a, blockDegrees1a, thread1);
+    st_logInfo("First thread, first pinch okay\n");
+    int64_t lengths2a[] = { 1, 8, 1 };
+    int64_t blockDegrees2a[] = { 1, 2, 1 };
+    testStPinchThread_pinchP(testCase, 3, start2, lengths2a, blockDegrees2a, thread2);
+    st_logInfo("Second thread, first pinch okay\n");
+
+    // Undo the pinch and check that we're the same as before.
+    stPinchThreadSet_undoPinch(threadSet, undo1);
+    stPinchThreadSet_joinTrivialBoundaries(threadSet); // Undo can leave extra breakpoints.
+    testStPinchThread_pinchP(testCase, 1, start1, lengths1, blockDegrees1, thread1);
+    testStPinchThread_pinchP(testCase, 1, start2, lengths2, blockDegrees2, thread2);
+    st_logInfo("Pinch 1 undone successfully\n");
+    stPinchUndo_destruct(undo1);
+
+    // Reapply pinch 1 and add pinch 2.
+    stPinchThread_pinch(thread1, thread2, 5, 5, 8, 1);
+    stPinchUndo *undo2 = stPinchThread_prepareUndo(thread1, thread2, 4, 10, 4, 0);
+    stPinchThread_pinch(thread1, thread2, 4, 10, 4, 0);
+    stPinchThreadSet_joinTrivialBoundaries(threadSet);
+    int64_t lengths1b[] = { 3, 1, 3, 2, 3, length1 - 12 };
+    int64_t blockDegrees1b[] = { 1, 2, 4, 2, 4, 1 };
+    testStPinchThread_pinchP(testCase, 6, start1, lengths1b, blockDegrees1b, thread1);
+    st_logInfo("First thread, second pinch okay\n");
+    int64_t lengths2b[] = { 1, 3, 2, 3, 1 };
+    int64_t blockDegrees2b[] = { 1, 4, 2, 4, 2 };
+    testStPinchThread_pinchP(testCase, 5, start2, lengths2b, blockDegrees2b, thread2);
+    st_logInfo("Second thread, second pinch okay\n");
+
+    stPinchThreadSet_undoPinch(threadSet, undo2);
+    stPinchThreadSet_joinTrivialBoundaries(threadSet);
+
+    testStPinchThread_pinchP(testCase, 3, start1, lengths1a, blockDegrees1a, thread1);
+    testStPinchThread_pinchP(testCase, 3, start2, lengths2a, blockDegrees2a, thread2);
+    stPinchUndo_destruct(undo2);
+    st_logInfo("Pinch 2 undone successfully\n");
+
+    // Test undoing a zero-length pinch
+    stPinchUndo *undo3 = stPinchThread_prepareUndo(thread1, thread2, 5, 10, 0, 0);
+    stPinchThread_pinch(thread1, thread2, 5, 10, 0, 0);
+    testStPinchThread_pinchP(testCase, 3, start1, lengths1a, blockDegrees1a, thread1);
+    testStPinchThread_pinchP(testCase, 3, start2, lengths2a, blockDegrees2a, thread2);
+    st_logInfo("Third pinch okay\n");
+
+    stPinchThreadSet_undoPinch(threadSet, undo3);
+    stPinchThreadSet_joinTrivialBoundaries(threadSet);
+    testStPinchThread_pinchP(testCase, 3, start1, lengths1a, blockDegrees1a, thread1);
+    testStPinchThread_pinchP(testCase, 3, start2, lengths2a, blockDegrees2a, thread2);
+    st_logInfo("Pinch 3 undone successfully\n");
+    stPinchUndo_destruct(undo3);
+
+    teardown();
+}
+
+static void testStPinchUndo_random(CuTest *testCase) {
+    for (int64_t testNum = 0; testNum < 100; testNum++) {
+        stPinchThreadSet *threadSet = stPinchThreadSet_getRandomEmptyGraph();
+        stHash *columns = getUnalignedColumns(threadSet);
+
+        //Randomly push them together, updating both sets, and checking that set of alignments is what we expect
+        double threshold = st_random();
+        if (threshold < 0.01) {
+            threshold = 0.01; // Just to prevent the test from
+                              // exploding every so often.
+        }
+        while (st_random() > threshold) {
+            stPinch pinch = stPinchThreadSet_getRandomPinch(threadSet);
+
+            stPinchUndo *undo = stPinchThread_prepareUndo(stPinchThreadSet_getThread(threadSet, pinch.name1),
+                    stPinchThreadSet_getThread(threadSet, pinch.name2), pinch.start1, pinch.start2, pinch.length,
+                    pinch.strand);
+            stPinchThread_pinch(stPinchThreadSet_getThread(threadSet, pinch.name1),
+                    stPinchThreadSet_getThread(threadSet, pinch.name2), pinch.start1, pinch.start2, pinch.length,
+                    pinch.strand);
+
+            if (st_random() > 0.5) {
+                //now do all the pushing together of the equivalence classes
+                for (int64_t i = 0; i < pinch.length; i++) {
+                    mergePositionsSymmetric(columns, pinch.name1, pinch.start1 + i, 1, pinch.name2,
+                                            pinch.strand ? pinch.start2 + i : pinch.start2 + pinch.length - 1 - i, pinch.strand);
+                }
+            } else {
+                stPinchThreadSet_undoPinch(threadSet, undo);
+            }
+
+            stPinchUndo_destruct(undo);
+        }
+        if (st_random() > 0.5) {
+            stPinchThreadSet_joinTrivialBoundaries(threadSet); //Checks this function does not affect result
+        }
+        checkPinchSetsAreEquivalentAndCleanup(testCase, threadSet, columns);
+        st_logInfo("Random undo test %" PRIi64 " passed\n", testNum);
+    }
+}
+
+static void testStPinchUndo_chains(CuTest *testCase) {
+    for (int64_t testNum = 0; testNum < 100; testNum++) {
+        stPinchThreadSet *threadSet = stPinchThreadSet_getRandomEmptyGraph();
+        int64_t pinchSeriesLength = st_randomInt64(0, 100);
+        stList *undos = stList_construct3(0, (void (*)(void *)) stPinchUndo_destruct);
+
+        // Pinch together a bunch of random places
+        for (int64_t i = 0; i < pinchSeriesLength; i++) {
+            stPinch pinch = stPinchThreadSet_getRandomPinch(threadSet);
+            stPinchThread *thread1 = stPinchThreadSet_getThread(threadSet, pinch.name1);
+            stPinchThread *thread2 = stPinchThreadSet_getThread(threadSet, pinch.name2);
+            stList_append(undos, stPinchThread_prepareUndo(thread1, thread2, pinch.start1, pinch.start2, pinch.length, pinch.strand));
+            stPinchThread_pinch(thread1, thread2, pinch.start1, pinch.start2, pinch.length, pinch.strand);
+        }
+
+        // Now undo the pinches and check that we get the same empty graph
+        for (int64_t i = pinchSeriesLength - 1; i >= 0; i--) {
+            stPinchUndo *undo = stList_get(undos, i);
+            stPinchThreadSet_undoPinch(threadSet, undo);
+        }
+        stPinchThreadSet_joinTrivialBoundaries(threadSet);
+        CuAssertIntEquals(testCase, 0, stPinchThreadSet_getTotalBlockNumber(threadSet));
+
+        stList_destruct(undos);
+    }
+}
+
 CuSuite* stPinchGraphsTestSuite(void) {
     CuSuite* suite = CuSuiteNew();
     SUITE_ADD_TEST(suite, testStPinchThreadSet);
@@ -1198,6 +1354,9 @@ CuSuite* stPinchGraphsTestSuite(void) {
     SUITE_ADD_TEST(suite, testStPinchEnd_hasSelfLoopWithRespectToOtherBlock_randomTests);
     SUITE_ADD_TEST(suite, testStPinchEnd_getSubSequenceLengthsConnectingEnds_randomTests);
     SUITE_ADD_TEST(suite, testStPinchBlock_getNumSupportingHomologies);
+    SUITE_ADD_TEST(suite, testStPinchUndo);
+    SUITE_ADD_TEST(suite, testStPinchUndo_random);
+    SUITE_ADD_TEST(suite, testStPinchUndo_chains);
 
     return suite;
 }
