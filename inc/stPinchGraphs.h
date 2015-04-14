@@ -605,6 +605,34 @@ stPinchUndo *stPinchThread_prepareUndo(stPinchThread *thread1, stPinchThread *th
 void stPinchThreadSet_undoPinch(stPinchThreadSet *threadSet, stPinchUndo *undo);
 
 /*
+ * Partially undo a pinch.
+ *
+ * NB: Defining a partial undo is a bit hard. Consider an alignment
+ * between four bases, A:1, A:2, B:1, and B:2. Suppose there is
+ * already an alignment between A:1 and A:2, and we pinch together
+ * B:1-2 with A:1-2. All bases become transitively aligned together.
+ *
+ * The trick comes when we decide to only undo part of this pinch. One
+ * possible definition of a "partial undo" is that it is equivalent to
+ * having applied a pinch with the undo region "masked" out. But under
+ * this definition, undoing either part of the example pinch--or even
+ * both halves one after the other--has absolutely no effect on the
+ * graph. Presumably the pinched region is being undone for a good
+ * reason--the homologies involved are "bad" in some way--so that
+ * won't work.
+ *
+ * Instead of using that definition of a partial undo, this produces a
+ * graph where the new pinch involved in the given region is removed,
+ * no matter if that happens to affect other parts of the graph
+ * outside of the undo region as well. E.g. in the example above,
+ * undoing either half of the pinch is equivalent to removing the
+ * entire pinch. This definition has the useful property that, for any
+ * partitioning of a pinch, undoing all parts is equivalent to undoing
+ * the entire pinch.
+ */
+void stPinchThreadSet_partiallyUndoPinch(stPinchThreadSet *threadSet, stPinchUndo *undo, int64_t offset, int64_t length);
+
+/*
  * Free an undo.
  */
 void stPinchUndo_destruct(stPinchUndo *undo);

@@ -1421,6 +1421,11 @@ static void stPinchUndoBlock_destruct(stPinchUndoBlock *undoBlock) {
 
 // Iterate along the thread, making a copy of sorts of all the blocks we see.
 static void stPinchThread_prepareUndoP(stPinchThread *thread, int64_t start, int64_t length, stList *blocks) {
+    if (length == 0) {
+        // A zero-length pinch can't affect the graph, so we don't
+        // need to save any undo blocks.
+        return;
+    }
     stPinchSegment *segment = stPinchThread_getSegment(thread, start);
     assert(segment != NULL);
 
@@ -1472,7 +1477,8 @@ static bool stPinchBlock_check(stPinchBlock *block) {
     return true;
 }
 
-static stPinchBlock *splitBlockUsingUndoBlock(stPinchBlock *block, stPinchUndoBlock *undoBlock) {
+static stPinchBlock *splitBlockUsingUndoBlock(stPinchBlock *block, stPinchSegment *refSegment,
+                                              stPinchUndoBlock *undoBlock) {
     if (stPinchBlock_getDegree(block) == undoBlock->degree) {
         // This block was already undone at some point.
         return NULL;
@@ -1488,6 +1494,27 @@ static stPinchBlock *splitBlockUsingUndoBlock(stPinchBlock *block, stPinchUndoBl
             // block. We just take out one at a time for each thread1
             // segment. Everything will work out fine unless the
             // block's been reordered.)
+
+            // Scan ahead and check that the reference segment is in
+            // this block. If not, don't split it.
+            bool refSegmentPresent = false;
+            stPinchSegment *tmpSeg = segment;
+            stPinchSegment *tmpPrevSeg;
+            do {
+                if (tmpSeg == refSegment) {
+                    refSegmentPresent = true;
+                    break;
+                }
+                tmpPrevSeg = tmpSeg;
+                tmpSeg = tmpSeg->nBlockSegment;
+            } while (tmpSeg != NULL && !stPinchInterval_containsSegment(undoBlock->tail, tmpPrevSeg));
+
+            if (!refSegmentPresent) {
+                i++;
+                prevSegment = segment;
+                continue;
+            }
+
             int64_t endi = i + undoBlock->degree;
             stPinchBlock *newBlock = st_malloc(sizeof(stPinchBlock));
             newBlock->headSegment = segment;
@@ -1547,8 +1574,10 @@ static void stPinchThreadSet_undoPinchP(stPinchThread *thread, int64_t start, in
             segment = stPinchSegment_get3Prime(segment);
         }
         if (stPinchSegment_getStart(segment) + stPinchSegment_getLength(segment) > start + length) {
-            stPinchSegment_split(segment, start + length);
+            stPinchSegment_split(segment, start + length - 1);
         }
+        assert(stPinchSegment_getStart(segment) >= start);
+        assert(stPinchSegment_getStart(segment) + stPinchSegment_getLength(segment) <= start + length);
 
         // Fast-forward to the proper undo block.
         while (stList_length(blocks) != i && !stPinchInterval_containsSegment(undoBlock->refInterval, segment)) {
@@ -1562,7 +1591,7 @@ static void stPinchThreadSet_undoPinchP(stPinchThread *thread, int64_t start, in
             continue;
         }
 
-        stPinchBlock *newBlock = splitBlockUsingUndoBlock(block, undoBlock);
+        stPinchBlock *newBlock = splitBlockUsingUndoBlock(block, segment, undoBlock);
 
         // We don't know if there were degree-1 blocks before, but
         // they don't affect the alignment relationships, so we remove
@@ -1573,14 +1602,6 @@ static void stPinchThreadSet_undoPinchP(stPinchThread *thread, int64_t start, in
         if (stPinchBlock_getDegree(block) == 1) {
             stPinchBlock_destruct(block);
         }
-        if (newBlock != NULL) {
-            // We split off one copy of this block. But there might be
-            // more copies representing other regions of this block
-            // that got collapsed together during the pinch. Run again
-            // on the same segment and undoBlock to check to see if
-            // we're done.
-            continue;
-        }
         segment = stPinchSegment_get3Prime(segment);
     }
 }
@@ -1590,6 +1611,23 @@ void stPinchThreadSet_undoPinch(stPinchThreadSet *threadSet, stPinchUndo *undo) 
                                 undo->pinchToUndo->start1, undo->pinchToUndo->length, undo->blocks1);
     stPinchThreadSet_undoPinchP(stPinchThreadSet_getThread(threadSet, undo->pinchToUndo->name2),
                                 undo->pinchToUndo->start2, undo->pinchToUndo->length, undo->blocks2);
+}
+
+void stPinchThreadSet_partiallyUndoPinch(stPinchThreadSet *threadSet, stPinchUndo *undo, int64_t offset, int64_t length) {
+    if (length == 0) {
+        // Nothing to undo.
+        return;
+    }
+    stPinchThreadSet_undoPinchP(stPinchThreadSet_getThread(threadSet, undo->pinchToUndo->name1),
+                                undo->pinchToUndo->start1 + offset, length, undo->blocks1);
+    if (undo->pinchToUndo->strand) {
+        stPinchThreadSet_undoPinchP(stPinchThreadSet_getThread(threadSet, undo->pinchToUndo->name2),
+                                    undo->pinchToUndo->start2 + offset, length, undo->blocks2);
+    } else {
+        stPinchThreadSet_undoPinchP(stPinchThreadSet_getThread(threadSet, undo->pinchToUndo->name2),
+                                    undo->pinchToUndo->start2 + undo->pinchToUndo->length - offset - length,
+                                    length, undo->blocks2);
+    }
 }
 
 void stPinchUndo_destruct(stPinchUndo *undo) {

@@ -1331,6 +1331,57 @@ static void testStPinchUndo_chains(CuTest *testCase) {
         CuAssertIntEquals(testCase, 0, stPinchThreadSet_getTotalBlockNumber(threadSet));
 
         stList_destruct(undos);
+        stPinchThreadSet_destruct(threadSet);
+    }
+}
+
+// This test is a bit of a copout. Just checks that partially undoing
+// all parts of a pinch is equivalent to undoing the whole pinch. It
+// would be better to have a test that takes into account the
+// transitive undo effects.
+static void testStPinchPartialUndo_random(CuTest *testCase) {
+    for (int64_t testNum = 0; testNum < 100; testNum++) {
+        stPinchThreadSet *threadSet = stPinchThreadSet_getRandomEmptyGraph();
+        stHash *columns = getUnalignedColumns(threadSet);
+
+        //Randomly push them together, updating both sets, and checking that set of alignments is what we expect
+        double threshold = st_random();
+        if (threshold < 0.01) {
+            threshold = 0.01; // Just to prevent the test from
+                              // exploding every so often.
+        }
+        while (st_random() > threshold) {
+            stPinch pinch = stPinchThreadSet_getRandomPinch(threadSet);
+
+            stPinchUndo *undo = stPinchThread_prepareUndo(stPinchThreadSet_getThread(threadSet, pinch.name1),
+                    stPinchThreadSet_getThread(threadSet, pinch.name2), pinch.start1, pinch.start2, pinch.length,
+                    pinch.strand);
+            stPinchThread_pinch(stPinchThreadSet_getThread(threadSet, pinch.name1),
+                    stPinchThreadSet_getThread(threadSet, pinch.name2), pinch.start1, pinch.start2, pinch.length,
+                    pinch.strand);
+
+            if (st_random() > 0.5) {
+                //now do all the pushing together of the equivalence classes
+                for (int64_t i = 0; i < pinch.length; i++) {
+                    mergePositionsSymmetric(columns, pinch.name1, pinch.start1 + i, 1, pinch.name2,
+                                            pinch.strand ? pinch.start2 + i : pinch.start2 + pinch.length - 1 - i, pinch.strand);
+                }
+            } else {
+                int64_t offset = 0;
+                while (offset < pinch.length) {
+                    int64_t undoLength = st_randomInt64(0, pinch.length - offset + 1);
+                    stPinchThreadSet_partiallyUndoPinch(threadSet, undo, offset, undoLength);
+                    offset += undoLength;
+                }
+            }
+
+            stPinchUndo_destruct(undo);
+        }
+        if (st_random() > 0.5) {
+            stPinchThreadSet_joinTrivialBoundaries(threadSet); //Checks this function does not affect result
+        }
+        checkPinchSetsAreEquivalentAndCleanup(testCase, threadSet, columns);
+        st_logInfo("Random undo test %" PRIi64 " passed\n", testNum);
     }
 }
 
@@ -1357,6 +1408,7 @@ CuSuite* stPinchGraphsTestSuite(void) {
     SUITE_ADD_TEST(suite, testStPinchUndo);
     SUITE_ADD_TEST(suite, testStPinchUndo_random);
     SUITE_ADD_TEST(suite, testStPinchUndo_chains);
+    SUITE_ADD_TEST(suite, testStPinchPartialUndo_random);
 
     return suite;
 }
