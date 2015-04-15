@@ -1580,7 +1580,7 @@ static void stPinchThreadSet_undoPinchP(stPinchThread *thread, int64_t start, in
         assert(stPinchSegment_getStart(segment) + stPinchSegment_getLength(segment) <= start + length);
 
         // Fast-forward to the proper undo block.
-        while (stList_length(blocks) != i && !stPinchInterval_containsSegment(undoBlock->refInterval, segment)) {
+        while (stList_length(blocks) != i + 1 && !stPinchInterval_containsSegment(undoBlock->refInterval, segment)) {
             i++;
             undoBlock = stList_get(blocks, i);
         }
@@ -1628,6 +1628,61 @@ void stPinchThreadSet_partiallyUndoPinch(stPinchThreadSet *threadSet, stPinchUnd
                                     undo->pinchToUndo->start2 + undo->pinchToUndo->length - offset - length,
                                     length, undo->blocks2);
     }
+}
+
+static bool stPinchUndo_findOffsetForBlockP(stList *blocks, stPinchBlock *block,
+                                            stPinchThread *thread, int64_t start,
+                                            int64_t length, stPinch *pinch,
+                                            int64_t *undoOffset, int64_t *undoLength) {
+    stPinchSegment *segment = stPinchThread_getSegment(thread, start);
+    int64_t i = 0;
+    stPinchUndoBlock *undoBlock = stList_get(blocks, i);
+    while (segment != NULL && stPinchSegment_getStart(segment) < start + length) {
+        if (stPinchSegment_getBlock(segment) == block) {
+            // Fast-forward to the proper undo block.
+            while (stList_length(blocks) != i && !stPinchInterval_containsSegment(undoBlock->refInterval, segment)) {
+                i++;
+                undoBlock = stList_get(blocks, i);
+            }
+            if (stPinchBlock_getDegree(block) != undoBlock->degree) {
+                if (stPinchSegment_getName(segment) == pinch->name1 && stPinchSegment_getStart(segment) >= pinch->start1 && stPinchSegment_getStart(segment) < pinch->start1 + pinch->length) {
+                    *undoOffset = stPinchSegment_getStart(segment) - pinch->start1;
+                } else {
+                    if (pinch->strand) {
+                        *undoOffset = stPinchSegment_getStart(segment) - pinch->start2;
+                    } else {
+                        *undoOffset = pinch->start2 + pinch->length - stPinchSegment_getStart(segment) - stPinchSegment_getLength(segment);
+                    }
+                }
+                *undoLength = stPinchSegment_getLength(segment);
+                return true;
+            }
+        }
+        segment = stPinchSegment_get3Prime(segment);
+    }
+    return false;
+}
+
+bool stPinchUndo_findOffsetForBlock(stPinchUndo *undo, stPinchThreadSet *threadSet,
+                                    stPinchBlock *block, int64_t *undoOffset,
+                                    int64_t *undoLength) {
+    // Could possibly go through block and look for segments that
+    // could be undone rather than going through each thread's
+    // region. The runtime is more predictable the way it's done now
+    // though.
+    if (stPinchUndo_findOffsetForBlockP(undo->blocks1, block,
+                                        stPinchThreadSet_getThread(threadSet, undo->pinchToUndo->name1),
+                                        undo->pinchToUndo->start1, undo->pinchToUndo->length,
+                                        undo->pinchToUndo, undoOffset, undoLength)) {
+        return true;
+    }
+    if (stPinchUndo_findOffsetForBlockP(undo->blocks2, block,
+                                        stPinchThreadSet_getThread(threadSet, undo->pinchToUndo->name2),
+                                        undo->pinchToUndo->start2, undo->pinchToUndo->length,
+                                        undo->pinchToUndo, undoOffset, undoLength)) {
+        return true;
+    }
+    return false;
 }
 
 void stPinchUndo_destruct(stPinchUndo *undo) {

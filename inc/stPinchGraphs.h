@@ -633,6 +633,15 @@ void stPinchThreadSet_undoPinch(stPinchThreadSet *threadSet, stPinchUndo *undo);
 void stPinchThreadSet_partiallyUndoPinch(stPinchThreadSet *threadSet, stPinchUndo *undo, int64_t offset, int64_t length);
 
 /*
+ * Find a potential offset that can be used to undo part of a
+ * block. If the block isn't undoable, or has already been completely
+ * undone, then returns false. Otherwise, returns true and sets
+ * undoOffset and undoLength to the proper values.
+ */
+bool stPinchUndo_findOffsetForBlock(stPinchUndo *undo, stPinchThreadSet *threadSet,
+                                    stPinchBlock *block, int64_t *undoOffset,
+                                    int64_t *undoLength);
+/*
  * Free an undo.
  */
 void stPinchUndo_destruct(stPinchUndo *undo);
