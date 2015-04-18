@@ -609,8 +609,9 @@ void stPinchThreadSet_undoPinch(stPinchThreadSet *threadSet, stPinchUndo *undo);
  *
  * NB: Defining a partial undo is a bit hard. Consider an alignment
  * between four bases, A:1, A:2, B:1, and B:2. Suppose there is
- * already an alignment between A:1 and A:2, and we pinch together
- * B:1-2 with A:1-2. All bases become transitively aligned together.
+ * already an alignment between A:1 and A:2 as well as B:1 and B:2,
+ * and we pinch together B:1-2 with A:1-2. All bases become
+ * transitively aligned together.
  *
  * The trick comes when we decide to only undo part of this pinch. One
  * possible definition of a "partial undo" is that it is equivalent to
