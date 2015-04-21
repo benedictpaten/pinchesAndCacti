@@ -14,6 +14,7 @@
 struct _stPinchThreadSet {
     stList *threads;
     stHash *threadsHash;
+    stConnectivity *adjacencyComponents;
 };
 
 struct _stPinchThread {
@@ -21,6 +22,7 @@ struct _stPinchThread {
     int64_t start;
     int64_t length;
     stSortedSet *segments;
+    stPinchThreadSet *threadSet;
 };
 
 struct _stPinchSegment {
@@ -40,12 +42,30 @@ struct _stPinchBlock {
     stPinchSegment *tailSegment;
 };
 
+typedef void stPinchSegmentCap;
+
+static stPinchSegmentCap *stPinchSegment_getSegmentCap(stPinchSegment *segment, bool orientation);
+
 //Blocks
 
 static void connectBlockToSegment(stPinchSegment *segment, bool orientation, stPinchBlock *block, stPinchSegment *nBlockSegment) {
+    stConnectivity *adjacencyComponents = segment->thread->threadSet->adjacencyComponents;
+    if (segment->block == NULL) {
+        stConnectivity_removeEdge(adjacencyComponents, stPinchSegment_getSegmentCap(segment, 0),
+                                  stPinchSegment_getSegmentCap(segment, 1));
+    }
+
     segment->block = block;
     segment->blockOrientation = orientation;
     segment->nBlockSegment = nBlockSegment;
+
+    if (block == NULL) {
+        stConnectivity_addEdge(adjacencyComponents, stPinchSegment_getSegmentCap(segment, 0),
+                               stPinchSegment_getSegmentCap(segment, 1));
+    } else if (block->tailSegment != segment) {
+        stConnectivity_addEdge(adjacencyComponents, stPinchSegment_getSegmentCap(block->tailSegment, block->tailSegment->blockOrientation), stPinchSegment_getSegmentCap(segment, segment->blockOrientation));
+        stConnectivity_addEdge(adjacencyComponents, stPinchSegment_getSegmentCap(block->tailSegment, !block->tailSegment->blockOrientation), stPinchSegment_getSegmentCap(segment, !segment->blockOrientation));
+    }
 }
 
 stPinchBlock *stPinchBlock_construct3(stPinchSegment *segment, bool orientation) {
@@ -242,6 +262,12 @@ static stPinchSegment *stPinchSegment_construct(int64_t start, stPinchThread *th
     stPinchSegment *segment = st_calloc(1, sizeof(stPinchSegment));
     segment->start = start;
     segment->thread = thread;
+
+    stConnectivity *adjacencyComponents = thread->threadSet->adjacencyComponents;
+    stConnectivity_addNode(adjacencyComponents, stPinchSegment_getSegmentCap(segment, 0));
+    stConnectivity_addNode(adjacencyComponents, stPinchSegment_getSegmentCap(segment, 1));
+    stConnectivity_addEdge(adjacencyComponents, stPinchSegment_getSegmentCap(segment, 0),
+                           stPinchSegment_getSegmentCap(segment, 1));
     return segment;
 }
 
@@ -254,6 +280,20 @@ static stPinchSegment *stPinchSegment_splitP(stPinchSegment *segment, int64_t le
     rightSegment->nSegment = nSegment;
     nSegment->pSegment = rightSegment;
     stSortedSet_insert(segment->thread->segments, rightSegment);
+
+    // Update the connected components.
+    stConnectivity *adjacencyComponents = segment->thread->threadSet->adjacencyComponents;
+    stConnectivity_removeEdge(adjacencyComponents, stPinchSegment_getSegmentCap(segment, 1),
+                              stPinchSegment_getSegmentCap(nSegment, 0));
+    stConnectivity_addEdge(adjacencyComponents, stPinchSegment_getSegmentCap(segment, 1),
+                           stPinchSegment_getSegmentCap(rightSegment, 0));
+    stConnectivity_addEdge(adjacencyComponents, stPinchSegment_getSegmentCap(rightSegment, 1),
+                           stPinchSegment_getSegmentCap(nSegment, 0));
+    // The new segment starts out unaligned. We allow indirect
+    // adjacencies between pinch ends by connecting together unaligned
+    // segments' caps.
+    stConnectivity_addEdge(adjacencyComponents, stPinchSegment_getSegmentCap(segment, 0),
+                           stPinchSegment_getSegmentCap(segment, 1));
     return rightSegment;
 }
 
@@ -386,6 +426,11 @@ void stPinchThread_joinTrivialBoundaries(stPinchThread *thread) {
                 if (nSegment != NULL) {
                     stPinchBlock *nBlock = stPinchSegment_getBlock(nSegment);
                     if (nBlock == NULL) {
+                        stConnectivity *adjacencyComponents = thread->threadSet->adjacencyComponents;
+                        stConnectivity_removeNode(adjacencyComponents, stPinchSegment_getSegmentCap(nSegment, 0));
+                        stConnectivity_removeNode(adjacencyComponents, stPinchSegment_getSegmentCap(nSegment, 1));
+                        stConnectivity_addEdge(adjacencyComponents, stPinchSegment_getSegmentCap(segment, 1), stPinchSegment_getSegmentCap(nSegment->nSegment, 0));
+
                         //Trivial join
                         segment->nSegment = nSegment->nSegment;
                         assert(nSegment->nSegment != NULL);
@@ -544,17 +589,21 @@ void stPinchThread_pinch(stPinchThread *thread1, stPinchThread *thread2, int64_t
 
 //Private functions
 
-static stPinchThread *stPinchThread_construct(int64_t name, int64_t start, int64_t length) {
+static stPinchThread *stPinchThread_construct(int64_t name, int64_t start, int64_t length,
+                                              stPinchThreadSet *threadSet) {
     stPinchThread *thread = st_malloc(sizeof(stPinchThread));
     thread->name = name;
     thread->start = start;
     thread->length = length;
     thread->segments = stSortedSet_construct3((int(*)(const void *, const void *)) stPinchSegment_compareBySequencePosition,
             (void(*)(void *)) stPinchSegment_destruct);
+    thread->threadSet = threadSet;
     stPinchSegment *segment = stPinchSegment_construct(start, thread);
     stPinchSegment *terminatorSegment = stPinchSegment_construct(start + length, thread);
     segment->nSegment = terminatorSegment;
     terminatorSegment->pSegment = segment;
+    stConnectivity_addEdge(threadSet->adjacencyComponents, stPinchSegment_getSegmentCap(segment, 1),
+        stPinchSegment_getSegmentCap(terminatorSegment, 0));
     stSortedSet_insert(thread->segments, segment);
     return thread;
 }
@@ -581,17 +630,19 @@ stPinchThreadSet *stPinchThreadSet_construct() {
     threadSet->threads = stList_construct3(0, (void(*)(void *)) stPinchThread_destruct);
     threadSet->threadsHash = stHash_construct3((uint64_t(*)(const void *)) stPinchThread_hashKey,
             (int(*)(const void *, const void *)) stPinchThread_equals, NULL, NULL);
+    threadSet->adjacencyComponents = stConnectivity_construct();
     return threadSet;
 }
 
 void stPinchThreadSet_destruct(stPinchThreadSet *threadSet) {
     stList_destruct(threadSet->threads);
     stHash_destruct(threadSet->threadsHash);
+    stConnectivity_destruct(threadSet->adjacencyComponents);
     free(threadSet);
 }
 
 stPinchThread *stPinchThreadSet_addThread(stPinchThreadSet *threadSet, int64_t name, int64_t start, int64_t length) {
-    stPinchThread *thread = stPinchThread_construct(name, start, length);
+    stPinchThread *thread = stPinchThread_construct(name, start, length, threadSet);
     assert(stPinchThreadSet_getThread(threadSet, name) == NULL);
     stHash_insert(threadSet->threadsHash, thread, thread);
     stList_append(threadSet->threads, thread);
@@ -702,47 +753,58 @@ int64_t stPinchThreadSet_getTotalBlockNumber(stPinchThreadSet *threadSet) {
     return blockCount;
 }
 
-void stPinchThreadSet_getAdjacencyComponentsP2(stHash *endsToAdjacencyComponents, stList *adjacencyComponent, stPinchEnd *end) {
-    stList *stack = stList_construct();
-    stList_append(adjacencyComponent, end);
-    stHash_insert(endsToAdjacencyComponents, end, adjacencyComponent);
-    stList_append(stack, end);
-    while (stList_length(stack) > 0) {
-        end = stList_pop(stack);
-        stPinchBlockIt blockIt = stPinchBlock_getSegmentIterator(end->block);
-        stPinchSegment *segment;
-        while ((segment = stPinchBlockIt_getNext(&blockIt)) != NULL) {
-            bool _5PrimeTraversal = stPinchEnd_traverse5Prime(end->orientation, segment);
-            while (1) {
-                segment = _5PrimeTraversal ? stPinchSegment_get5Prime(segment) : stPinchSegment_get3Prime(segment);
-                if (segment == NULL) {
-                    break;
-                }
-                stPinchBlock *block = stPinchSegment_getBlock(segment);
-                if (block != NULL) {
-                    stPinchEnd end2 = stPinchEnd_constructStatic(block, stPinchEnd_endOrientation(_5PrimeTraversal, segment));
-                    if (stHash_search(endsToAdjacencyComponents, &end2) == NULL) {
-                        stPinchEnd *end3 = stPinchEnd_construct(end2.block, end2.orientation);
-                        stList_append(adjacencyComponent, end3);
-                        stHash_insert(endsToAdjacencyComponents, end3, adjacencyComponent);
-                        stList_append(stack, end3);
-                    }
-                    break;
-                }
-            }
+/*
+ * "segment caps" representing caps for the segments.  To save
+ * memory, segment caps are currently just represented as pointers to
+ * segments, with the least significant bit set to 0 if it refers to
+ * the 5' cap, and 1 if it refers to the 3' cap.
+ */
+static stPinchSegment *stPinchSegmentCap_getSegment(stPinchSegmentCap *segmentCap) {
+    return (stPinchSegment *) ((uintptr_t) segmentCap & ~1);
+}
+
+static bool stPinchSegmentCap_getOrientation(stPinchSegmentCap *segmentCap) {
+    return (stPinchSegment *) ((uintptr_t) segmentCap & 1);
+}
+
+static stPinchSegmentCap *stPinchSegment_getSegmentCap(stPinchSegment *segment, bool orientation) {
+    return (stPinchSegmentCap *) ((uintptr_t) segment + orientation);
+}
+
+void stPinchThreadSet_getAdjacencyComponentsP2(stHash *endsToAdjacencyComponents, stList *adjacencyComponent, stPinchEnd *end, stConnectivity *connectivity) {
+    stPinchSegmentCap *segmentCap = stPinchSegment_getSegmentCap(stPinchBlock_getFirst(stPinchEnd_getBlock(end)), stPinchEnd_getOrientation(end));
+    stConnectedComponent *connectedComponent = stConnectivity_getConnectedComponent(connectivity, segmentCap);
+    stConnectedComponentNodeIterator *nodeIt = stConnectedComponent_getNodeIterator(connectedComponent);
+    stSet *blockEnds = stSet_construct3(stPinchEnd_hashFn, stPinchEnd_equalsFn, NULL);
+    while ((segmentCap = stConnectedComponentNodeIterator_getNext(nodeIt)) != NULL) {
+        stPinchBlock *block = stPinchSegment_getBlock(stPinchSegmentCap_getSegment(segmentCap));
+        if (block == NULL) {
+            // Some segment ends participating in the
+            // adjacency-connected components don't belong to any
+            // block--they form part of an indirect adjacency between
+            // ends.
+            continue;
+        }
+        stPinchEnd staticEnd = stPinchEnd_constructStatic(block, stPinchSegmentCap_getOrientation(segmentCap));
+        if (stSet_search(blockEnds, &staticEnd) == NULL) {
+            stPinchEnd *end = stPinchEnd_construct(block, stPinchSegmentCap_getOrientation(segmentCap));
+            stHash_insert(endsToAdjacencyComponents, end, adjacencyComponent);
+            stSet_insert(blockEnds, end);
+            stList_append(adjacencyComponent, end);
         }
     }
-    stList_destruct(stack);
+    stSet_destruct(blockEnds);
+    stConnectedComponentNodeIterator_destruct(nodeIt);
 }
 
 void stPinchThreadSet_getAdjacencyComponentsP(stHash *endsToAdjacencyComponents, stList *adjacencyComponents, stPinchBlock *block,
-        bool orientation) {
+                                              bool orientation, stConnectivity *connectivity) {
     stPinchEnd end = stPinchEnd_constructStatic(block, orientation);
     stList *adjacencyComponent = stHash_search(endsToAdjacencyComponents, &end);
     if (adjacencyComponent == NULL) {
         adjacencyComponent = stList_construct3(0, (void(*)(void *)) stPinchEnd_destruct);
         stList_append(adjacencyComponents, adjacencyComponent);
-        stPinchThreadSet_getAdjacencyComponentsP2(endsToAdjacencyComponents, adjacencyComponent, stPinchEnd_construct(block, orientation));
+        stPinchThreadSet_getAdjacencyComponentsP2(endsToAdjacencyComponents, adjacencyComponent, stPinchEnd_construct(block, orientation), connectivity);
     }
 }
 
@@ -752,8 +814,8 @@ stList *stPinchThreadSet_getAdjacencyComponents2(stPinchThreadSet *threadSet, st
     stPinchThreadSetBlockIt blockIt = stPinchThreadSet_getBlockIt(threadSet);
     stPinchBlock *block;
     while ((block = stPinchThreadSetBlockIt_getNext(&blockIt)) != NULL) {
-        stPinchThreadSet_getAdjacencyComponentsP(*endsToAdjacencyComponents, adjacencyComponents, block, 0);
-        stPinchThreadSet_getAdjacencyComponentsP(*endsToAdjacencyComponents, adjacencyComponents, block, 1);
+        stPinchThreadSet_getAdjacencyComponentsP(*endsToAdjacencyComponents, adjacencyComponents, block, 0, threadSet->adjacencyComponents);
+        stPinchThreadSet_getAdjacencyComponentsP(*endsToAdjacencyComponents, adjacencyComponents, block, 1, threadSet->adjacencyComponents);
     }
     return adjacencyComponents;
 }
@@ -1009,6 +1071,13 @@ static void merge3Prime(stPinchSegment *segment) {
     assert(nSegment->nSegment != NULL);
     segment->nSegment = nSegment->nSegment;
     nSegment->nSegment->pSegment = segment;
+
+    stConnectivity *adjacencyComponents = segment->thread->threadSet->adjacencyComponents;
+    stConnectivity_removeNode(adjacencyComponents, stPinchSegment_getSegmentCap(nSegment, 0));
+    stConnectivity_removeNode(adjacencyComponents, stPinchSegment_getSegmentCap(nSegment, 1));
+    stConnectivity_addEdge(adjacencyComponents, stPinchSegment_getSegmentCap(segment, 1),
+                           stPinchSegment_getSegmentCap(nSegment->nSegment, 0));
+
     stPinchSegment_destruct(nSegment);
 }
 
@@ -1023,6 +1092,12 @@ static void merge5Prime(stPinchSegment *segment) {
     }
     assert(pSegment->start < segment->start);
     segment->start = pSegment->start;
+
+    stConnectivity *adjacencyComponents = segment->thread->threadSet->adjacencyComponents;
+    stConnectivity_removeNode(adjacencyComponents, stPinchSegment_getSegmentCap(pSegment, 0));
+    stConnectivity_removeNode(adjacencyComponents, stPinchSegment_getSegmentCap(pSegment, 1));
+    stConnectivity_addEdge(adjacencyComponents, stPinchSegment_getSegmentCap(segment, 0),
+                           stPinchSegment_getSegmentCap(pSegment->pSegment, 1));
     stPinchSegment_destruct(pSegment);
 }
 
