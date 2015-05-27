@@ -46,7 +46,7 @@ typedef void stPinchSegmentCap;
 
 static stPinchSegmentCap *stPinchSegment_getSegmentCap(stPinchSegment *segment, bool orientation);
 
-// Connect two caps together in the adjacency components "vertically",
+// Connect two segments together in the adjacency components "vertically",
 // so that they become part of the same block components. The first
 // segment must be in a block already, but the second segment may or
 // may not be.
@@ -59,6 +59,18 @@ static void connectSegmentComponents(stPinchSegment *segment1, stPinchSegment *s
     stConnectivity_addEdge(adjacencyComponents,
                            stPinchSegment_getSegmentCap(segment1, !segment1->blockOrientation),
                            stPinchSegment_getSegmentCap(segment2, !blockOrientation2));
+}
+
+// Disconnect two segments that were linked together into a block
+// component. NB: the two segments must be adjacent in the block's
+// segment list!
+static void disconnectSegmentComponents(stPinchSegment *segment1, stPinchSegment *segment2) {
+    stConnectivity *adjacencyComponents = segment1->thread->threadSet->adjacencyComponents;
+    stConnectivity_removeEdge(adjacencyComponents, stPinchSegment_getSegmentCap(segment1, stPinchSegment_getBlockOrientation(segment1)),
+                              stPinchSegment_getSegmentCap(segment2, stPinchSegment_getBlockOrientation(segment2)));
+    stConnectivity_removeEdge(adjacencyComponents, stPinchSegment_getSegmentCap(segment1, !stPinchSegment_getBlockOrientation(segment1)),
+                              stPinchSegment_getSegmentCap(segment2, !stPinchSegment_getBlockOrientation(segment2)));
+
 }
 
 //Blocks
@@ -414,6 +426,18 @@ void stPinchSegment_putSegmentFirstInBlock(stPinchSegment *segment) {
                 pBlockSegment = pBlockSegment->nBlockSegment;
                 assert(pBlockSegment != NULL);
             }
+            // Rearrange the cap connections for the block so they
+            // will still follow the order of the block's list of
+            // segments.
+            disconnectSegmentComponents(pBlockSegment, segment);
+            if (segment->nBlockSegment != NULL) {
+                disconnectSegmentComponents(segment, segment->nBlockSegment);
+                connectSegmentComponents(pBlockSegment, segment->nBlockSegment,
+                                         segment->nBlockSegment->blockOrientation);
+            }
+            connectSegmentComponents(segment, segment->block->headSegment,
+                                     segment->block->headSegment->blockOrientation);
+            // Rearrange the actual segment list.
             pBlockSegment->nBlockSegment = segment->nBlockSegment;
             if(segment->nBlockSegment == NULL) {
                 assert(segment->block->tailSegment == segment);
@@ -1642,6 +1666,7 @@ static bool stPinchInterval_containsSegment(stPinchInterval *interval, stPinchSe
         && stPinchInterval_getStart(interval) + stPinchInterval_getLength(interval) >= stPinchSegment_getStart(segment) + stPinchSegment_getLength(segment);
 }
 
+// Sanity check for a block.
 static bool stPinchBlock_check(stPinchBlock *block) {
     stPinchSegment *segment = block->headSegment;
     int64_t i = 0;
@@ -1658,6 +1683,15 @@ static bool stPinchBlock_check(stPinchBlock *block) {
     return true;
 }
 
+// We were iterating along one of the pinched threads and found a
+// block to split. Create a new block equivalent to the portion of the
+// old block belonging to refSegment and seal up the hole we left in
+// this block.
+//
+// This is somewhat inefficient because we have to iterate through
+// (potentially) all the segments in the block in order to seal the
+// hole, but having a doubly linked list of segments for the block
+// would cost a lot of memory.
 static stPinchBlock *splitBlockUsingUndoBlock(stPinchBlock *block, stPinchSegment *refSegment,
                                               stPinchUndoBlock *undoBlock) {
     if (stPinchBlock_getDegree(block) == undoBlock->degree) {
@@ -1708,9 +1742,11 @@ static stPinchBlock *splitBlockUsingUndoBlock(stPinchBlock *block, stPinchSegmen
                 }
             }
 
-            // After that loop, segment is the tail segment of the new
-            // block and prevSegment is still the segment before the
-            // head segment.
+            // After that loop, "segment" is the tail segment of the
+            // new block and "prevSegment" is still the segment before
+            // the head segment. Now we split the portion of the block
+            // between "prevSegment" and "segment" into a new block.
+
             assert(stPinchInterval_containsSegment(undoBlock->tail, segment));
 
             newBlock->tailSegment = segment;
@@ -1719,10 +1755,19 @@ static stPinchBlock *splitBlockUsingUndoBlock(stPinchBlock *block, stPinchSegmen
                 // head of this block.
                 block->headSegment = segment->nBlockSegment;
             } else {
+                disconnectSegmentComponents(prevSegment, prevSegment->nBlockSegment);
                 prevSegment->nBlockSegment = segment->nBlockSegment;
             }
             if (segment->nBlockSegment == NULL) {
                 block->tailSegment = prevSegment;
+            } else {
+                disconnectSegmentComponents(segment, segment->nBlockSegment);
+                if (prevSegment != NULL) {
+                    // Join the break in the adjacency component link
+                    // between the two halves of the leftover block.
+                    connectSegmentComponents(prevSegment, segment->nBlockSegment,
+                                             stPinchSegment_getBlockOrientation(segment->nBlockSegment));
+                }
             }
             segment->nBlockSegment = NULL;
             newBlock->degree = undoBlock->degree;
