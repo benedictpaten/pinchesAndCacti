@@ -320,8 +320,11 @@ bool stPinchSegment_getBlockOrientation(stPinchSegment *segment);
 
 /*
  * As with stPinchThread_split, but for a given segment.
+ *
+ * Returns the leftmost segment after the split (or the unmodified
+ * segment if the segment wasn't split).
  */
-void stPinchSegment_split(stPinchSegment *segment, int64_t leftSideOfSplitPoint);
+stPinchSegment *stPinchSegment_split(stPinchSegment *segment, int64_t leftSideOfSplitPoint);
 
 /*
  * Makes this segment the first segment in its block, if it has one.
