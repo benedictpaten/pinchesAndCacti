@@ -173,7 +173,7 @@ void stOnlineCactus_alignEdges(stOnlineCactus *cactus, void *edge1, void *edge2,
     }
     // just for clarification of what the variable actually is now.
     st3ECT *mrcaNet = parent;
-    // here is where i would do the merging if i wasn't lazy as hell
+    // here is where i would do the merging if i weren't lazy as hell
     (void) mrcaNet;
 
     st3ECT_destruct(node1);
