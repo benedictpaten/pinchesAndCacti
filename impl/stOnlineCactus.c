@@ -131,13 +131,15 @@ void stOnlineCactus_mergeAdjacentEdges(stOnlineCactus *cactus, void *oldEdgeL,
     st3ECT *oldEdgeRNode = stHash_search(cactus->edgeToNode, oldEdgeR);
     assert(oldEdgeRNode != NULL);
     assert(st3ECT_type(oldEdgeRNode) == EDGE);
+    assert(oldEdgeLNode->next == oldEdgeRNode);
+    assert(oldEdgeRNode->prev == oldEdgeLNode);
     st3ECT *leftSib = oldEdgeLNode->prev;
     st3ECT *parent = oldEdgeLNode->parent;
     assert(parent == oldEdgeRNode->parent);
     st3ECT_destruct(oldEdgeLNode);
     st3ECT_destruct(oldEdgeRNode);
-    stHash_remove(cactus->edgeToNode, oldEdgeLNode);
-    stHash_remove(cactus->edgeToNode, oldEdgeRNode);
+    stHash_remove(cactus->edgeToNode, oldEdgeL);
+    stHash_remove(cactus->edgeToNode, oldEdgeR);
 
     st3ECT *newEdgeNode = st3ECT_construct(parent, leftSib, EDGE);
     stHash_insert(cactus->edgeToNode, newEdge, newEdgeNode);
