@@ -189,12 +189,12 @@ void stOnlineCactus_unalignEdge(stOnlineCactus *cactus, void *oldEdge,
                                 void *edge1, void *edge2) {
     
 }
-void stOnlineCactus_printR(const st3ECT *tree) {
+void stOnlineCactus_printR(const st3ECT *tree, stHash *nodeToEdge) {
     if (tree->firstChild) {
         printf("(");
         st3ECT *child = tree->firstChild;
         while (child != NULL) {
-            stOnlineCactus_printR(child);
+            stOnlineCactus_printR(child, nodeToEdge);
             child = child->next;
             if (child != NULL) {
                 printf(",");
@@ -213,12 +213,14 @@ void stOnlineCactus_printR(const st3ECT *tree) {
         printf("BRIDGE%p", (void *) tree);
         break;
     case EDGE:
-        printf("EDGE%p", (void *) tree);
+        printf("EDGE%p", (void *) stHash_search(nodeToEdge, (void *) tree));
         break;
     }
 }
 
 void stOnlineCactus_print(const stOnlineCactus *cactus) {
-    stOnlineCactus_printR(cactus->tree);
+    stHash *nodeToEdge = stHash_invert(cactus->edgeToNode, stHash_pointer, stHash_getEqualityFunction(cactus->edgeToNode), NULL, NULL);
+    stOnlineCactus_printR(cactus->tree, nodeToEdge);
     printf(";\n");
+    stHash_destruct(nodeToEdge);
 }
