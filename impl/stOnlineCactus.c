@@ -23,6 +23,8 @@ typedef struct st3ECT st3ECT;
 struct _stOnlineCactus {
     st3ECT *tree;
     stHash *edgeToNode;
+    stList *(*edgeToAdjComponents)(void *);
+    bool (*fullyAdjacent)(stConnectedComponent *);
     const stConnectivity *adjacencyComponents;
 };
 
@@ -80,10 +82,44 @@ void st3ECT_destruct(st3ECT *tree) {
     free(tree);
 }
 
+// Moves a 3ect node "child" to the end of the child list for "tree".
+static void st3ECT_appendChild(st3ECT *tree, st3ECT *child) {
+    child->parent = tree;
+    st3ECT *cur = tree->firstChild;
+    if (cur == NULL) {
+        tree->firstChild = child;
+        child->next = NULL;
+        child->prev = NULL;
+        return;
+    }
+    while (cur->next != NULL) {
+        cur = cur->next;
+    }
+    cur->next = child;
+    child->prev = cur;
+    child->next = NULL;
+}
+
+// Merge two net nodes together. Assumes that dest is the ancestor of
+// src.
+static void st3ECT_mergeNets(st3ECT *src, st3ECT *dest) {
+    assert(st3ECT_type(src->parent) != BRIDGE);
+    st3ECT *child = src->firstChild;
+    while (child != NULL) {
+        st3ECT_appendChild(dest, child);
+        child = child->next;
+    }
+    st3ECT_destruct(src);
+}
+
 // Construct a new, empty, online cactus graph.
 stOnlineCactus *stOnlineCactus_construct(const stConnectivity *connectivity,
-                                         stSet *threadBlocks) {
+                                         stSet *threadBlocks,
+                                         stList *(*edgeToAdjComponents)(void *),
+                                         bool (*fullyAdjacent)(stConnectedComponent *)) {
     stOnlineCactus *ret = calloc(1, sizeof(stOnlineCactus));
+    ret->edgeToAdjComponents = edgeToAdjComponents;
+    ret->fullyAdjacent = fullyAdjacent;
     // Initialize an "empty" online cactus: one net node with one
     // chain for every thread (containing that thread's block).
     ret->edgeToNode = stHash_construct();
@@ -91,9 +127,7 @@ stOnlineCactus *stOnlineCactus_construct(const stConnectivity *connectivity,
     stSetIterator *it = stSet_getIterator(threadBlocks);
     void *block;
     st3ECT *prevChain = NULL;
-    printf("set size %" PRIi64 "\n", stSet_size(threadBlocks));
     while ((block = stSet_getNext(it)) != NULL) {
-        printf("adding block %p\n", block);
         st3ECT *chain = st3ECT_construct(root, prevChain, CHAIN);
         st3ECT *edge = st3ECT_construct(chain, NULL, EDGE);
         stHash_insert(ret->edgeToNode, block, edge);
@@ -145,6 +179,32 @@ void stOnlineCactus_mergeAdjacentEdges(stOnlineCactus *cactus, void *oldEdgeL,
     stHash_insert(cactus->edgeToNode, newEdge, newEdgeNode);
 }
 
+static void breakParentChain(st3ECT *node) {
+    st3ECT *parent = node->parent;
+    st3ECT *grandparent = node->parent->parent;
+    assert(st3ECT_type(node) == EDGE);
+    assert(st3ECT_type(parent) == CHAIN);
+    assert(st3ECT_type(grandparent) == NET);
+    // Create the "previous" chain.
+    if (node->prev != NULL) {
+        st3ECT *prev = node->prev;
+        node->prev = NULL;
+        prev->next = NULL;
+        st3ECT *prevChain = st3ECT_construct(grandparent, NULL, CHAIN);
+        prevChain->firstChild = parent->firstChild;
+        parent->firstChild = node;
+    } else {
+        assert(node == node->parent->firstChild);
+    }
+    if (node->next != NULL) {
+        st3ECT *next = node->next;
+        node->next = NULL;
+        next->prev = NULL;
+        st3ECT *nextChain = st3ECT_construct(grandparent, NULL, CHAIN);
+        nextChain->firstChild = next;
+    }
+}
+
 // callback for merging two edges
 void stOnlineCactus_alignEdges(stOnlineCactus *cactus, void *edge1, void *edge2,
                                void *newEdge) {
@@ -154,6 +214,11 @@ void stOnlineCactus_alignEdges(stOnlineCactus *cactus, void *edge1, void *edge2,
     st3ECT *node2 = stHash_search(cactus->edgeToNode, edge2);
     assert(node2 != NULL);
     assert(st3ECT_type(node2) == EDGE);
+
+    // break the chain(s) or bridge(s) containing edge1 and edge2 into
+    // 3 parts, "before", "after", and "middle".
+    breakParentChain(node1);
+    breakParentChain(node2);
 
     // find the most recent common ancestral net of the two edges.
     stList *ancestors1 = stList_construct();
@@ -175,13 +240,54 @@ void stOnlineCactus_alignEdges(stOnlineCactus *cactus, void *edge1, void *edge2,
     }
     // just for clarification of what the variable actually is now.
     st3ECT *mrcaNet = parent;
-    // here is where i would do the merging if i weren't lazy as hell
-    (void) mrcaNet;
 
-    st3ECT_destruct(node1);
-    st3ECT_destruct(node2);
-    stHash_remove(cactus->edgeToNode, node1);
-    stHash_remove(cactus->edgeToNode, node2);
+    for (int64_t i = 0; i < stList_length(ancestors1); i++) {
+        st3ECT *ancestor = stList_get(ancestors1, i);
+        if (st3ECT_type(ancestor) != NET) {
+            continue;
+        }
+        if (ancestor == mrcaNet) {
+            break;
+        }
+        if (st3ECT_type(ancestor->parent) != BRIDGE) {
+            st3ECT *grandparent = ancestor->parent->parent;
+            st3ECT_mergeNets(ancestor, grandparent);
+        }
+    }
+
+    for (int64_t i = 0; i < stList_length(ancestors2); i++) {
+        st3ECT *ancestor = stList_get(ancestors2, i);
+        if (st3ECT_type(ancestor) != NET) {
+            continue;
+        }
+        if (ancestor == mrcaNet) {
+            break;
+        }
+        if (st3ECT_type(ancestor->parent) != BRIDGE) {
+            st3ECT *grandparent = ancestor->parent->parent;
+            st3ECT_mergeNets(ancestor, grandparent);
+        }
+    }
+
+    // TODO: Now only bridges and their parents are left. Merge their
+    // children into a chain.
+
+    if (node1->prev == NULL && node1->next == NULL) {
+        st3ECT_destruct(node1->parent);
+    } else {
+        st3ECT_destruct(node1);
+    }
+    if (node2->prev == NULL && node2->next == NULL) {
+        st3ECT_destruct(node2->parent);
+    } else {
+        st3ECT_destruct(node2);
+    }
+    stHash_remove(cactus->edgeToNode, edge1);
+    stHash_remove(cactus->edgeToNode, edge2);
+
+    st3ECT *newChain = st3ECT_construct(mrcaNet, NULL, CHAIN);
+    st3ECT *newNode = st3ECT_construct(newChain, NULL, EDGE);
+    stHash_insert(cactus->edgeToNode, newEdge, newNode);
 }
 
 // callback for splitting an edge "vertically"
