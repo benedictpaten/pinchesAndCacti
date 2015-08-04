@@ -78,6 +78,8 @@ typedef struct _stPinchInterval {
 
 typedef struct _stPinchUndo stPinchUndo;
 
+typedef void stPinchSegmentCap;
+
 /*
  * Functions relating to "thread sets," which are collections of
  * threads. The main object, through which you can access the entirety
@@ -119,6 +121,11 @@ stPinchSegment *stPinchThreadSet_getSegment(stPinchThreadSet *threadSet, int64_t
  * Gets the number of threads in the graph.
  */
 int64_t stPinchThreadSet_getSize(stPinchThreadSet *threadSet);
+
+/*
+ * Get the dynamic adjacency connectivity graph containing the adjacency edges.
+ */
+stConnectivity *stPinchThreadSet_getAdjacencyConnectivity(stPinchThreadSet *threadSet);
 
 /*
  * Gets an iterator that traverses over the threads in the graph.
@@ -403,6 +410,11 @@ uint64_t stPinchBlock_getNumSupportingHomologies(stPinchBlock *block);
  */
 void stPinchBlock_trim(stPinchBlock *block, int64_t blockEndTrim);
 
+/*
+ * Get a cap that represents this block (unless this block is modified).
+ */
+stPinchSegmentCap *stPinchBlock_getRepresentativeSegmentCap(stPinchBlock *block, bool orientation);
+
 //Block ends
 
 /*
@@ -648,6 +660,19 @@ bool stPinchUndo_findOffsetForBlock(stPinchUndo *undo, stPinchThreadSet *threadS
  * Free an undo.
  */
 void stPinchUndo_destruct(stPinchUndo *undo);
+
+// Segment caps
+
+/*
+ * Get a pointer to one of the "caps" for this segment. These caps
+ * participate in the adjacency graph.
+ */
+stPinchSegmentCap *stPinchSegment_getSegmentCap(stPinchSegment *segment, bool orientation);
+
+/*
+ * Get the segment associated with this cap.
+ */
+stPinchSegment *stPinchSegmentCap_getSegment(stPinchSegmentCap *cap);
 
 #ifdef __cplusplus
 }

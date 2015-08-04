@@ -11,6 +11,9 @@
 #include "sonLib.h"
 #include "stPinchGraphs.h"
 
+// ok, this is ugly. but it will work on any imaginable architecture.
+#define ORIGIN_NODE (void *) 1
+
 struct _stPinchThreadSet {
     stList *threads;
     stHash *threadsHash;
@@ -41,10 +44,6 @@ struct _stPinchBlock {
     stPinchSegment *headSegment;
     stPinchSegment *tailSegment;
 };
-
-typedef void stPinchSegmentCap;
-
-static stPinchSegmentCap *stPinchSegment_getSegmentCap(stPinchSegment *segment, bool orientation);
 
 // Connect two segments together in the adjacency components "vertically",
 // so that they become part of the same block components. The first
@@ -722,8 +721,12 @@ static stPinchThread *stPinchThread_construct(int64_t name, int64_t start, int64
     stPinchSegment *terminatorSegment = stPinchSegment_construct(start + length, thread);
     segment->nSegment = terminatorSegment;
     terminatorSegment->pSegment = segment;
+    // Connect the two ends together
     stConnectivity_addEdge(threadSet->adjacencyComponents, stPinchSegment_getSegmentCap(segment, 1),
         stPinchSegment_getSegmentCap(terminatorSegment, 0));
+    // Connect one end to the origin node
+    stConnectivity_addEdge(threadSet->adjacencyComponents, stPinchSegment_getSegmentCap(segment, 1),
+                           ORIGIN_NODE);
     stSortedSet_insert(thread->segments, segment);
     return thread;
 }
@@ -751,6 +754,7 @@ stPinchThreadSet *stPinchThreadSet_construct() {
     threadSet->threadsHash = stHash_construct3((uint64_t(*)(const void *)) stPinchThread_hashKey,
             (int(*)(const void *, const void *)) stPinchThread_equals, NULL, NULL);
     threadSet->adjacencyComponents = stConnectivity_construct();
+    stConnectivity_addNode(threadSet->adjacencyComponents, ORIGIN_NODE);
     return threadSet;
 }
 
@@ -777,6 +781,10 @@ stPinchThread *stPinchThreadSet_getThread(stPinchThreadSet *threadSet, int64_t n
 
 int64_t stPinchThreadSet_getSize(stPinchThreadSet *threadSet) {
     return stList_length(threadSet->threads);
+}
+
+stConnectivity *stPinchThreadSet_getAdjacencyConnectivity(stPinchThreadSet *threadSet) {
+    return threadSet->adjacencyComponents;
 }
 
 stPinchThreadSetIt stPinchThreadSet_getIt(stPinchThreadSet *threadSet) {
@@ -879,16 +887,22 @@ int64_t stPinchThreadSet_getTotalBlockNumber(stPinchThreadSet *threadSet) {
  * segments, with the least significant bit set to 0 if it refers to
  * the 5' cap, and 1 if it refers to the 3' cap.
  */
-static stPinchSegment *stPinchSegmentCap_getSegment(stPinchSegmentCap *segmentCap) {
+stPinchSegment *stPinchSegmentCap_getSegment(stPinchSegmentCap *segmentCap) {
     return (stPinchSegment *) ((uintptr_t) segmentCap & ~1);
 }
 
-static bool stPinchSegmentCap_getOrientation(stPinchSegmentCap *segmentCap) {
+bool stPinchSegmentCap_getOrientation(stPinchSegmentCap *segmentCap) {
     return (stPinchSegment *) ((uintptr_t) segmentCap & 1);
 }
 
-static stPinchSegmentCap *stPinchSegment_getSegmentCap(stPinchSegment *segment, bool orientation) {
+stPinchSegmentCap *stPinchSegment_getSegmentCap(stPinchSegment *segment, bool orientation) {
     return (stPinchSegmentCap *) ((uintptr_t) segment + orientation);
+}
+
+stPinchSegmentCap *stPinchBlock_getRepresentativeSegmentCap(stPinchBlock *block, bool orientation) {
+    stPinchSegment *first = stPinchBlock_getFirst(block);
+    bool capOrientation = stPinchSegment_getBlockOrientation(first) ^ orientation;
+    return stPinchSegment_getSegmentCap(first, capOrientation);
 }
 
 // Insert the adjacency component belonging to the given end of a
