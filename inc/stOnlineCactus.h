@@ -3,10 +3,12 @@
 
 typedef struct _stOnlineCactus stOnlineCactus;
 
-stOnlineCactus *stOnlineCactus_construct(const stConnectivity *connectivity,
-                                         stSet *threadBlocks);
+stOnlineCactus *stOnlineCactus_construct(stConnectivity *connectivity,
+                                         void *(*edgeToEnd)(void *, bool),
+                                         void *(*endToEdge)(void *));
 
 void stOnlineCactus_splitEdgeHorizontally(stOnlineCactus *cactus, void *oldEdge,
+                                          void *oldEndL, void *oldEndR,
                                           void *newEdgeL, void *newEdgeR);
 
 void stOnlineCactus_mergeAdjacentEdges(stOnlineCactus *cactus, void *oldEdgeL,
