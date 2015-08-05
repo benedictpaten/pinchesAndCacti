@@ -27,6 +27,8 @@ stCactusTree *stCactusTreeIt_getNext(stCactusTreeIt *it);
 
 void stCactusTreeIt_destruct(stCactusTreeIt *it);
 
+void stOnlineCactus_createEdge(stOnlineCactus *cactus, void *edge);
+
 void stOnlineCactus_splitEdgeHorizontally(stOnlineCactus *cactus, void *oldEdge,
                                           void *oldEndL, void *oldEndR,
                                           void *newEdgeL, void *newEdgeR);

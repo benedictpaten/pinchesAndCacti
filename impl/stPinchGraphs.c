@@ -18,6 +18,8 @@ struct _stPinchThreadSet {
     stList *threads;
     stHash *threadsHash;
     stConnectivity *adjacencyComponents;
+    void (*blockCreationCallback)(void *, stPinchBlock *);
+    void *blockCreationExtraData;
 };
 
 struct _stPinchThread {
@@ -98,6 +100,10 @@ stPinchBlock *stPinchBlock_construct3(stPinchSegment *segment, bool orientation)
     connectBlockToSegment(segment, orientation, block, NULL);
     block->degree = 1;
     block->numSupportingHomologies = 0;
+    stPinchThreadSet *threadSet = segment->thread->threadSet;
+    if (threadSet->blockCreationCallback) {
+        threadSet->blockCreationCallback(threadSet->blockCreationExtraData, block);
+    }
     return block;
 }
 
@@ -106,16 +112,11 @@ stPinchBlock *stPinchBlock_construct2(stPinchSegment *segment) {
 }
 
 stPinchBlock *stPinchBlock_construct(stPinchSegment *segment1, bool orientation1, stPinchSegment *segment2, bool orientation2) {
-    assert(stPinchSegment_getLength(segment1) == stPinchSegment_getLength(segment2));
-    stPinchBlock *block = st_malloc(sizeof(stPinchBlock));
-    block->headSegment = segment1;
-    block->tailSegment = segment2;
-    connectBlockToSegment(segment1, orientation1, block, segment2);
-    connectBlockToSegment(segment2, orientation2, block, NULL);
-    connectSegmentComponents(segment1, segment2, orientation2);
-    block->degree = 2;
-    block->numSupportingHomologies = 1;
-    return block;
+    stPinchBlock *block1 = stPinchBlock_construct3(segment1, orientation1);
+    stPinchBlock *block2 = stPinchBlock_construct3(segment2, orientation2);
+    stPinchBlock_pinch(block1, block2, 1);
+    block1->numSupportingHomologies = 1;
+    return block1;
 }
 
 void stPinchBlock_destruct(stPinchBlock *block) {
@@ -829,6 +830,11 @@ stPinchSegment *stPinchThreadSet_getSegment(stPinchThreadSet *threadSet, int64_t
         return NULL;
     }
     return stPinchThread_getSegment(thread, coordinate);
+}
+
+void stPinchThreadSet_setBlockCreationCallback(stPinchThreadSet *threadSet, void (*callback)(void *, stPinchBlock *), void *extraData) {
+    threadSet->blockCreationCallback = callback;
+    threadSet->blockCreationExtraData = extraData;
 }
 
 //convenience functions
