@@ -721,11 +721,13 @@ static stPinchThread *stPinchThread_construct(int64_t name, int64_t start, int64
     stPinchSegment *terminatorSegment = stPinchSegment_construct(start + length, thread);
     segment->nSegment = terminatorSegment;
     terminatorSegment->pSegment = segment;
-    // Connect the two ends together
+    // Make an adjacency between the thread segment and its terminator.
     stConnectivity_addEdge(threadSet->adjacencyComponents, stPinchSegment_getSegmentCap(segment, 1),
-        stPinchSegment_getSegmentCap(terminatorSegment, 0));
-    // Connect one end to the origin node
-    stConnectivity_addEdge(threadSet->adjacencyComponents, stPinchSegment_getSegmentCap(segment, 1),
+                           stPinchSegment_getSegmentCap(terminatorSegment, 0));
+    // Connect the two ends to the origin node.
+    stConnectivity_addEdge(threadSet->adjacencyComponents, stPinchSegment_getSegmentCap(segment, 0),
+                           ORIGIN_NODE);
+    stConnectivity_addEdge(threadSet->adjacencyComponents, stPinchSegment_getSegmentCap(terminatorSegment, 1),
                            ORIGIN_NODE);
     stSortedSet_insert(thread->segments, segment);
     return thread;
