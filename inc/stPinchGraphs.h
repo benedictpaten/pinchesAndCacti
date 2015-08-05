@@ -194,7 +194,7 @@ stPinchThreadSet *stPinchThreadSet_getRandomGraph(void);
 
 void stPinchThreadSet_setBlockCreationCallback(stPinchThreadSet *threadSet, void (*callback)(void *, stPinchBlock *), void *extraData);
 
-void stPinchThreadSet_setBlockSplitCallback();
+void stPinchThreadSet_setBlockSplitCallback(stPinchThreadSet *threadSet, void (*callback)(void *, stPinchBlock *, stPinchSegmentCap *, stPinchSegmentCap *, stPinchBlock *, stPinchBlock *), void *extraData);
 
 //convenience functions
 

@@ -11,7 +11,9 @@
 #include "sonLib.h"
 #include "stPinchGraphs.h"
 
-// ok, this is ugly. but it will work on any imaginable architecture.
+// The origin node, which all thread ends are connected to in the
+// adjacency graph. ok, this is ugly. but it will work on any
+// imaginable architecture.
 #define ORIGIN_NODE (void *) 1
 
 struct _stPinchThreadSet {
@@ -20,6 +22,8 @@ struct _stPinchThreadSet {
     stConnectivity *adjacencyComponents;
     void (*blockCreationCallback)(void *, stPinchBlock *);
     void *blockCreationExtraData;
+    void (*blockSplitCallback)(void *, stPinchBlock *, stPinchSegmentCap *, stPinchSegmentCap *, stPinchBlock *, stPinchBlock *);
+    void *blockSplitExtraData;
 };
 
 struct _stPinchThread {
@@ -93,13 +97,18 @@ static void connectBlockToSegment(stPinchSegment *segment, bool orientation, stP
     }
 }
 
-stPinchBlock *stPinchBlock_construct3(stPinchSegment *segment, bool orientation) {
+static stPinchBlock *stPinchBlock_construct3_noCallback(stPinchSegment *segment, bool orientation) {
     stPinchBlock *block = st_malloc(sizeof(stPinchBlock));
     block->headSegment = segment;
     block->tailSegment = segment;
     connectBlockToSegment(segment, orientation, block, NULL);
     block->degree = 1;
     block->numSupportingHomologies = 0;
+    return block;
+}
+
+stPinchBlock *stPinchBlock_construct3(stPinchSegment *segment, bool orientation) {
+    stPinchBlock *block = stPinchBlock_construct3_noCallback(segment, orientation);
     stPinchThreadSet *threadSet = segment->thread->threadSet;
     if (threadSet->blockCreationCallback) {
         threadSet->blockCreationCallback(threadSet->blockCreationExtraData, block);
@@ -372,6 +381,11 @@ stPinchSegment *stPinchSegment_split(stPinchSegment *segment, int64_t leftSideOf
     stPinchSegment *origSegment = segment;
     stPinchBlock *block;
     if ((block = stPinchSegment_getBlock(segment)) != NULL) {
+        // Get representative caps for the old block in case we need to
+        // call a split callback.
+        stPinchSegmentCap *capL = stPinchBlock_getRepresentativeSegmentCap(block, 0);
+        stPinchSegmentCap *capR = stPinchBlock_getRepresentativeSegmentCap(block, 1);
+
         int64_t rightSegmentLength = stPinchBlock_getLength(block) - leftSegmentLength;
         assert(rightSegmentLength > 0);
         if (!stPinchSegment_getBlockOrientation(segment)) {
@@ -385,21 +399,26 @@ stPinchSegment *stPinchSegment_split(stPinchSegment *segment, int64_t leftSideOf
         stPinchBlock *block2;
         if (stPinchSegment_getBlockOrientation(segment)) {
             stPinchSegment *segment2 = stPinchSegment_splitLeft(segment, leftSegmentLength);
-            block2 = stPinchBlock_construct2(segment2);
+            block2 = stPinchBlock_construct3_noCallback(segment2, 1);
         } else {
             stPinchSegment *segment2 = stPinchSegment_splitRight(segment, rightSegmentLength);
-            block2 = stPinchBlock_construct2(segment2);
-            segment2->blockOrientation = 0; //This gets sets positive by default.
+            block2 = stPinchBlock_construct3_noCallback(segment2, 0);
         }
         while ((segment = stPinchBlockIt_getNext(&blockIt)) != NULL) {
             if (stPinchSegment_getBlockOrientation(segment)) {
                 stPinchSegment *segment2 = stPinchSegment_splitLeft(segment, leftSegmentLength);
+                // FIXME: will trigger merge callback.
                 stPinchBlock_pinch2_noSupport(block2, segment2, 1);
             } else {
                 stPinchSegment *segment2 = stPinchSegment_splitRight(segment, rightSegmentLength);
+                // FIXME: will trigger merge callback.
                 stPinchBlock_pinch2_noSupport(block2, segment2, 0);
             }
-            block2->numSupportingHomologies = block->numSupportingHomologies;
+        }
+        block2->numSupportingHomologies = block->numSupportingHomologies;
+        stPinchThreadSet *threadSet = block->headSegment->thread->threadSet;
+        if (threadSet->blockSplitCallback != NULL) {
+            threadSet->blockSplitCallback(threadSet->blockSplitExtraData, block, capL, capR, block, block2);
         }
     } else {
         stPinchSegment_splitLeft(segment, leftSegmentLength);
@@ -835,6 +854,11 @@ stPinchSegment *stPinchThreadSet_getSegment(stPinchThreadSet *threadSet, int64_t
 void stPinchThreadSet_setBlockCreationCallback(stPinchThreadSet *threadSet, void (*callback)(void *, stPinchBlock *), void *extraData) {
     threadSet->blockCreationCallback = callback;
     threadSet->blockCreationExtraData = extraData;
+}
+
+void stPinchThreadSet_setBlockSplitCallback(stPinchThreadSet *threadSet, void (*callback)(void *, stPinchBlock *, stPinchSegmentCap *, stPinchSegmentCap *, stPinchBlock *, stPinchBlock *), void *extraData) {
+    threadSet->blockSplitCallback = callback;
+    threadSet->blockSplitExtraData = extraData;
 }
 
 //convenience functions

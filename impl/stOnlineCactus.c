@@ -199,17 +199,17 @@ void stOnlineCactus_splitEdgeHorizontally(stOnlineCactus *cactus, void *oldEdge,
         // chain.
         assert(oldNodeR->prev == oldNodeL);
         assert(oldNodeL->next == oldNodeR);
-        new = stCactusTree_construct(oldNodeL, chain, NODE);
+        new = stCactusTree_construct(chain, oldNodeL, NODE);
     } else if (chain == oldNodeL->parent || chain == oldNodeR->parent) {
         // Attach the new node as the first node in the chain.
-        new = stCactusTree_construct(NULL, chain, NODE);
+        new = stCactusTree_construct(chain, NULL, NODE);
         stHash_insert(cactus->endToNode, cactus->edgeToEnd(newEdgeL, 0), oldNodeL);
         stHash_insert(cactus->endToNode, cactus->edgeToEnd(newEdgeL, 1), new);
         stHash_insert(cactus->endToNode, cactus->edgeToEnd(newEdgeR, 0), new);
         stHash_insert(cactus->endToNode, cactus->edgeToEnd(newEdgeR, 1), oldNodeR);
     } else {
         assert(chain->parent == oldNodeL && oldNodeL == oldNodeR);
-        new = stCactusTree_construct(NULL, chain, NODE);
+        new = stCactusTree_construct(chain, NULL, NODE);
     }
     stHash_insert(cactus->endToNode, cactus->edgeToEnd(newEdgeL, 0), oldNodeL);
     stHash_insert(cactus->endToNode, cactus->edgeToEnd(newEdgeL, 1), new);
