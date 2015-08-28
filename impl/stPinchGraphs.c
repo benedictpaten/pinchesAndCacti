@@ -11,11 +11,6 @@
 #include "sonLib.h"
 #include "stPinchGraphs.h"
 
-// The origin node, which all thread ends are connected to in the
-// adjacency graph. ok, this is ugly. but it will work on any
-// imaginable architecture.
-#define ORIGIN_NODE (void *) 1
-
 struct _stPinchThreadSet {
     stList *threads;
     stHash *threadsHash;
@@ -744,11 +739,6 @@ static stPinchThread *stPinchThread_construct(int64_t name, int64_t start, int64
     // Make an adjacency between the thread segment and its terminator.
     stConnectivity_addEdge(threadSet->adjacencyComponents, stPinchSegment_getSegmentCap(segment, 1),
                            stPinchSegment_getSegmentCap(terminatorSegment, 0));
-    // Connect the two ends to the origin node.
-    stConnectivity_addEdge(threadSet->adjacencyComponents, stPinchSegment_getSegmentCap(segment, 0),
-                           ORIGIN_NODE);
-    stConnectivity_addEdge(threadSet->adjacencyComponents, stPinchSegment_getSegmentCap(terminatorSegment, 1),
-                           ORIGIN_NODE);
     stSortedSet_insert(thread->segments, segment);
     return thread;
 }
@@ -776,7 +766,6 @@ stPinchThreadSet *stPinchThreadSet_construct() {
     threadSet->threadsHash = stHash_construct3((uint64_t(*)(const void *)) stPinchThread_hashKey,
             (int(*)(const void *, const void *)) stPinchThread_equals, NULL, NULL);
     threadSet->adjacencyComponents = stConnectivity_construct();
-    stConnectivity_addNode(threadSet->adjacencyComponents, ORIGIN_NODE);
     return threadSet;
 }
 
