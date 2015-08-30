@@ -2,14 +2,15 @@
 #define __ST_ONLINE_CACTUS_H_
 
 typedef enum {
-    NODE,
-    CHAIN,
-    BRIDGE
+    NET,
+    CHAIN
 } cactusNodeType;
 
 typedef struct _stOnlineCactus stOnlineCactus;
 
 typedef struct _stCactusTree stCactusTree;
+
+typedef struct _stCactusTreeEdge stCactusTreeEdge;
 
 typedef struct _stCactusTreeIt stCactusTreeIt;
 
@@ -27,17 +28,11 @@ stCactusTree *stCactusTreeIt_getNext(stCactusTreeIt *it);
 
 void stCactusTreeIt_destruct(stCactusTreeIt *it);
 
-void stOnlineCactus_createEdge(stOnlineCactus *cactus, void *edge);
+void stOnlineCactus_createEnd(stOnlineCactus *cactus, void *end);
 
-void stOnlineCactus_splitEdgeHorizontally(stOnlineCactus *cactus, void *oldEdge,
-                                          void *oldEndL, void *oldEndR,
-                                          void *newEdgeL, void *newEdgeR);
+void stOnlineCactus_addEdge(stOnlineCactus *cactus, void *end1, void *end2, void *edge);
 
-void stOnlineCactus_mergeAdjacentEdges(stOnlineCactus *cactus, void *oldEdgeL,
-                                       void *oldEdgeR, void *newEdge);
-
-void stOnlineCactus_alignEdges(stOnlineCactus *cactus, void *edge1, void *edge2,
-                               void *newEdge);
+void stOnlineCactus_deleteEdge(stOnlineCactus *cactus, void *end1, void *end2);
 
 void stOnlineCactus_print(const stOnlineCactus *cactus);
 

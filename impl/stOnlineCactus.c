@@ -3,18 +3,27 @@
 #include "sonLib.h"
 #include "stOnlineCactus.h"
 
+// We keep arbitrarily rooted trees for efficiency reasons.
 struct _stCactusTree {
     cactusNodeType type;
     stCactusTree *parent;
+    stCactusTreeEdge *parentEdge;
+    // Previous child in the child ordering of the parent.
     stCactusTree *prev;
+    // Next child in the parent's child ordering.
     stCactusTree *next;
     stCactusTree *firstChild;
 };
 
+struct _stCactusTreeEdge {
+    stCactusTree *child;
+    void *block;
+};
+
 struct _stOnlineCactus {
-    stCactusTree *tree;
+    stList *trees;
+    stHash *blockToEdge;
     stHash *endToNode;
-    stHash *edgeToBridgeOrCycle;
     void *(*edgeToEnd)(void *, bool);
     void *(*endToEdge)(void *);
     stConnectivity *adjacencyComponents;
@@ -28,12 +37,20 @@ cactusNodeType stCactusTree_type(const stCactusTree *tree) {
     return tree->type;
 }
 
-stCactusTree *stCactusTree_construct(stCactusTree *parent, stCactusTree *leftSib, cactusNodeType type) {
+stCactusTree *stCactusTree_construct(stCactusTree *parent, stCactusTree *leftSib, cactusNodeType type, void *block) {
+    stCactusTreeEdge *edge = NULL;
+    if (block != NULL) {
+        edge = calloc(1, sizeof(stCactusTreeEdge));
+        edge->block = block;
+    }
     stCactusTree *ret = calloc(1, sizeof(stCactusTree));
+    if (edge != NULL) {
+        edge->child = ret;
+    }
     ret->type = type;
     if (parent != NULL) {
-        if (type == CHAIN || type == BRIDGE) {
-            assert(stCactusTree_type(parent) == NODE);
+        if (type == CHAIN) {
+            assert(stCactusTree_type(parent) == NET);
         }
         ret->parent = parent;
         if (leftSib == NULL) {
@@ -52,9 +69,16 @@ stCactusTree *stCactusTree_construct(stCactusTree *parent, stCactusTree *leftSib
             leftSib->next = ret;
         }
     } else {
-        assert(type == NODE);
+        assert(type == NET);
     }
     return ret;
+}
+
+stCactusTree *stCactusTree_parentNode(stCactusTree *tree) {
+    if (tree->parent == NULL) {
+        return NULL;
+    }
+    return tree->parent->parent;
 }
 
 // Recursively destruct a 3-edge-connected component tree.
@@ -77,33 +101,24 @@ void stCactusTree_destruct(stCactusTree *tree) {
 }
 
 // Moves a 3ect node "child" to the end of the child list for "tree".
-static void stCactusTree_appendChild(stCactusTree *tree, stCactusTree *child) {
+static void stCactusTree_prependChild(stCactusTree *tree, stCactusTree *child, void *block) {
     child->parent = tree;
-    stCactusTree *cur = tree->firstChild;
-    if (cur == NULL) {
-        tree->firstChild = child;
-        child->next = NULL;
-        child->prev = NULL;
-        return;
+    stCactusTree *oldFirst = tree->firstChild;
+    tree->firstChild = child;
+    child->parentEdge = calloc(1, sizeof(stCactusTreeEdge));
+    child->parentEdge->block = block;
+    child->next = oldFirst;
+    if (oldFirst != NULL) {
+        oldFirst->prev = child;
     }
-    while (cur->next != NULL) {
-        cur = cur->next;
-    }
-    cur->next = child;
-    child->prev = cur;
-    child->next = NULL;
 }
 
-// Merge two net nodes together. Assumes that dest is the ancestor of
-// src.
-void stCactusTree_mergeNets(stCactusTree *src, stCactusTree *dest) {
-    assert(stCactusTree_type(src->parent) != BRIDGE);
-    stCactusTree *child = src->firstChild;
-    while (child != NULL) {
-        stCactusTree_appendChild(dest, child);
-        child = child->next;
+// Find the root of the tree given any node in the tree.
+static stCactusTree *stCactusTree_root(stCactusTree *tree) {
+    if (tree->parent == NULL) {
+        return tree;
     }
-    stCactusTree_destruct(src);
+    return stCactusTree_root(tree->parent);
 }
 
 stCactusTreeIt *stCactusTree_getIt(stCactusTree *tree) {
@@ -132,30 +147,14 @@ stOnlineCactus *stOnlineCactus_construct(stConnectivity *connectivity,
     ret->edgeToEnd = edgeToEnd;
     ret->endToEdge = endToEdge;
     ret->adjacencyComponents = connectivity;
-    ret->tree = stCactusTree_construct(NULL, NULL, NODE);
+    ret->trees = stList_construct();
     ret->endToNode = stHash_construct();
-    // Add in all the existing ends.
-    stConnectedComponentIterator *componentIt = stConnectivity_getConnectedComponentIterator(connectivity);
-    size_t numComponents = 0;
-    stConnectedComponent *component;
-    while ((component = stConnectedComponentIterator_getNext(componentIt)) != NULL) {
-        stConnectedComponentNodeIterator *nodeIt = stConnectedComponent_getNodeIterator(component);
-        void *node;
-        while ((node = stConnectedComponentNodeIterator_getNext(nodeIt)) != NULL) {
-            stHash_insert(ret->endToNode, node, ret->tree);
-        }
-        stConnectedComponentNodeIterator_destruct(nodeIt);
-        numComponents++;
-    }
-    assert(numComponents == 1);
-    (void) numComponents;
-    stConnectedComponentIterator_destruct(componentIt);
-    ret->edgeToBridgeOrCycle = stHash_construct();
+    ret->blockToEdge = stHash_construct();
     return ret;
 }
 
-stCactusTree *stOnlineCactus_getCactusTree(stOnlineCactus *cactus) {
-    return cactus->tree;
+stList *stOnlineCactus_getCactusTrees(stOnlineCactus *cactus) {
+    return cactus->trees;
 }
 
 // Get the two nodes associated with an edge in the graph (which may
@@ -166,98 +165,108 @@ void stOnlineCactus_getNodes(stOnlineCactus *cactus, void *edge,
     void *end2 = cactus->edgeToEnd(edge, 1);
     *node1 = stHash_search(cactus->endToNode, end1);
     assert(*node1 != NULL);
-    assert(stCactusTree_type(*node1) == NODE);
+    assert(stCactusTree_type(*node1) == NET);
     *node2 = stHash_search(cactus->endToNode, end2);
     assert(*node2 != NULL);
-    assert(stCactusTree_type(*node2) == NODE);
+    assert(stCactusTree_type(*node2) == NET);
 }
 
-// Gets the bridge or cycle node that contains this edge.
-static stCactusTree *stOnlineCactus_getBridgeOrCycle(stOnlineCactus *cactus,
-                                                     void *edge) {
-    stCactusTree *ret = stHash_search(cactus->edgeToBridgeOrCycle, edge);
-    assert(ret != NULL);
-    assert(stCactusTree_type(ret) == CHAIN || stCactusTree_type(ret) == BRIDGE);
-    return ret;
+static void stOnlineCactus_check3EC() {
+    
 }
 
-// callback for splitting an edge
-void stOnlineCactus_splitEdgeHorizontally(stOnlineCactus *cactus, void *oldEdge,
-                                          void *oldEndL, void *oldEndR,
-                                          void *newEdgeL, void *newEdgeR) {
-    stCactusTree *oldNodeL = stHash_remove(cactus->endToNode, oldEndL);
-    assert(oldNodeL != NULL);
-    assert(stCactusTree_type(oldNodeL) == NODE);
-    stCactusTree *oldNodeR = stHash_remove(cactus->endToNode, oldEndR);
-    assert(oldNodeR != NULL);
-    assert(stCactusTree_type(oldNodeR) == NODE);
+// Add a new end to the cactus forest.
+void stOnlineCactus_createEnd(stOnlineCactus *cactus, void *end) {
+    assert(stHash_search(cactus->endToNode, end) == NULL);
 
-    stCactusTree *chain = stOnlineCactus_getBridgeOrCycle(cactus, oldEdge);
-    stCactusTree *new;
-    if (chain == oldNodeL->parent && chain == oldNodeR->parent) {
-        // Simple case: this edge is wholly contained within the
-        // chain.
-        assert(oldNodeR->prev == oldNodeL);
-        assert(oldNodeL->next == oldNodeR);
-        new = stCactusTree_construct(chain, oldNodeL, NODE);
-    } else if (chain == oldNodeL->parent || chain == oldNodeR->parent) {
-        // Attach the new node as the first node in the chain.
-        new = stCactusTree_construct(chain, NULL, NODE);
-        stHash_insert(cactus->endToNode, cactus->edgeToEnd(newEdgeL, 0), oldNodeL);
-        stHash_insert(cactus->endToNode, cactus->edgeToEnd(newEdgeL, 1), new);
-        stHash_insert(cactus->endToNode, cactus->edgeToEnd(newEdgeR, 0), new);
-        stHash_insert(cactus->endToNode, cactus->edgeToEnd(newEdgeR, 1), oldNodeR);
-    } else {
-        assert(chain->parent == oldNodeL && oldNodeL == oldNodeR);
-        new = stCactusTree_construct(chain, NULL, NODE);
-    }
-    stHash_insert(cactus->endToNode, cactus->edgeToEnd(newEdgeL, 0), oldNodeL);
-    stHash_insert(cactus->endToNode, cactus->edgeToEnd(newEdgeL, 1), new);
-    stHash_insert(cactus->endToNode, cactus->edgeToEnd(newEdgeR, 0), new);
-    stHash_insert(cactus->endToNode, cactus->edgeToEnd(newEdgeR, 1), oldNodeR);
-
-    stHash_remove(cactus->edgeToBridgeOrCycle, oldEdge);
-    stHash_insert(cactus->edgeToBridgeOrCycle, newEdgeL, chain);
-    stHash_insert(cactus->edgeToBridgeOrCycle, newEdgeR, chain);
-}
-
-// callback for an edge merge
-
-// callback for an adj component merge
-
-// callback for an adj component split
-
-// callback for a partition of an edge
-
-// callback for edge creation (fully inside an existing adj component)
-// It's assumed that the adjacency components have already been updated.
-void stOnlineCactus_createEdge(stOnlineCactus *cactus, void *edge) {
-    void *endL = cactus->edgeToEnd(edge, 0);
-    void *endR = cactus->edgeToEnd(edge, 1);
-    stConnectedComponent *component = stConnectivity_getConnectedComponent(cactus->adjacencyComponents, endL);
-    assert(component == stConnectivity_getConnectedComponent(cactus->adjacencyComponents, endR));
-    // TODO: this is probably a bad bottleneck--ideally there should be
-    // some straightforward mapping between adjacency components and
-    // nodes, but that can cause huge issues when the adjacency
-    // components are modified after the operation and the "old"
-    // information is needed.
-    stCactusTree *nodeForComponent = NULL;
-    stConnectedComponentNodeIterator *nodeIt = stConnectedComponent_getNodeIterator(component);
-    void *node;
-    while ((node = stConnectedComponentNodeIterator_getNext(nodeIt)) != NULL) {
-        if ((nodeForComponent = stHash_search(cactus->endToNode, node)) != NULL) {
+    // Search for other ends in the same adjacency component.
+    stConnectedComponent *component = stConnectivity_getConnectedComponent(cactus->adjacencyComponents, end);
+    stConnectedComponentNodeIterator *it = stConnectedComponent_getNodeIterator(component);
+    void *curEnd;
+    stCactusTree *node = NULL;
+    while ((curEnd = stConnectedComponentNodeIterator_getNext(it)) != NULL) {
+        node = stHash_search(cactus->endToNode, curEnd);
+        if (node != NULL) {
             break;
         }
     }
-    assert(nodeForComponent != NULL);
+    stConnectedComponentNodeIterator_destruct(it);
+    if (node != NULL) {
+        stHash_insert(cactus->endToNode, end, node);
+        return;
+    }
+    stCactusTree *new = stCactusTree_construct(NULL, NULL, NET, NULL);
+    stHash_insert(cactus->endToNode, end, new);
+    stList_append(cactus->trees, new);
+}
 
-    stHash_insert(cactus->endToNode, endL, nodeForComponent);
-    stHash_insert(cactus->endToNode, endR, nodeForComponent);
+// Add a new edge between the adjacency components containing two existing ends.
+void stOnlineCactus_addEdge(stOnlineCactus *cactus, void *end1, void *end2, void *edge) {
+    stCactusTree *node1 = stHash_search(cactus->endToNode, end1);
+    assert(node1 != NULL);
+    stCactusTree *node2 = stHash_search(cactus->endToNode, end2);
+    assert(node2 != NULL);
 
-    // Create a new chain hanging off the adjacency component that
-    // will represent this edge.
-    stCactusTree *chain = stCactusTree_construct(nodeForComponent, NULL, CHAIN);
-    stHash_insert(cactus->edgeToBridgeOrCycle, edge, chain);
+    // Are node1 and node2 in the same tree?
+    if (stCactusTree_root(node1) == stCactusTree_root(node2)) {
+        st_errAbort("not implemented");
+    } else {
+        // Simply add node2 as a child of node1.
+        stList_removeItem(cactus->trees, stCactusTree_root(node2));
+        stCactusTree_prependChild(node1, node2, edge);
+        assert(stList_contains(cactus->trees, stCactusTree_root(node2)));
+        stHash_insert(cactus->blockToEdge, edge, node2->parentEdge);
+    }
+}
+
+void stOnlineCactus_netCleave() {
+    
+}
+
+void stOnlineCactus_netMerge() {
+    
+}
+
+void stOnlineCactus_deleteEdge(stOnlineCactus *cactus, void *end1, void *end2) {
+    stCactusTree *node1 = stHash_search(cactus->endToNode, end1);
+    assert(node1 != NULL);
+    stCactusTree *node2 = stHash_search(cactus->endToNode, end2);
+    assert(node2 != NULL);
+    if (node1->parent == node2 || node2->parent == node1) {
+        // a bridge edge
+        stCactusTree *child;
+        stCactusTree *parent;
+        if (node1->parent == node2) {
+            child = node1;
+            parent = node2;
+        } else {
+            child = node2;
+            parent = node1;
+        }
+        stList_append(cactus->trees, child);
+        free(child->parentEdge);
+        child->parentEdge = NULL;
+        child->parent = NULL;
+        if (child == parent->firstChild) {
+            parent->firstChild = child->next;
+        }
+        if (child->prev != NULL) {
+            child->prev->next = child->next;
+        }
+        if (child->next != NULL) {
+            child->next->prev = child->prev;
+        }
+        child->prev = NULL;
+        child->next = NULL;
+    } else if (node1 == node2) {
+        
+    } else {
+        // part of a chain
+        st_errAbort("not implemented");
+    }
+    stOnlineCactus_check3EC();
+    stHash_remove(cactus->endToNode, end1);
+    stHash_remove(cactus->endToNode, end2);
 }
 
 void stOnlineCactus_printR(const stCactusTree *tree, stHash *nodeToEnd) {
@@ -265,7 +274,9 @@ void stOnlineCactus_printR(const stCactusTree *tree, stHash *nodeToEnd) {
         printf("(");
         stCactusTree *child = tree->firstChild;
         while (child != NULL) {
+            printf("(");
             stOnlineCactus_printR(child, nodeToEnd);
+            printf(")BLOCK%p", child->parentEdge->block);
             child = child->next;
             if (child != NULL) {
                 printf(",");
@@ -274,21 +285,20 @@ void stOnlineCactus_printR(const stCactusTree *tree, stHash *nodeToEnd) {
         printf(")");
     }
     switch (stCactusTree_type(tree)) {
-    case NODE:
-        printf("NODE%p", (void *) tree);
+    case NET:
+        printf("NET%p", (void *) tree);
         break;
     case CHAIN:
         printf("CHAIN%p", (void *) tree);
-        break;
-    case BRIDGE:
-        printf("BRIDGE%p", (void *) tree);
         break;
     }
 }
 
 void stOnlineCactus_print(const stOnlineCactus *cactus) {
     stHash *nodeToEnd = stHash_invert(cactus->endToNode, stHash_pointer, stHash_getEqualityFunction(cactus->endToNode), NULL, NULL);
-    stOnlineCactus_printR(cactus->tree, nodeToEnd);
-    printf(";\n");
+    for (int64_t i = 0; i < stList_length(cactus->trees); i++) {
+        stOnlineCactus_printR(stList_get(cactus->trees, i), nodeToEnd);
+        printf(";\n");
+    }
     stHash_destruct(nodeToEnd);
 }

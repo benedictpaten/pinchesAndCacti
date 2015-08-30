@@ -192,9 +192,11 @@ stPinch stPinchThreadSet_getRandomPinch(stPinchThreadSet *threadSet);
  */
 stPinchThreadSet *stPinchThreadSet_getRandomGraph(void);
 
-void stPinchThreadSet_setBlockCreationCallback(stPinchThreadSet *threadSet, void (*callback)(void *, stPinchBlock *), void *extraData);
+void stPinchThreadSet_setAdjComponentCreationCallback(stPinchThreadSet *threadSet, void (*callback)(void *, stPinchSegmentCap *), void *extraData);
 
-void stPinchThreadSet_setBlockSplitCallback(stPinchThreadSet *threadSet, void (*callback)(void *, stPinchBlock *, stPinchSegmentCap *, stPinchSegmentCap *, stPinchBlock *, stPinchBlock *), void *extraData);
+void stPinchThreadSet_setBlockCreationCallback(stPinchThreadSet *threadSet, void (*callback)(void *, stPinchSegmentCap *, stPinchSegmentCap *, stPinchBlock *), void *extraData);
+
+void stPinchThreadSet_setBlockDeletionCallback(stPinchThreadSet *threadSet, void (*blockDeletionCallback)(void *, stPinchSegmentCap *, stPinchSegmentCap *), void *extraData);
 
 //convenience functions
 
