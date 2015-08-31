@@ -19,7 +19,7 @@ struct _stPinchThreadSet {
     void *adjComponentCreationExtraData;
     void (*blockCreationCallback)(void *, stPinchSegmentCap *, stPinchSegmentCap *, stPinchBlock *);
     void *blockCreationExtraData;
-    void (*blockDeletionCallback)(void *, stPinchSegmentCap *, stPinchSegmentCap *);
+    void (*blockDeletionCallback)(void *, stPinchSegmentCap *, stPinchSegmentCap *, stPinchBlock *);
     void *blockDeletionExtraData;
 };
 
@@ -411,13 +411,10 @@ stPinchSegment *stPinchSegment_split(stPinchSegment *segment, int64_t leftSideOf
         }
         block2->numSupportingHomologies = block->numSupportingHomologies;
         stPinchThreadSet *threadSet = stPinchBlock_getFirst(block)->thread->threadSet;
-        printf("block 1: %p %p\n", stPinchBlock_getRepresentativeSegmentCap(block, 0), stPinchBlock_getRepresentativeSegmentCap(block, 1));
-        printf("block 2: %p %p\n", stPinchBlock_getRepresentativeSegmentCap(block2, 0), stPinchBlock_getRepresentativeSegmentCap(block2, 1));
-        stConnectivity_dump(threadSet->adjacencyComponents);
         if (threadSet->blockCreationCallback) {
             stPinchSegmentCap *end1 = stPinchBlock_getRepresentativeSegmentCap(block, 0);
             stPinchSegmentCap *end2 = stPinchBlock_getRepresentativeSegmentCap(block, 1);
-            threadSet->blockDeletionCallback(threadSet->blockDeletionExtraData, end1, end2);
+            threadSet->blockDeletionCallback(threadSet->blockDeletionExtraData, end1, end2, block);
             stPinchSegmentCap *end3 = stPinchBlock_getRepresentativeSegmentCap(block2, 0);
             stPinchSegmentCap *end4 = stPinchBlock_getRepresentativeSegmentCap(block2, 1);
             threadSet->adjComponentCreationCallback(threadSet->adjComponentCreationExtraData, end1);
@@ -862,7 +859,7 @@ void stPinchThreadSet_setBlockCreationCallback(stPinchThreadSet *threadSet, void
     threadSet->blockCreationExtraData = extraData;
 }
 
- void stPinchThreadSet_setBlockDeletionCallback(stPinchThreadSet *threadSet, void (*blockDeletionCallback)(void *, stPinchSegmentCap *, stPinchSegmentCap *), void *extraData) {
+ void stPinchThreadSet_setBlockDeletionCallback(stPinchThreadSet *threadSet, void (*blockDeletionCallback)(void *, stPinchSegmentCap *, stPinchSegmentCap *, stPinchBlock *), void *extraData) {
     threadSet->blockDeletionCallback = blockDeletionCallback;
     threadSet->blockDeletionExtraData = extraData;
 }

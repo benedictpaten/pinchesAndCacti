@@ -27,7 +27,7 @@ static void setup(void) {
         (void *(*)(void *)) stPinchSegmentCap_getBlock);
     stPinchThreadSet_setAdjComponentCreationCallback(threadSet, (void (*)(void *, stPinchSegmentCap *)) stOnlineCactus_createEnd, cactus);
     stPinchThreadSet_setBlockCreationCallback(threadSet, (void (*)(void *, stPinchSegmentCap *, stPinchSegmentCap *, stPinchBlock *)) stOnlineCactus_addEdge, cactus);
-    stPinchThreadSet_setBlockDeletionCallback(threadSet, (void (*)(void *, stPinchSegmentCap *, stPinchSegmentCap *)) stOnlineCactus_deleteEdge, cactus);
+    stPinchThreadSet_setBlockDeletionCallback(threadSet, (void (*)(void *, stPinchSegmentCap *, stPinchSegmentCap *, stPinchBlock *)) stOnlineCactus_deleteEdge, cactus);
 }
 
 static void teardown(void) {
@@ -54,6 +54,7 @@ static void testStOnlineCactus_edgeSplit(CuTest *testCase) {
     // block.
     stPinchThread_split(thread3, 50);
     stOnlineCactus_print(cactus);
+    stOnlineCactus_check(cactus);
 
     teardown();
 }
@@ -63,6 +64,7 @@ static void testStOnlineCactus_blockCreation(CuTest *testCase) {
     stPinchBlock_construct2(stPinchThread_getSegment(thread1, 1));
     stPinchBlock_construct2(stPinchThread_getSegment(thread2, 1));
     stOnlineCactus_print(cactus);
+    stOnlineCactus_check(cactus);
     teardown();
 }
 

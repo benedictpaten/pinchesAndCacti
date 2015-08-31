@@ -32,8 +32,10 @@ void stOnlineCactus_createEnd(stOnlineCactus *cactus, void *end);
 
 void stOnlineCactus_addEdge(stOnlineCactus *cactus, void *end1, void *end2, void *edge);
 
-void stOnlineCactus_deleteEdge(stOnlineCactus *cactus, void *end1, void *end2);
+void stOnlineCactus_deleteEdge(stOnlineCactus *cactus, void *end1, void *end2, void *edge);
 
 void stOnlineCactus_print(const stOnlineCactus *cactus);
+
+void stOnlineCactus_check(stOnlineCactus *cactus);
 
 #endif
