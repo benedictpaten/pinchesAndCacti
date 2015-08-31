@@ -28,6 +28,7 @@ static void setup(void) {
     stPinchThreadSet_setAdjComponentCreationCallback(threadSet, (void (*)(void *, stPinchSegmentCap *)) stOnlineCactus_createEnd, cactus);
     stPinchThreadSet_setBlockCreationCallback(threadSet, (void (*)(void *, stPinchSegmentCap *, stPinchSegmentCap *, stPinchBlock *)) stOnlineCactus_addEdge, cactus);
     stPinchThreadSet_setBlockDeletionCallback(threadSet, (void (*)(void *, stPinchSegmentCap *, stPinchSegmentCap *, stPinchBlock *)) stOnlineCactus_deleteEdge, cactus);
+    stPinchThreadSet_setEndMergeCallback(threadSet, (void (*)(void *, stPinchSegmentCap *, stPinchSegmentCap *)) stOnlineCactus_netMerge, cactus);
 }
 
 static void teardown(void) {
@@ -35,12 +36,21 @@ static void teardown(void) {
     // stOnlineCactus_destruct(cactus);
 }
 
+static void testStOnlineCactus_simpleBlockDelete(CuTest *testCase) {
+    setup();
+    stPinchBlock *block = stPinchBlock_construct2(stPinchThread_getSegment(thread1, 1));
+    stPinchBlock_construct2(stPinchThread_getSegment(thread2, 1));
+    stPinchBlock_destruct(block);
+    stOnlineCactus_print(cactus);
+    stOnlineCactus_check(cactus);
+    teardown();
+}
+
 static void testStOnlineCactus_edgeMerge(CuTest *testCase) {
-    /* setup(); */
-    /* stPinchThread_pinch(thread1, thread2, 0, 0, 50, 1); */
-    /* stOnlineCactus_print(cactus); */
-    /* CuAssertTrue(testCase, false); */
-    /* teardown(); */
+    setup();
+    stPinchThread_pinch(thread1, thread2, 0, 0, 50, 1);
+    stOnlineCactus_print(cactus);
+    teardown();
 }
 
 static void testStOnlineCactus_edgeSplit(CuTest *testCase) {
@@ -71,6 +81,7 @@ static void testStOnlineCactus_blockCreation(CuTest *testCase) {
 CuSuite* stOnlineCactusTestSuite(void) {
     CuSuite* suite = CuSuiteNew();
     SUITE_ADD_TEST(suite, testStOnlineCactus_blockCreation);
+    SUITE_ADD_TEST(suite, testStOnlineCactus_simpleBlockDelete);
     SUITE_ADD_TEST(suite, testStOnlineCactus_edgeSplit);
     SUITE_ADD_TEST(suite, testStOnlineCactus_edgeMerge);
     return suite;

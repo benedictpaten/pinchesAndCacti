@@ -19,10 +19,6 @@ struct _stCactusTree {
     stSet *ends;
 };
 
-typedef struct {
-    stCactusTree *net;
-} stCactusEndMapping;
-
 struct _stCactusTreeEdge {
     stCactusTree *child;
     void *block;
@@ -311,40 +307,76 @@ static void mergeNets(stCactusTree *node1, stCactusTree *node2, stHash *endToNod
     stCactusTree_destruct(node1);
 }
 
-void collapse3ECNets(stCactusTree *node1, stCactusTree *node2, stHash *endToNode) {
+static stCactusTree *collapse3ECNetsBetweenChain(stCactusTree *node1, stCactusTree *node2, stHash *endToNode) {
+    stCactusTree *chain = node1->parent;
+    if (chain == node2->parent) {
+        // Create lists of the nodes between node1 and node2 in the chain ordering.
+        stList *between = stList_construct();
+
+        // Figure out what direction node2 is in relation to node1.
+        // TODO: this is pretty slow, and there is probably a more clever way of doing this
+        stCactusTree *cur = node1;
+        while (cur != NULL) {
+            if (cur == node2) {
+                break;
+            }
+            cur = cur->next;
+        }
+        if (cur == NULL) {
+            // swap node1 and node2 to ensure that we always move right
+            stCactusTree *tmp = node1;
+            node1 = node2;
+            node2 = tmp;
+        }
+
+        cur = node1->next;
+        while (cur != NULL && cur != node2) {
+            stList_append(between, cur);
+        }
+        moveToNewChain(between, node2->parentEdge, node2);
+        mergeNets(node2, node1, endToNode);
+        return node1;
+    } else {
+        // Create lists of the nodes before and after node1 in the chain ordering.
+        // UPDATE PAPER: currently only one list X is created.
+        // UPDATE PAPER: N_l should presumably be
+        //               N_j'. Realistically there should be two: N_j+ and N_j-.
+        stList *before = stList_construct();
+        stCactusTree *cur = node1->prev;
+        while (cur != NULL) {
+            stList_append(before, cur);
+            cur = cur->prev;
+        }
+        stList *after = stList_construct();
+        cur = node1->next;
+        while (cur != NULL) {
+            stList_append(after, cur);
+            cur = cur->next;
+        }
+        // Detach all nodes in these lists from their parent and
+        // create a new chain node for each. Their ordering must
+        // be preserved.
+        moveToNewChain(before, node1->parentEdge, node2);
+        moveToNewChain(after, chain->parentEdge, node2);
+        assert(chain->firstChild == node1);
+        assert(node1->next == NULL);
+        assert(node1->prev == NULL);
+
+        // Merge the two nets and remove the now isolated chain node.
+        mergeNets(node1, node2, endToNode);
+        stCactusTree_destruct(chain);
+        return node2;
+    }
+}
+
+void collapse3ECNets(stCactusTree *node1, stCactusTree *node2,
+                     stCactusTree **newNode1, stCactusTree **newNode2,
+                     stHash *endToNode) {
     stCactusTree *mrca = stCactusTree_getMRCA(node1, node2);
     // Node1 -> mrca path
-    while (node1 != mrca) {
+    while (node1->parent != mrca) {
         if (stCactusTree_type(node1->parent) == CHAIN) {
-            stCactusTree *chain = node1->parent;
-            // Create lists of the nodes before and after node1 in the chain ordering.
-            // UPDATE PAPER: currently only one list X is created.
-            // UPDATE PAPER: N_l should presumably be
-            //               N_j'. Realistically there should be two: N_j+ and N_j-.
-            stList *before = stList_construct();
-            stCactusTree *cur = node1->prev;
-            while (cur != NULL) {
-                stList_append(before, cur);
-                cur = cur->prev;
-            }
-            stList *after = stList_construct();
-            cur = node1->next;
-            while (cur != NULL) {
-                stList_append(after, cur);
-                cur = cur->next;
-            }
-            // Detach all nodes in these lists from their parent and
-            // create a new chain node for each. Their ordering must
-            // be preserved.
-            moveToNewChain(before, node1->parentEdge, chain->parent);
-            moveToNewChain(after, chain->parentEdge, chain->parent);
-            assert(chain->firstChild == node1);
-            assert(node1->next == NULL);
-            assert(node1->prev == NULL);
-
-            // Merge the two nets and remove the now isolated chain node.
-            mergeNets(node1, node1->parent->parent, endToNode);
-            stCactusTree_destruct(chain);
+            node1 = collapse3ECNetsBetweenChain(node1, node1->parent->parent, endToNode);
         } else {
             // parent is a bridge
             node1 = node1->parent;
@@ -352,19 +384,48 @@ void collapse3ECNets(stCactusTree *node1, stCactusTree *node2, stHash *endToNode
     }
 
     // Node2->mrca path
+    while (node2->parent != mrca) {
+        if (stCactusTree_type(node2->parent) == CHAIN) {
+            node2 = collapse3ECNetsBetweenChain(node2, node2->parent->parent, endToNode);
+        } else {
+            // parent is a bridge
+            node2 = node2->parent;
+        }
+    }
 
     // check the path between the two now in case the mrca is a chain.
+    if (stCactusTree_type(mrca) == CHAIN) {
+        node1 = node2 = collapse3ECNetsBetweenChain(node1, node2, endToNode);
+    }
+    *newNode1 = node1;
+    *newNode2 = node2;
 }
 
 void stOnlineCactus_netMerge(stOnlineCactus *cactus, void *end1, void *end2) {
+    // UPDATE PAPER: if they are *NOT* in the same tree of CF(G) do the trivial merge
     stCactusTree *node1 = stHash_search(cactus->endToNode, end1);
     assert(node1 != NULL);
     stCactusTree *node2 = stHash_search(cactus->endToNode, end2);
     assert(node2 != NULL);
     if (node1 == node2) {
         return;
+    } else if (stCactusTree_root(node1) != stCactusTree_root(node2)) {
+        printf("trivial end merge\n");
+        // We can do a trivial merge since the two nodes are not in the same tree.
+        mergeNets(node1, node2, cactus->endToNode);
+        stList_removeItem(cactus->trees, node1);
+    } else {
+        printf("nontrivial end merge\n");
+        // They're in the same tree so we have to do the tricky bit.
+        collapse3ECNets(node1, node2, &node1, &node2, cactus->endToNode);
+        if (node1 == node2) {
+            // All done.
+            return;
+        }
+        // Find the path between node1 and node2.
+        // Contract the nodes.
+        // Create a new cycle if needed.
     }
-    
 }
 
 static void stCactusTree_removeChild(stCactusTree *parent, stCactusTree *child) {
@@ -449,6 +510,8 @@ void stOnlineCactus_printR(const stCactusTree *tree, stHash *nodeToEnd) {
     case CHAIN:
         printf("CHAIN%p", (void *) tree);
         break;
+    default:
+        st_errAbort("dangling pointer");
     }
 }
 
@@ -552,6 +615,9 @@ static void stCactusTree_check(stCactusTree *tree, stOnlineCactus *cactus) {
     if (tree->parent != NULL) {
         if (tree->parentEdge == NULL) {
             st_errAbort("tree has parent but no parent edge");
+        }
+        if (tree->type == CHAIN && tree->parent->type == CHAIN) {
+            st_errAbort("chain-chain edge");
         }
     } else {
         if (tree->type == CHAIN) {

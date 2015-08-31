@@ -21,6 +21,8 @@ struct _stPinchThreadSet {
     void *blockCreationExtraData;
     void (*blockDeletionCallback)(void *, stPinchSegmentCap *, stPinchSegmentCap *, stPinchBlock *);
     void *blockDeletionExtraData;
+    void (*endMergeCallback)(void *, stPinchSegmentCap *, stPinchSegmentCap *);
+    void *endMergeExtraData;
 };
 
 struct _stPinchThread {
@@ -130,6 +132,10 @@ stPinchBlock *stPinchBlock_construct(stPinchSegment *segment1, bool orientation1
 void stPinchBlock_destruct(stPinchBlock *block) {
     stPinchBlockIt blockIt = stPinchBlock_getSegmentIterator(block);
     stPinchSegment *segment = stPinchBlockIt_getNext(&blockIt);
+    stPinchThreadSet *threadSet = segment->thread->threadSet;
+    if (threadSet->blockDeletionCallback) {
+        threadSet->blockDeletionCallback(threadSet->blockDeletionExtraData, stPinchBlock_getRepresentativeSegmentCap(block, 0), stPinchBlock_getRepresentativeSegmentCap(block, 1), block);
+    }
     while (segment != NULL) {
         stPinchSegment *nSegment = stPinchBlockIt_getNext(&blockIt);
         if (nSegment != NULL) {
@@ -160,6 +166,12 @@ stPinchBlock *stPinchBlock_pinch(stPinchBlock *block1, stPinchBlock *block2, boo
     if (stPinchBlock_getDegree(block1) < stPinchBlock_getDegree(block2)) { //Avoid merging large blocks into small blocks
         return stPinchBlock_pinch(block2, block1, orientation);
     }
+
+    stPinchSegmentCap *end1_1 = stPinchBlock_getRepresentativeSegmentCap(block1, 0);
+    stPinchSegmentCap *end1_2 = stPinchBlock_getRepresentativeSegmentCap(block1, 1);
+    stPinchSegmentCap *end2_1 = stPinchBlock_getRepresentativeSegmentCap(block2, 0);
+    stPinchSegmentCap *end2_2 = stPinchBlock_getRepresentativeSegmentCap(block2, 1);
+
     assert(stPinchBlock_getLength(block1) == stPinchBlock_getLength(block2));
     stPinchBlockIt blockIt = stPinchBlock_getSegmentIterator(block2);
     stPinchSegment *segment = stPinchBlockIt_getNext(&blockIt);
@@ -179,6 +191,21 @@ stPinchBlock *stPinchBlock_pinch(stPinchBlock *block1, stPinchBlock *block2, boo
         block1->degree++;
         segment = nSegment;
     }
+
+    stPinchThreadSet *threadSet = stPinchBlock_getFirst(block1)->thread->threadSet;
+    if (threadSet->endMergeCallback) {
+        if (orientation) {
+            printf("merging in positive orientation\n");
+            threadSet->endMergeCallback(threadSet->endMergeExtraData, end1_1, end2_1);
+            threadSet->endMergeCallback(threadSet->endMergeExtraData, end1_2, end2_2);
+        } else {
+            printf("merging in negative orientation\n");
+            threadSet->endMergeCallback(threadSet->endMergeExtraData, end1_1, end2_2);
+            threadSet->endMergeCallback(threadSet->endMergeExtraData, end1_2, end2_1);
+        }
+        threadSet->blockDeletionCallback(threadSet->blockDeletionExtraData, end2_1, end2_2, block2);
+    }
+
     block1->numSupportingHomologies += block2->numSupportingHomologies + 1;
     free(block2);
     return block1;
@@ -862,6 +889,11 @@ void stPinchThreadSet_setBlockCreationCallback(stPinchThreadSet *threadSet, void
  void stPinchThreadSet_setBlockDeletionCallback(stPinchThreadSet *threadSet, void (*blockDeletionCallback)(void *, stPinchSegmentCap *, stPinchSegmentCap *, stPinchBlock *), void *extraData) {
     threadSet->blockDeletionCallback = blockDeletionCallback;
     threadSet->blockDeletionExtraData = extraData;
+}
+
+void stPinchThreadSet_setEndMergeCallback(stPinchThreadSet *threadSet, void (*callback)(void *, stPinchSegmentCap *, stPinchSegmentCap *), void *extraData) {
+    threadSet->endMergeCallback = callback;
+    threadSet->endMergeExtraData = extraData;
 }
 
 //convenience functions
