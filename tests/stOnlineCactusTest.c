@@ -36,6 +36,15 @@ static void teardown(void) {
     // stOnlineCactus_destruct(cactus);
 }
 
+// Check that every block exists in the cactus forest.
+static void simpleSanityChecks(CuTest *testCase) {
+    stPinchThreadSetBlockIt it = stPinchThreadSet_getBlockIt(threadSet);
+    stPinchBlock *block;
+    while ((block = stPinchThreadSetBlockIt_getNext(&it)) != NULL) {
+        CuAssertTrue(testCase, stOnlineCactus_getEdge(cactus, block) != NULL);
+    }
+}
+
 static void testStOnlineCactus_simpleBlockDelete(CuTest *testCase) {
     setup();
     stPinchBlock *block = stPinchBlock_construct2(stPinchThread_getSegment(thread1, 1));
@@ -43,6 +52,7 @@ static void testStOnlineCactus_simpleBlockDelete(CuTest *testCase) {
     stPinchBlock_destruct(block);
     stOnlineCactus_print(cactus);
     stOnlineCactus_check(cactus);
+    simpleSanityChecks(testCase);
     teardown();
 }
 
@@ -50,6 +60,7 @@ static void testStOnlineCactus_edgeMerge(CuTest *testCase) {
     setup();
     stPinchThread_pinch(thread1, thread2, 0, 0, 50, 1);
     stOnlineCactus_print(cactus);
+    simpleSanityChecks(testCase);
     teardown();
 }
 
@@ -65,7 +76,7 @@ static void testStOnlineCactus_edgeSplit(CuTest *testCase) {
     stPinchThread_split(thread3, 50);
     stOnlineCactus_print(cactus);
     stOnlineCactus_check(cactus);
-
+    simpleSanityChecks(testCase);
     teardown();
 }
 
@@ -75,6 +86,7 @@ static void testStOnlineCactus_blockCreation(CuTest *testCase) {
     stPinchBlock_construct2(stPinchThread_getSegment(thread2, 1));
     stOnlineCactus_print(cactus);
     stOnlineCactus_check(cactus);
+    simpleSanityChecks(testCase);
     teardown();
 }
 

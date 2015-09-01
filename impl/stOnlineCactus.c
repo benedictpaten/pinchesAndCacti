@@ -268,6 +268,10 @@ static stCactusTree *stCactusTree_getMRCA(stCactusTree *node1, stCactusTree *nod
     return NULL;
 }
 
+stCactusTreeEdge *stOnlineCactus_getEdge(stOnlineCactus *cactus, void *block) {
+    return stHash_search(cactus->blockToEdge, block);
+}
+
 static void reassignParentEdge(stCactusTreeEdge *edge, stCactusTree *node) {
     node->parentEdge = edge;
     if (edge->child != NULL && edge->child != node) {

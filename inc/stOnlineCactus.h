@@ -40,4 +40,6 @@ void stOnlineCactus_print(const stOnlineCactus *cactus);
 
 void stOnlineCactus_check(stOnlineCactus *cactus);
 
+stCactusTreeEdge *stOnlineCactus_getEdge(stOnlineCactus *cactus, void *block);
+
 #endif
