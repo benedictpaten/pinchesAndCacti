@@ -118,6 +118,7 @@ static void stCactusTree_prependChild(stCactusTree *tree, stCactusTree *child, v
     tree->firstChild = child;
     child->parentEdge = calloc(1, sizeof(stCactusTreeEdge));
     child->parentEdge->block = block;
+    child->parentEdge->child = child;
     child->next = oldFirst;
     if (oldFirst != NULL) {
         oldFirst->prev = child;
@@ -148,6 +149,21 @@ stCactusTree *stCactusTreeIt_getNext(stCactusTreeIt *it) {
 
 void stCactusTreeIt_destruct(stCactusTreeIt *it) {
     free(it);
+}
+
+static void stCactusTree_removeChild(stCactusTree *parent, stCactusTree *child) {
+    child->parent = NULL;
+    if (child == parent->firstChild) {
+        parent->firstChild = child->next;
+    }
+    if (child->prev != NULL) {
+        child->prev->next = child->next;
+    }
+    if (child->next != NULL) {
+        child->next->prev = child->prev;
+    }
+    child->prev = NULL;
+    child->next = NULL;    
 }
 
 // Construct a new, empty, online cactus graph.
@@ -252,15 +268,21 @@ static stCactusTree *stCactusTree_getMRCA(stCactusTree *node1, stCactusTree *nod
     return NULL;
 }
 
+static void reassignParentEdge(stCactusTreeEdge *edge, stCactusTree *node) {
+    node->parentEdge = edge;
+    if (edge->child != NULL && edge->child != node) {
+        edge->child->parentEdge = NULL;
+    }
+    edge->child = node;
+}
+
 // NB: ordering of nodes in the input list MUST reflect the ordering in their parent chain.
 static void moveToNewChain(stList *nodes, stCactusTreeEdge *chainParentEdge,
                            stCactusTree *netToAttachNewChainTo) {
     // UPDATE PAPER: In fig 3, a block edge is in B) that was not in
     // A)--this is the anonymous chain node under 6,9
     stCactusTree *chain = stCactusTree_construct(netToAttachNewChainTo, NULL, CHAIN, NULL);
-    chain->parentEdge = chainParentEdge;
-    chainParentEdge->child->parentEdge = NULL;
-    chainParentEdge->child = chain;
+    reassignParentEdge(chainParentEdge, chain);
     for (int64_t i = 0; i < stList_length(nodes); i++) {
         stCactusTree *node = stList_get(nodes, i);
         if (i == 0) {
@@ -334,6 +356,7 @@ static stCactusTree *collapse3ECNetsBetweenChain(stCactusTree *node1, stCactusTr
             stList_append(between, cur);
         }
         moveToNewChain(between, node2->parentEdge, node2);
+        stList_destruct(between);
         mergeNets(node2, node1, endToNode);
         return node1;
     } else {
@@ -358,6 +381,9 @@ static stCactusTree *collapse3ECNetsBetweenChain(stCactusTree *node1, stCactusTr
         // be preserved.
         moveToNewChain(before, node1->parentEdge, node2);
         moveToNewChain(after, chain->parentEdge, node2);
+
+        stList_destruct(before);
+        stList_destruct(after);
         assert(chain->firstChild == node1);
         assert(node1->next == NULL);
         assert(node1->prev == NULL);
@@ -401,6 +427,52 @@ void collapse3ECNets(stCactusTree *node1, stCactusTree *node2,
     *newNode2 = node2;
 }
 
+static void pathToChain(stList *pathUp, stList *pathDown, stCactusTree *mrca, stCactusTreeEdge *extraEdge) {
+    stCactusTree *chain = stCactusTree_construct(mrca, NULL, CHAIN, NULL);
+    // Assign the correct parent edge to the new chain node.
+    if (stList_length(pathDown) > 0) {
+        stCactusTree *tree = stList_get(pathDown, 0);
+        reassignParentEdge(((stCactusTree *) stList_get(pathUp, 0))->parentEdge, chain);
+        chain->firstChild = tree;
+    } else {
+        reassignParentEdge(extraEdge, chain);
+        return;
+    }
+    for (int64_t i = 0; i < stList_length(pathDown); i++) {
+        stCactusTree *tree = stList_get(pathDown, i);
+        stCactusTree_removeChild(tree->parent, tree);
+        if (i != stList_length(pathDown) - 1) {
+            stCactusTree *next = stList_get(pathDown, i + 1);
+            reassignParentEdge(next->parentEdge, tree);
+            tree->next = next;
+        }
+        tree->parent = chain;
+        if (i > 0) {
+            tree->prev = stList_get(pathDown, i - 1);
+        } else {
+            tree->prev = NULL;
+        }
+    }
+
+    for (int64_t i = 0; i < stList_length(pathUp); i++) {
+        stCactusTree *tree = stList_get(pathUp, i);
+        stCactusTree_removeChild(tree->parent, tree);
+        tree->parent = chain;
+        if (i < stList_length(pathUp) - 1) {
+            tree->next = stList_get(pathUp, i + 1);
+        }
+        if (i > 0) {
+            tree->prev = stList_get(pathUp, i - 1);
+        } else {
+            printf("connecting %p to %p\n", stList_get(pathDown, stList_length(pathDown) - 1), (void *) tree);
+            tree->prev = stList_get(pathDown, stList_length(pathDown) - 1);
+            tree->prev->next = tree;
+            reassignParentEdge(extraEdge, tree);
+            printf("parent edge of %p now %p\n", (void *) tree, (void *) tree->parentEdge);
+        }
+    }
+}
+
 void stOnlineCactus_netMerge(stOnlineCactus *cactus, void *end1, void *end2) {
     // UPDATE PAPER: if they are *NOT* in the same tree of CF(G) do the trivial merge
     stCactusTree *node1 = stHash_search(cactus->endToNode, end1);
@@ -410,39 +482,68 @@ void stOnlineCactus_netMerge(stOnlineCactus *cactus, void *end1, void *end2) {
     if (node1 == node2) {
         return;
     } else if (stCactusTree_root(node1) != stCactusTree_root(node2)) {
-        printf("trivial end merge\n");
+        printf("trivial end merge of %p and %p\n", (void *) node1, (void *) node2);
+        stOnlineCactus_print(cactus);
+        // TODO: reroot
         // We can do a trivial merge since the two nodes are not in the same tree.
         mergeNets(node1, node2, cactus->endToNode);
         stList_removeItem(cactus->trees, node1);
     } else {
-        printf("nontrivial end merge\n");
+        printf("nontrivial end merge of %p and %p\n", (void *) node1, (void *) node2);
+        stOnlineCactus_print(cactus);
         // They're in the same tree so we have to do the tricky bit.
         collapse3ECNets(node1, node2, &node1, &node2, cactus->endToNode);
         if (node1 == node2) {
+            // UPDATE PAPER: a cycle may not exist after
+            // edge removal if the two nodes got squashed together.
+
             // All done.
             return;
         }
+        printf("after collapse3ECNets\n");
+        stOnlineCactus_print(cactus);
         // Find the path between node1 and node2.
+        stCactusTree *mrca = stCactusTree_getMRCA(node1, node2);
+        // node1->mrca path, exclusive of mrca
+        stList *pathUp = stList_construct();
+        stCactusTree *cur = node1;
+        while (cur != mrca) {
+            stList_append(pathUp, cur);
+            cur = cur->parent;
+        }
+        // node2->mrca path, exclusive of mrca, which should be
+        // reversed and added to the existing half-path.
+        stList *pathDown = stList_construct();
+        cur = node2;
+        while (cur != mrca) {
+            stList_append(pathDown, cur);
+            cur = cur->parent;
+        }
+        stList_reverse(pathDown);
+        // Fake node1->node2 edge.
+        stCactusTreeEdge *extraEdge = calloc(1, sizeof(extraEdge));
+        extraEdge->child = node1;
+        // Create a new chain.
+        printf("pathUp = {");
+        for (int64_t i = 0; i < stList_length(pathUp); i++) {
+            printf("%p,", stList_get(pathUp, i));
+        }
+        printf("}\n");
+        printf("pathDown = {");
+        for (int64_t i = 0; i < stList_length(pathDown); i++) {
+            printf("%p,", stList_get(pathDown, i));
+        }
+        printf("}\n");
+        printf("mrca = %p\n", (void *) mrca);
+        pathToChain(pathUp, pathDown, mrca, extraEdge);
+        printf("before fake edge contraction\n");
+        stOnlineCactus_print(cactus);
+        stList_destruct(pathUp);
+        stList_destruct(pathDown);
         // Contract the nodes.
-        // Create a new cycle if needed.
+        mergeNets(node1, node2, cactus->endToNode);
+        stOnlineCactus_check(cactus);
     }
-}
-
-static void stCactusTree_removeChild(stCactusTree *parent, stCactusTree *child) {
-    free(child->parentEdge);
-    child->parentEdge = NULL;
-    child->parent = NULL;
-    if (child == parent->firstChild) {
-        parent->firstChild = child->next;
-    }
-    if (child->prev != NULL) {
-        child->prev->next = child->next;
-    }
-    if (child->next != NULL) {
-        child->next->prev = child->prev;
-    }
-    child->prev = NULL;
-    child->next = NULL;    
 }
 
 void stOnlineCactus_deleteEdge(stOnlineCactus *cactus, void *end1, void *end2, void *block) {
@@ -450,10 +551,13 @@ void stOnlineCactus_deleteEdge(stOnlineCactus *cactus, void *end1, void *end2, v
     assert(node1 != NULL);
     stCactusTree *node2 = stHash_search(cactus->endToNode, end2);
     assert(node2 != NULL);
+    assert(stCactusTree_root(node1) == stCactusTree_root(node2));
     unmapEndToNode(cactus->endToNode, end1, node1);
     unmapEndToNode(cactus->endToNode, end2, node2);
     if (node1->parent == node2 || node2->parent == node1) {
         // a bridge edge
+        assert(stCactusTree_type(node1) == NET);
+        assert(stCactusTree_type(node2) == NET);
         stCactusTree *child;
         stCactusTree *parent;
         if (node1->parent == node2) {
@@ -464,6 +568,12 @@ void stOnlineCactus_deleteEdge(stOnlineCactus *cactus, void *end1, void *end2, v
             parent = node1;
         }
         stList_append(cactus->trees, child);
+        stCactusTreeEdge *edge = stHash_search(cactus->blockToEdge, block);
+        (void) edge;
+        assert(edge->child == child);
+        stHash_remove(cactus->blockToEdge, block);
+        free(child->parentEdge);
+        child->parentEdge = NULL;
         stCactusTree_removeChild(parent, child);
     } else if (node1 == node2) {
         // endpoints are in the same net, we need to delete a chain
@@ -474,8 +584,63 @@ void stOnlineCactus_deleteEdge(stOnlineCactus *cactus, void *end1, void *end2, v
         stCactusTree_removeChild(node1, chain);
         stCactusTree_destruct(chain);
     } else {
-        // part of a chain
-        st_errAbort("not implemented");
+        // part of a chain. Delete the relevant edge and unravel the chain from either end.
+        stCactusTreeEdge *edge = stHash_search(cactus->blockToEdge, block);
+        stCactusTree *tree = edge->child;
+        if (stCactusTree_type(tree) == CHAIN) {
+            // This is the "parent edge" of the chain.
+            stHash_remove(cactus->blockToEdge, block);
+            free(edge);
+            tree->parentEdge = NULL;
+            stCactusTree *prev = tree->parent;
+            stCactusTree *cur = tree->firstChild;
+            tree->firstChild = NULL;
+            while (cur != NULL) {
+                cur->parent = prev;
+                stCactusTree *next = cur->next;
+                cur->prev = NULL;
+                cur->next = prev->firstChild;
+                prev->firstChild = cur;
+                prev = cur;
+                cur = next;
+            }
+            stCactusTree_removeChild(tree->parent, tree);
+        } else {
+            // Internal edge
+            stCactusTree *chain = tree->parent;
+            assert(stCactusTree_type(chain) == CHAIN);
+            // Unravel from the "left" direction.
+            stCactusTree *cur = chain->firstChild;
+            stCactusTree *prev = chain->parent;
+            chain->firstChild = NULL;
+            while (cur != tree) {
+                cur->parent = prev;
+                stCactusTree *next = cur->next;
+                cur->prev = NULL;
+                cur->next = prev->firstChild;
+                prev->firstChild = cur;
+                prev = cur;
+                cur = next;
+            }
+            // Unravel from the "right" direction.
+            stHash_remove(cactus->blockToEdge, block);
+            free(tree->parentEdge);
+            while (cur->next != NULL) {
+                reassignParentEdge(cur->next->parentEdge, cur);
+                cur->parent = cur->next;
+                stCactusTree *next = cur->next;
+                cur->prev = NULL;
+                cur->next = next->firstChild;
+                next->firstChild = cur;
+                cur = next;
+            }
+            reassignParentEdge(chain->parentEdge, cur);
+            cur->parent = chain->parent;
+            stCactusTree_removeChild(chain->parent, chain);
+            cur->prev = NULL;
+            cur->next = cur->parent->firstChild;
+            cur->parent->firstChild = cur;
+        }
     }
     stOnlineCactus_check3EC();
     if (stSet_size(node1->ends) == 0) {
@@ -552,6 +717,9 @@ static void stCactusTree_check(stCactusTree *tree, stOnlineCactus *cactus) {
     if (tree->parentEdge != NULL) {
         if (tree->parent == NULL) {
             st_errAbort("tree has parent edge but no parent");
+        }
+        if (tree->parentEdge->child != tree) {
+            st_errAbort("parentEdge<->child link is broken");
         }
         // Check that this parent edge is actually connecting what it's supposed to in the tree.
         void *block = tree->parentEdge->block;

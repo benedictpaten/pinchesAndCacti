@@ -203,7 +203,7 @@ stPinchBlock *stPinchBlock_pinch(stPinchBlock *block1, stPinchBlock *block2, boo
             threadSet->endMergeCallback(threadSet->endMergeExtraData, end1_1, end2_2);
             threadSet->endMergeCallback(threadSet->endMergeExtraData, end1_2, end2_1);
         }
-        threadSet->blockDeletionCallback(threadSet->blockDeletionExtraData, end2_1, end2_2, block2);
+//        threadSet->blockDeletionCallback(threadSet->blockDeletionExtraData, end2_1, end2_2, block2);
     }
 
     block1->numSupportingHomologies += block2->numSupportingHomologies + 1;
