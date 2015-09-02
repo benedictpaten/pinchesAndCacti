@@ -2,40 +2,7 @@
 
 #include "sonLib.h"
 #include "stOnlineCactus.h"
-
-// We keep arbitrarily rooted trees for efficiency reasons.
-struct _stCactusTree {
-    cactusNodeType type;
-    stCactusTree *parent;
-    stCactusTreeEdge *parentEdge;
-    // Previous child in the child ordering of the parent.
-    stCactusTree *prev;
-    // Next child in the parent's child ordering.
-    stCactusTree *next;
-    stCactusTree *firstChild;
-    // NULL if this is a chain node.
-    // This is needed because we don't have the guarantee (yet, anyway) that
-    // the connected components have consistent pointers over time.
-    stSet *ends;
-};
-
-struct _stCactusTreeEdge {
-    stCactusTree *child;
-    void *block;
-};
-
-struct _stOnlineCactus {
-    stList *trees;
-    stHash *blockToEdge;
-    stHash *endToNode;
-    void *(*edgeToEnd)(void *, bool);
-    void *(*endToEdge)(void *);
-    stConnectivity *adjacencyComponents;
-};
-
-struct _stCactusTreeIt {
-    stCactusTree *cur;
-};
+#include "stOnlineCactus_private.h"
 
 cactusNodeType stCactusTree_type(const stCactusTree *tree) {
     return tree->type;
@@ -50,6 +17,7 @@ stCactusTree *stCactusTree_construct(stCactusTree *parent, stCactusTree *leftSib
     stCactusTree *ret = calloc(1, sizeof(stCactusTree));
     if (edge != NULL) {
         edge->child = ret;
+        ret->parentEdge = edge;
     }
     ret->type = type;
     if (parent != NULL) {
@@ -289,6 +257,7 @@ static void moveToNewChain(stList *nodes, stCactusTreeEdge *chainParentEdge,
     reassignParentEdge(chainParentEdge, chain);
     for (int64_t i = 0; i < stList_length(nodes); i++) {
         stCactusTree *node = stList_get(nodes, i);
+        stCactusTree_removeChild(node->parent, node);
         if (i == 0) {
             node->prev = NULL;
             chain->firstChild = node;
@@ -380,6 +349,10 @@ static stCactusTree *collapse3ECNetsBetweenChain(stCactusTree *node1, stCactusTr
             stList_append(after, cur);
             cur = cur->next;
         }
+
+        printf("len(before) = %" PRIi64 "\n", stList_length(before));
+        printf("len(after) = %" PRIi64 "\n", stList_length(after));
+
         // Detach all nodes in these lists from their parent and
         // create a new chain node for each. Their ordering must
         // be preserved.
@@ -404,8 +377,10 @@ void collapse3ECNets(stCactusTree *node1, stCactusTree *node2,
                      stHash *endToNode) {
     stCactusTree *mrca = stCactusTree_getMRCA(node1, node2);
     // Node1 -> mrca path
-    while (node1->parent != mrca) {
+    printf("node1->mrca\n");
+    while (node1->parent != NULL && node1->parent != mrca) {
         if (stCactusTree_type(node1->parent) == CHAIN) {
+            printf("merging nodes %p and %p\n", (void *) node1, (void *) node1->parent->parent);
             node1 = collapse3ECNetsBetweenChain(node1, node1->parent->parent, endToNode);
         } else {
             // parent is a bridge
@@ -414,8 +389,10 @@ void collapse3ECNets(stCactusTree *node1, stCactusTree *node2,
     }
 
     // Node2->mrca path
-    while (node2->parent != mrca) {
+    printf("node2->mrca\n");
+    while (node2->parent != NULL && node2->parent != mrca) {
         if (stCactusTree_type(node2->parent) == CHAIN) {
+            printf("merging nodes %p and %p\n", (void *) node2, (void *) node2->parent->parent);
             node2 = collapse3ECNetsBetweenChain(node2, node2->parent->parent, endToNode);
         } else {
             // parent is a bridge
@@ -546,7 +523,6 @@ void stOnlineCactus_netMerge(stOnlineCactus *cactus, void *end1, void *end2) {
         stList_destruct(pathDown);
         // Contract the nodes.
         mergeNets(node1, node2, cactus->endToNode);
-        stOnlineCactus_check(cactus);
     }
 }
 

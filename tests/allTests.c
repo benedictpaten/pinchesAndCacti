@@ -10,13 +10,17 @@
 CuSuite* stCactusGraphsTestSuite(void);
 CuSuite* stPinchGraphsTestSuite(void);
 CuSuite* stPinchPhylogenyTestSuite(void);
+CuSuite* stOnlineCactusTestSuite(void);
+CuSuite* stOnlinePinchToCactusTestSuite(void);
 
 int stPinchesAndCactiRunAllTests(void) {
     CuString *output = CuStringNew();
     CuSuite* suite = CuSuiteNew();
-    CuSuiteAddSuite(suite, stPinchGraphsTestSuite());
-    CuSuiteAddSuite(suite, stCactusGraphsTestSuite());
-    CuSuiteAddSuite(suite, stPinchPhylogenyTestSuite());
+    /* CuSuiteAddSuite(suite, stPinchGraphsTestSuite()); */
+    /* CuSuiteAddSuite(suite, stCactusGraphsTestSuite()); */
+    /* CuSuiteAddSuite(suite, stPinchPhylogenyTestSuite()); */
+    CuSuiteAddSuite(suite, stOnlineCactusTestSuite());
+    CuSuiteAddSuite(suite, stOnlinePinchToCactusTestSuite());
 
     CuSuiteRun(suite);
     CuSuiteSummary(suite, output);
