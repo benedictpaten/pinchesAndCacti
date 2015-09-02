@@ -257,18 +257,21 @@ static void moveToNewChain(stList *nodes, stCactusTreeEdge *chainParentEdge,
     reassignParentEdge(chainParentEdge, chain);
     for (int64_t i = 0; i < stList_length(nodes); i++) {
         stCactusTree *node = stList_get(nodes, i);
+        stCactusTree *next = node->next;
         stCactusTree_removeChild(node->parent, node);
+        node->next = next;
         if (i == 0) {
             node->prev = NULL;
             chain->firstChild = node;
         }
-        if (i == stList_length(nodes)) {
-            if (node->next != NULL) {
-                node->next->prev = NULL;
+        if (i == stList_length(nodes) - 1) {
+            if (next != NULL) {
+                next->prev = NULL;
             }
             node->next = NULL;
         }
         node->parent = chain;
+        printf("node %p: next: %p\n", (void *) node, (void *) node->next);
     }
 }
 
@@ -278,9 +281,12 @@ static void mergeNets(stCactusTree *node1, stCactusTree *node2, stHash *endToNod
     stCactusTree *first = node1->firstChild;
     stCactusTree *cur = first;
     node1->firstChild = NULL;
+    printf("%p\n", (void *) cur);
     while (cur != NULL) {
         cur->parent = node2;
+        printf("cur %p, cur->next %p\n", (void *) cur, (void *) cur->next);
         if (cur->next == NULL) {
+            printf("reassigning firstChild\n");
             cur->next = node2->firstChild;
             if (node2->firstChild != NULL) {
                 cur->next->prev = cur;
@@ -289,7 +295,9 @@ static void mergeNets(stCactusTree *node1, stCactusTree *node2, stHash *endToNod
         }
         cur = cur->next;
     }
-    node2->firstChild = first;
+    if (first != NULL) {
+        node2->firstChild = first;
+    }
 
     // Remap every end of node1 to point to node2.
     stSetIterator *it = stSet_getIterator(node1->ends);
@@ -301,6 +309,8 @@ static void mergeNets(stCactusTree *node1, stCactusTree *node2, stHash *endToNod
 
     stCactusTree_destruct(node1);
 }
+
+static void stOnlineCactus_printR(const stCactusTree *, stHash *);
 
 static stCactusTree *collapse3ECNetsBetweenChain(stCactusTree *node1, stCactusTree *node2, stHash *endToNode) {
     stCactusTree *chain = node1->parent;
@@ -343,6 +353,7 @@ static stCactusTree *collapse3ECNetsBetweenChain(stCactusTree *node1, stCactusTr
             stList_append(before, cur);
             cur = cur->prev;
         }
+        stList_reverse(before);
         stList *after = stList_construct();
         cur = node1->next;
         while (cur != NULL) {
@@ -389,11 +400,15 @@ void collapse3ECNets(stCactusTree *node1, stCactusTree *node2,
     }
 
     // Node2->mrca path
+    stOnlineCactus_printR(mrca, endToNode);
+    printf("\n");
     printf("node2->mrca\n");
     while (node2->parent != NULL && node2->parent != mrca) {
         if (stCactusTree_type(node2->parent) == CHAIN) {
             printf("merging nodes %p and %p\n", (void *) node2, (void *) node2->parent->parent);
             node2 = collapse3ECNetsBetweenChain(node2, node2->parent->parent, endToNode);
+            stOnlineCactus_printR(mrca, endToNode);
+            printf("\n");
         } else {
             // parent is a bridge
             node2 = node2->parent;
@@ -402,6 +417,8 @@ void collapse3ECNets(stCactusTree *node1, stCactusTree *node2,
 
     // check the path between the two now in case the mrca is a chain.
     if (stCactusTree_type(mrca) == CHAIN) {
+        printf("between chain\n");
+        printf("merging nodes %p and %p\n", (void *) node1, (void *) node2);
         node1 = node2 = collapse3ECNetsBetweenChain(node1, node2, endToNode);
     }
     *newNode1 = node1;
@@ -640,7 +657,11 @@ void stOnlineCactus_printR(const stCactusTree *tree, stHash *nodeToEnd) {
         while (child != NULL) {
             printf("(");
             stOnlineCactus_printR(child, nodeToEnd);
-            printf(")BLOCK%p", child->parentEdge->block);
+            if (child->parentEdge != NULL) {
+                printf(")BLOCK%p", child->parentEdge->block);
+            } else {
+                printf(")BLOCK_INVALID");
+            }
             child = child->next;
             if (child != NULL) {
                 printf(",");

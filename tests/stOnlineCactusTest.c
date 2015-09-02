@@ -206,6 +206,7 @@ static void testStOnlineCactus_collapse3ECNets(CuTest *testCase) {
     CuAssertTrue(testCase, stCactusTree_type(node15) == NET);
     collapse3ECNets(node9, node15, &node9, &node15, cactus->endToNode);
     printNiceTree(tree);
+    printf(";\n");
     teardown();
 }
 
