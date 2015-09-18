@@ -33,7 +33,7 @@ static void setup(void) {
 
 static void teardown(void) {
     stPinchThreadSet_destruct(threadSet);
-    // stOnlineCactus_destruct(cactus);
+    stOnlineCactus_destruct(cactus);
 }
 
 // Check that every block exists in the cactus forest.

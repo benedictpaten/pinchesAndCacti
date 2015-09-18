@@ -26,7 +26,10 @@ int stPinchesAndCactiRunAllTests(void) {
     CuSuiteSummary(suite, output);
     CuSuiteDetails(suite, output);
     printf("%s\n", output->buffer);
-    return suite->failCount > 0;
+    CuStringDelete(output);
+    bool failed = suite->failCount > 0;
+    CuSuiteDelete(suite);
+    return failed;
 }
 
 int main(int argc, char *argv[]) {

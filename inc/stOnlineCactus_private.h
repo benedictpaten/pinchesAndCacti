@@ -41,4 +41,6 @@ void collapse3ECNets(stCactusTree *node1, stCactusTree *node2,
 
 stCactusTree *stCactusTree_construct(stCactusTree *parent, stCactusTree *leftSib, cactusNodeType type, void *block);
 
+void stCactusTree_reroot(stCactusTree *newRoot, stList *trees);
+
 #endif

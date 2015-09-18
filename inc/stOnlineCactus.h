@@ -18,6 +18,8 @@ stOnlineCactus *stOnlineCactus_construct(stConnectivity *connectivity,
                                          void *(*edgeToEnd)(void *, bool),
                                          void *(*endToEdge)(void *));
 
+void stOnlineCactus_destruct(stOnlineCactus *cactus);
+
 stCactusTree *stOnlineCactus_getCactusTree(stOnlineCactus *cactus);
 
 cactusNodeType stCactusTree_type(const stCactusTree *tree);
