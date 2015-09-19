@@ -233,9 +233,20 @@ static void printNiceTree_r(stCactusTree *tree) {
     free(treeLabel);
 }
 
+// Print a cactus tree in a newick format, using the additional test
+// data to create nice labels.
 static void printNiceTree(stCactusTree *tree) {
     printNiceTree_r(tree);
     printf(";\n");
+}
+
+// Print the whole cactus forest in a newick format, using the
+// additional test data to create nice labels.
+static void printNiceCactus() {
+    for (int64_t i = 0; i < stList_length(cactus->trees); i++) {
+        stCactusTree *tree = stList_get(cactus->trees, i);
+        printNiceTree(tree);
+    }
 }
 
 static void testStOnlineCactus_collapse3ECNets(CuTest *testCase) {
@@ -323,8 +334,11 @@ static void getRandomNodeSet(int64_t size) {
 static void addEdge(int64_t i, int64_t j, int64_t edgeNum) {
     assert(i < stList_length(adjacencyList));
     assert(j < stList_length(adjacencyList));
-    stList_append(stList_get(adjacencyList, i), stIntTuple_construct1(j));
-    stList_append(stList_get(adjacencyList, j), stIntTuple_construct1(i));
+    // We are a bit sneaky and use an extra tuple entry to store the
+    // number of this edge, invisibly to the static
+    // 3-edge-connectivity code.
+    stList_append(stList_get(adjacencyList, i), stIntTuple_construct2(j, edgeNum));
+    stList_append(stList_get(adjacencyList, j), stIntTuple_construct2(i, edgeNum));
     // Create an edge in the cactus forest.
     char *iLabel = stString_print("%" PRIi64, i);
     char *jLabel = stString_print("%" PRIi64, j);
@@ -365,28 +379,10 @@ static stSet *getMergedNodesBelongingToNode(stCactusTree *tree) {
     return ret;
 }
 
-static void printNiceCactus() {
-    for (int64_t i = 0; i < stList_length(cactus->trees); i++) {
-        stCactusTree *tree = stList_get(cactus->trees, i);
-        printNiceTree(tree);
-    }
-}
-
-// Do random tests in the "forward" direction (a.k.a. edge addition)
-// and check that the 3-edge-connected components match a known-good
-// non-dynamic algorithm.
-static void testStOnlineCactus_random_forward(CuTest *testCase) {
-    setup();
-    int64_t numNodes = 100;
-    getRandomNodeSet(numNodes);
-    int64_t numEdges = numNodes * 2;
-    for (int64_t i = 0; i < numEdges; i++) {
-        int64_t node1 = st_randomInt64(0, numNodes);
-        int64_t node2 = st_randomInt64(0, numNodes);
-        addEdge(node1, node2, i);
-        // printNiceCactus();
-        stOnlineCactus_check(cactus);
-    }
+// Check the current 3-edge-connected components of the online cactus
+// graph against a known-good algorithm running on the current
+// adjacency list.
+static void checkAgainstStatic3ECAlgorithm(CuTest *testCase) {
     stList *components = computeThreeEdgeConnectedComponents(adjacencyList);
     printf("Got %" PRIi64 " components from 3-edge-connected code\n", stList_length(components));
     for (int64_t i = 0; i < stList_length(components); i++) {
@@ -410,6 +406,24 @@ static void testStOnlineCactus_random_forward(CuTest *testCase) {
         free(label);
     }
     stList_destruct(components);
+}
+
+// Do random tests in the "forward" direction (a.k.a. edge addition)
+// and check that the 3-edge-connected components match a known-good
+// non-dynamic algorithm.
+static void testStOnlineCactus_random_edge_add(CuTest *testCase) {
+    setup();
+    int64_t numNodes = 100;
+    getRandomNodeSet(numNodes);
+    int64_t numEdges = numNodes * 2;
+    for (int64_t i = 0; i < numEdges; i++) {
+        int64_t node1 = st_randomInt64(0, numNodes);
+        int64_t node2 = st_randomInt64(0, numNodes);
+        addEdge(node1, node2, i);
+        stOnlineCactus_check(cactus);
+    }
+    printNiceCactus();
+    checkAgainstStatic3ECAlgorithm(testCase);
     teardown();
 }
 
@@ -437,7 +451,7 @@ static void deleteEdge(int64_t node1, int64_t node2, int64_t i) {
 
 // Do random tests of adding and deleting random edges and check that
 // the 3-edge-connectivity relationships still make sense.
-static void testStOnlineCactus_random_forward_and_backward(CuTest *testCase) {
+static void testStOnlineCactus_random_edge_add_and_delete(CuTest *testCase) {
     setup();
     int64_t numNodes = 200;
     getRandomNodeSet(numNodes);
@@ -446,10 +460,8 @@ static void testStOnlineCactus_random_forward_and_backward(CuTest *testCase) {
     for (int64_t i = 0; i < numEdges; i++) {
         int64_t node1 = st_randomInt64(0, numNodes);
         int64_t node2 = st_randomInt64(0, numNodes);
-        printf("adding edge %" PRIi64 ": %" PRIi64 "<->%" PRIi64 "\n", i, node1, node2);
         addEdge(node1, node2, i);
         stList_append(edges, stIntTuple_construct3(node1, node2, i));
-        printNiceCactus();
         stOnlineCactus_check(cactus);
     }
     int64_t numDeletions = st_randomInt64(0, stList_length(edges));
@@ -459,36 +471,190 @@ static void testStOnlineCactus_random_forward_and_backward(CuTest *testCase) {
         int64_t edgeNum = stIntTuple_get(edge, 2);
         int64_t node1 = stIntTuple_get(edge, 0);
         int64_t node2 = stIntTuple_get(edge, 1);
-        printf("removing edge %" PRIi64 ": %" PRIi64 "<->%" PRIi64 "\n", edgeNum, node1, node2);
         deleteEdge(node1, node2, edgeNum);
-        printNiceCactus();
         stOnlineCactus_check(cactus);
         stList_remove(edges, randomIndex);
     }
-    stList *components = computeThreeEdgeConnectedComponents(adjacencyList);
-    printf("Got %" PRIi64 " components from 3-edge-connected code\n", stList_length(components));
-    for (int64_t i = 0; i < stList_length(components); i++) {
-        stList *component = stList_get(components, i);
-        char *label = stString_print("%" PRIi64, stIntTuple_get(stList_get(component, 0), 0));
-        stCactusTree *tree = getNodeByLabel(label);
-        stSet *mergedNodes = getMergedNodesBelongingToNode(tree);
-        // Check that the component and the tree nodes are composed of the same original nodes.
-        stSet *componentNodes = stSet_construct3((uint64_t (*)(const void * )) stIntTuple_hashKey,
-                                                 (int (*)(const void *, const void *)) stIntTuple_equalsFn,
-                                                 NULL);
-        for (int64_t j = 0; j < stList_length(component); j++) {
-            printf("component %" PRIi64 " has item %" PRIi64 "\n", i, stIntTuple_get(stList_get(component, j), 0));
-            stSet_insert(componentNodes, stList_get(component, j));
-        }
-        CuAssertIntEquals(testCase, stSet_size(componentNodes), stSet_size(mergedNodes));
-        stSet *difference = stSet_getDifference(componentNodes, mergedNodes);
-        CuAssertTrue(testCase, stSet_size(difference) == 0);
-        stSet_destruct(difference);
-        stSet_destruct(componentNodes);
-        stSet_destruct(mergedNodes);
-        free(label);
+    printNiceCactus();
+    checkAgainstStatic3ECAlgorithm(testCase);
+    teardown();
+}
+
+static void mergeNodes(int64_t node1, int64_t node2) {
+    if (node1 == node2) {
+        // done already
+        return;
     }
-    stList_destruct(components);
+    // For my own sanity we just "merge" the adjacency lists by
+    // forcing the two nodes to be 3-edge-connected. Otherwise it's a
+    // mess trying to keep track of how the adjacency list indices
+    // correspond to the online cactus ends.
+    stList *node1Adj = stList_get(adjacencyList, node1);
+    stList *node2Adj = stList_get(adjacencyList, node2);
+    stList_append(node1Adj, stIntTuple_construct1(node2));
+    stList_append(node1Adj, stIntTuple_construct1(node2));
+    stList_append(node1Adj, stIntTuple_construct1(node2));
+
+    stList_append(node2Adj, stIntTuple_construct1(node1));
+    stList_append(node2Adj, stIntTuple_construct1(node1));
+    stList_append(node2Adj, stIntTuple_construct1(node1));
+
+    char *label1 = stString_print("%" PRIi64, node1);
+    char *label2 = stString_print("%" PRIi64, node2);
+    myEnd *end1 = getEndByLabel(label1);
+    myEnd *end2 = getEndByLabel(label2);
+    stConnectivity_addEdge(connectivity, end1, end2);
+    stOnlineCactus_netMerge(cactus, end1, end2);
+    free(label1);
+    free(label2);
+}
+
+// Create a new isolated node in the online cactus and in the adjacency list.
+static void addNode(void) {
+    int64_t index = stList_length(adjacencyList);
+    stList_append(adjacencyList, stList_construct());
+    char *label = stString_print("%" PRIi64, index);
+    myEnd *end = calloc(1, sizeof(myEnd));
+    end->block = NULL;
+    end->originalLabel = label;
+    stHash_insert(nameToEnd, stString_copy(label), end);
+    stConnectivity_addNode(connectivity, end);
+    stOnlineCactus_createEnd(cactus, end);
+}
+
+static void testStOnlineCactus_random_edge_add_node_insert_and_node_merge(CuTest *testCase) {
+    setup();
+    int64_t initialNumNodes = 100;
+    getRandomNodeSet(initialNumNodes);
+    int64_t numOps = 1000;
+    for (int64_t i = 0; i < numOps; i++) {
+        int64_t node1 = st_randomInt64(0, stList_length(adjacencyList));
+        int64_t node2 = st_randomInt64(0, stList_length(adjacencyList));
+        int64_t opType = st_randomInt64(0, 3);
+        switch (opType) {
+        case 0:
+            // Edge addition
+            printf("adding edge %" PRIi64 " %" PRIi64 "<->%" PRIi64 "\n", i, node1, node2);
+            addEdge(node1, node2, i);
+            break;
+        case 1:
+            // Node merge
+            printf("merging nodes %" PRIi64 " and %" PRIi64 "\n", node1, node2);
+            mergeNodes(node1, node2);
+            break;
+        case 2:
+            // Isolated node addition
+            printf("adding new node %" PRIi64 "\n", stList_length(adjacencyList));
+            addNode();
+            break;
+        }
+        stOnlineCactus_check(cactus);
+    }
+    printNiceCactus();
+    checkAgainstStatic3ECAlgorithm(testCase);
+    teardown();
+}
+
+// Partition a node, creating a new adjacency list containing a random
+// subset of its edges and partitioning the online cactus according to
+// that subset.
+static void partitionNode(int64_t node) {
+    stList *adjacencies = stList_get(adjacencyList, node);
+    if (stList_length(adjacencies) < 2) {
+        return;
+    }
+    int64_t length = st_randomInt64(0, stList_length(adjacencies) - 1);
+    if (length == 0) {
+        return;
+    }
+    int64_t start = st_randomInt64(0, stList_length(adjacencies) - length);
+    stList *newAdjacencies = stList_construct3(0, (void (*)(void *)) stIntTuple_destruct);
+    int64_t newIndex = stList_length(adjacencyList);
+    printf("creating new node %" PRIi64 "\n", newIndex);
+    stList_append(adjacencyList, newAdjacencies);
+    while (stList_length(newAdjacencies) < length) {
+        stList_append(newAdjacencies, stList_get(adjacencies, start));
+        stList_remove(adjacencies, start);
+    }
+
+    // Fix the other copy of each of the edges to point to the new node instead of the old one.
+    for (int64_t i = 0; i < stList_length(newAdjacencies); i++) {
+        int64_t otherIndex = stIntTuple_get(stList_get(newAdjacencies, i), 0);
+        int64_t edgeNum = stIntTuple_get(stList_get(newAdjacencies, i), 1);
+        stList *otherAdjacencies = stList_get(adjacencyList, otherIndex);
+        // Explore the other adjacency list and change one (arbitrary)
+        // pointer to the old node to the new node.
+        for (int64_t j = 0; j < stList_length(otherAdjacencies); j++) {
+            stIntTuple *entry = stList_get(otherAdjacencies, j);
+            if (stIntTuple_get(entry, 1) == edgeNum) {
+                stIntTuple_destruct(entry);
+                stList_set(otherAdjacencies, j, stIntTuple_construct2(newIndex, edgeNum));
+                break;
+            }
+        }
+    }
+
+    // Partition the online cactus.
+    char *label = stString_print("%" PRIi64, node);
+    stSet *endsToRemove = stSet_construct();
+    // This end is for bookkeeping purposes so all the edge ends end up in the same component.
+    myEnd *nullEnd = calloc(1, sizeof(myEnd));
+    nullEnd->block = NULL;
+    nullEnd->originalLabel = stString_print("%" PRIi64, newIndex);
+    stHash_insert(nameToEnd, stString_copy(nullEnd->originalLabel), nullEnd);
+    for (int64_t i = 0; i < stList_length(newAdjacencies); i++) {
+        int64_t edgeNum = stIntTuple_get(stList_get(newAdjacencies, i), 1);
+        char *blockLabel = stString_print("%" PRIi64, edgeNum);
+        myBlock *block = stHash_search(nameToBlock, blockLabel);
+        myEnd *end1 = block->end1;
+        myEnd *end2 = block->end2;
+        myEnd *end;
+        if (strcmp(end1->originalLabel, label) == 0) {
+            end = end1;
+        } else {
+            assert(strcmp(end2->originalLabel, label) == 0);
+            end = end2;
+        }
+        // OK, this is a bit sloppy, but renaming the nodes is the
+        // only way to sanely compare against the known-good 3ec code.
+        free(end->originalLabel);
+        end->originalLabel = stString_print("%" PRIi64, newIndex);
+        stConnectivity_removeEdge(connectivity, end, getEndByLabel(label));
+        stConnectivity_addEdge(connectivity, end, nullEnd);
+        stSet_insert(endsToRemove, end);
+    }
+    stOnlineCactus_netCleave(cactus, getNodeByLabel(label), endsToRemove);
+    stOnlineCactus_createEnd(cactus, nullEnd); // So we can get the null end mapped to the proper node.
+    free(label);
+}
+
+void testStOnlineCactus_random_edge_add_and_node_partition(CuTest *testCase) {
+    setup();
+    int64_t initialNumNodes = 100;
+    getRandomNodeSet(initialNumNodes);
+    int64_t numOps = 200;
+    for (int64_t i = 0; i < numOps; i++) {
+        int64_t node1 = st_randomInt64(0, stList_length(adjacencyList));
+        int64_t node2 = st_randomInt64(0, stList_length(adjacencyList));
+        int64_t opType = st_randomInt64(0, 2);
+
+        switch (opType) {
+        case 0:
+            // Edge addition
+            printf("adding edge %" PRIi64 " %" PRIi64 "<->%" PRIi64 "\n", i, node1, node2);
+            addEdge(node1, node2, i);
+            break;
+        case 1:
+            // Node partition
+            printf("partitioning node %" PRIi64 "\n", node1);
+            partitionNode(node1);
+            break;
+        }
+        printNiceCactus();
+        stOnlineCactus_check(cactus);
+    }
+    printNiceCactus();
+    checkAgainstStatic3ECAlgorithm(testCase);
     teardown();
 }
 
@@ -497,7 +663,9 @@ CuSuite* stOnlineCactusTestSuite(void) {
     SUITE_ADD_TEST(suite, testStOnlineCactus_collapse3ECNets);
     SUITE_ADD_TEST(suite, testStOnlineCactus_reroot);
     SUITE_ADD_TEST(suite, testStOnlineCactus_addEdge);
-    SUITE_ADD_TEST(suite, testStOnlineCactus_random_forward);
-    SUITE_ADD_TEST(suite, testStOnlineCactus_random_forward_and_backward);
+    SUITE_ADD_TEST(suite, testStOnlineCactus_random_edge_add);
+    SUITE_ADD_TEST(suite, testStOnlineCactus_random_edge_add_and_delete);
+    SUITE_ADD_TEST(suite, testStOnlineCactus_random_edge_add_node_insert_and_node_merge);
+    SUITE_ADD_TEST(suite, testStOnlineCactus_random_edge_add_and_node_partition);
     return suite;
 }
