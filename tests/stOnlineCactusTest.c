@@ -31,6 +31,9 @@ struct _myEnd {
     char *originalLabel;
 };
 
+static myEnd *getEndByLabel(char *label);
+static char *getTreeLabel(stCactusTree *tree);
+
 static void *blockToEnd(void *block, bool orientation) {
     myBlock *myBlock = block;
     if (orientation) {
@@ -118,9 +121,7 @@ static stCactusTree *getCactusTreeR_node(stTree *stNode, stCactusTree *parent, s
         stTree *childStNode = stTree_getChild(blockEdge, 0);
         stCactusTree *child = getCactusTreeR_node(childStNode, tree, prevChild, block);
 
-        stSetIterator *it = stSet_getIterator(child->ends);
-        myEnd *arbitraryEnd = stSet_getNext(it);
-        stSet_destructIterator(it);
+        myEnd *arbitraryEnd = getEndByLabel(getTreeLabel(child));
         end2->originalLabel = stString_copy(arbitraryEnd->originalLabel);
         stHash_insert(cactus->endToNode, end2, child);
         stConnectivity_addNode(connectivity, end2);
@@ -602,6 +603,7 @@ static void partitionNode(int64_t node) {
     nullEnd->block = NULL;
     nullEnd->originalLabel = stString_print("%" PRIi64, newIndex);
     stHash_insert(nameToEnd, stString_copy(nullEnd->originalLabel), nullEnd);
+    stConnectivity_addNode(connectivity, nullEnd);
     for (int64_t i = 0; i < stList_length(newAdjacencies); i++) {
         int64_t edgeNum = stIntTuple_get(stList_get(newAdjacencies, i), 1);
         char *blockLabel = stString_print("%" PRIi64, edgeNum);
