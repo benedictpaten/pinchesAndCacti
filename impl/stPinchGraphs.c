@@ -797,7 +797,7 @@ static int stPinchThread_equals(const stPinchThread *thread1, const stPinchThrea
 //Thread set
 
 stPinchThreadSet *stPinchThreadSet_construct() {
-    stPinchThreadSet *threadSet = st_malloc(sizeof(stPinchThreadSet));
+    stPinchThreadSet *threadSet = st_calloc(1, sizeof(stPinchThreadSet));
     threadSet->threads = stList_construct3(0, (void(*)(void *)) stPinchThread_destruct);
     threadSet->threadsHash = stHash_construct3((uint64_t(*)(const void *)) stPinchThread_hashKey,
             (int(*)(const void *, const void *)) stPinchThread_equals, NULL, NULL);
