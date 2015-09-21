@@ -445,6 +445,8 @@ stList *chainToList(stCactusTree *chain) {
     return chainNodes;
 }
 
+static void fix3EC(stOnlineCactus *cactus, stCactusTree *tree);
+
 // Cleave a net into two, with representative ends in endsToRemove
 // moving to a new node. If the two nets would be 3-edge-connected
 // after partition, does nothing. Takes ownership of the set.
@@ -519,12 +521,23 @@ static stCactusTree *netCleave(stOnlineCactus *cactus, stCactusTree *tree, stSet
         child->parentEdge = edge;
     }
 
+    // We may alter the 3-edge-connectivity of some nodes as a side
+    // effect of unraveling a chain. Note that we never check the
+    // 3-edge-connectivity of the partitioned nodes, even though they
+    // are part of the unraveled chain. That's the caller's job--we
+    // only handle the side effects on other nodes.
+    stList *nodesToCheck3ECOf = stList_construct();
     if (stList_length(connectingChains) == 1) {
-        // Unravel the connecting chain by removing the edge in ends2.
         stCactusTree *chain = stList_get(connectingChains, 0);
+
+        // Save the nodes in the chain so we can check 3EC later.
+        stList *otherNodesInChain = chainToList(chain);
+        stList_removeItem(otherNodesInChain, tree);
+
+        // Unravel the connecting chain by removing the edge in ends2.
         void *end1, *end2;
         if (chain == tree->parent) {
-            getEndsInChildChainAffectingParentNode(cactus, tree, chain, &end1, &end2);
+            getEndsInParentChainAffectingChildNode(cactus, tree, &end1, &end2);
         } else {
             assert(chain->parent == tree);
             getEndsInChildChainAffectingParentNode(cactus, tree, chain, &end1, &end2);
@@ -543,6 +556,10 @@ static stCactusTree *netCleave(stOnlineCactus *cactus, stCactusTree *tree, stSet
         void *otherEnd = end == cactus->edgeToEnd(block, 0) ? cactus->edgeToEnd(block, 1) : cactus->edgeToEnd(block, 0);
         stCactusTree *attachmentPoint = stHash_search(cactus->endToNode, otherEnd);
         stCactusTree_prependChild(attachmentPoint, tree2, block);
+
+        // We may have changed the 3EC of the unraveled nodes.
+        stList_appendAll(nodesToCheck3ECOf, otherNodesInChain);
+        stList_destruct(otherNodesInChain);
     } else if (stList_length(connectingChains) == 2) {
         // Create a new chain from the connecting chains.
         stCactusTree *chain1 = stList_get(connectingChains, 0);
@@ -672,6 +689,19 @@ static stCactusTree *netCleave(stOnlineCactus *cactus, stCactusTree *tree, stSet
     stList_destruct(connectingChains);
     stList_destruct(childrenToMove);
 
+    // If we unraveled a chain, we need to check the 3EC of the
+    // affected nodes, as we've destroyed a potential source of
+    // connectivity.
+    for (int64_t i = 0; i < stList_length(nodesToCheck3ECOf); i++) {
+        stCactusTree *cur = stList_get(nodesToCheck3ECOf, i);
+        // FIXME: does the 3-edge-connectivity computation twice.
+        if (!stOnlineCactus_check3EC(cactus, cur)) {
+            printf("fixing connectivity of %p\n", (void *) cur);
+            fix3EC(cactus, cur);
+        }
+    }
+    stList_destruct(nodesToCheck3ECOf);
+
     // Return whatever tree has the ends not in endsToRemove.
     if (ends2 == endsToRemove) {
         return tree;
@@ -679,8 +709,6 @@ static stCactusTree *netCleave(stOnlineCactus *cactus, stCactusTree *tree, stSet
         return tree2;
     }
 }
-
-static void fix3EC(stOnlineCactus *cactus, stCactusTree *tree);
 
 // Cleave a net into two, with representative ends in endsToRemove
 // moving to a new node. If the two nets would be 3-edge-connected
