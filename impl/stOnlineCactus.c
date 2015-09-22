@@ -715,7 +715,7 @@ static stCactusTree *netCleave(stOnlineCactus *cactus, stCactusTree *tree, stSet
 // after partition, does nothing. Takes ownership of the set.
 // Ensures 3-edge-connectivity of the resulting net graphs.
 void stOnlineCactus_netCleave(stOnlineCactus *cactus, stCactusTree *tree, stSet *endsToRemove) {
-    netCleave(cactus, tree, endsToRemove);
+    tree = netCleave(cactus, tree, endsToRemove);
 
     // Get an arbitrary end from the partition.
     stSetIterator *it = stSet_getIterator(endsToRemove);
