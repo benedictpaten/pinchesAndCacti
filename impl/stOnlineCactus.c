@@ -1399,6 +1399,99 @@ void stOnlineCactus_printR(const stCactusTree *tree, stHash *nodeToEnd) {
     }
 }
 
+int64_t scoreBlocks(stList *blocks, int64_t scoreFn(void *)) {
+    int64_t accum = 0;
+    for (int64_t i = 0; i < stList_length(blocks); i++) {
+        accum += scoreFn(stList_get(blocks, i));
+    }
+    return accum;
+}
+
+stList *getBlocksFromBestBridgePathBelow(stCactusTree *node, stCactusTree *except, int64_t scoreFn(void *)) {
+    stCactusTree *child = node->firstChild;
+    stList *blockss = stList_construct3(0, (void (*)(void *)) stList_destruct);
+    while (child != NULL) {
+        if (stCactusTree_type(child) == NET && child != except) {
+            stList *bestPath = getBlocksFromBestBridgePathBelow(child, NULL, scoreFn);
+            stList_append(bestPath, child->parentEdge);
+            stList_append(blockss, bestPath);
+        }
+        child = child->next;
+    }
+    stList *bestBlocks = NULL;
+    int64_t bestScore = INT64_MIN;
+    // Find the best path.
+    for (int64_t i = 0; i < stList_length(blockss); i++) {
+        int64_t score = scoreBlocks(stList_get(blockss, i), scoreFn);
+        if (score > bestScore) {
+            bestBlocks = stList_get(blockss, i);
+            bestScore = score;
+        }
+    }
+    stList_removeItem(blockss, bestBlocks);
+    stList_destruct(blockss);
+    if (bestBlocks == NULL) {
+        bestBlocks = stList_construct();
+    }
+    return bestBlocks;
+}
+
+stList *getBlocksFromBestBridgePathAbove(stCactusTree *node, stCactusTree *prev, int64_t scoreFn(void *)) {
+    stList *abovePath;
+    if (node->parent != NULL && stCactusTree_type(node->parent) != CHAIN) {
+        abovePath = getBlocksFromBestBridgePathAbove(node->parent, node, scoreFn);
+        stList_append(abovePath, node->parentEdge);
+    } else {
+        abovePath = stList_construct();
+    }
+    stList *belowPath = getBlocksFromBestBridgePathBelow(node, prev, scoreFn);
+    if (scoreBlocks(abovePath, scoreFn) > scoreBlocks(belowPath, scoreFn)) {
+        stList_destruct(belowPath);
+        return abovePath;
+    } else {
+        stList_destruct(abovePath);
+        return belowPath;
+    }
+}
+
+stList *stOnlineCactus_getBestScoringChainOrBridgePath(stOnlineCactus *cactus, void *block, int64_t scoreFn(void *)) {
+    stCactusTreeEdge *edge = stHash_search(cactus->blockToEdge, block);
+    if (stCactusTree_type(edge->child) == CHAIN || stCactusTree_type(edge->child->parent) == CHAIN) {
+        // return the only chain path.
+        stCactusTree *chain;
+        if (stCactusTree_type(edge->child) == CHAIN) {
+            chain = edge->child;
+        } else {
+            chain = edge->child->parent;
+        }
+        stList *path = chainToList(chain);
+        stList *blocks = stList_construct();
+        // Ignore the parent node of the chain, but get every other member's parent edges.
+        for (int64_t i = 1; i < stList_length(path); i++) {
+            stCactusTree *node = stList_get(path, i);
+            stList_append(blocks, node->parentEdge->block);
+        }
+        stList_destruct(path);
+
+        // Finally, append the parent edge of the chain node itself.
+        stList_append(blocks, chain->parentEdge->block);
+        return blocks;
+    } else {
+        // Bridge edge. Return the best scoring path of bridge edges,
+        // according to the sum of the scoring function on the path.
+        stCactusTree *node = edge->child;
+        stList *below = getBlocksFromBestBridgePathBelow(node, NULL, scoreFn);
+        stList *above = getBlocksFromBestBridgePathAbove(node->parent, node, scoreFn);
+        stList *blocks = stList_construct();
+        stList_append(blocks, edge);
+        stList_appendAll(blocks, below);
+        stList_appendAll(blocks, above);
+        stList_destruct(below);
+        stList_destruct(above);
+        return blocks;
+    }
+}
+
 void stOnlineCactus_print(const stOnlineCactus *cactus) {
     stHash *nodeToEnd = stHash_invert(cactus->endToNode, stHash_pointer, stHash_getEqualityFunction(cactus->endToNode), NULL, NULL);
     for (int64_t i = 0; i < stList_length(cactus->trees); i++) {

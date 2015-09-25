@@ -105,7 +105,7 @@ static void testStOnlineCactus_endCleave(CuTest *testCase) {
 }
 
 static void testStOnlinePinchToCactus_random(CuTest *testCase) {
-    for (int64_t i = 0; i < 10000; i++) {
+    for (int64_t i = 0; i < 100; i++) {
         printf("Random test %" PRIi64"\n", i);
         threadSet = stPinchThreadSet_getRandomEmptyGraph();
         connectivity = stPinchThreadSet_getAdjacencyConnectivity(threadSet);
