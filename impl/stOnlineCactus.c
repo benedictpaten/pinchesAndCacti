@@ -1454,7 +1454,7 @@ stList *getBlocksFromBestBridgePathAbove(stCactusTree *node, stCactusTree *prev,
     }
 }
 
-stList *stOnlineCactus_getBestScoringChainOrBridgePath(stOnlineCactus *cactus, void *block, int64_t scoreFn(void *)) {
+stList *stOnlineCactus_getMaximalChainOrBridgePath(stOnlineCactus *cactus, void *block, int64_t scoreFn(void *)) {
     stCactusTreeEdge *edge = stHash_search(cactus->blockToEdge, block);
     if (stCactusTree_type(edge->child) == CHAIN || stCactusTree_type(edge->child->parent) == CHAIN) {
         // return the only chain path.
@@ -1490,6 +1490,31 @@ stList *stOnlineCactus_getBestScoringChainOrBridgePath(stOnlineCactus *cactus, v
         stList_destruct(above);
         return blocks;
     }
+}
+
+stList *stOnlineCactus_getGloballyWorstMaximalChainOrBridgePath(stOnlineCactus *cactus, int64_t scoreFn(void *)) {
+    stHashIterator *blockIt = stHash_getIterator(cactus->blockToEdge);
+    stSet *visitedBlocks = stSet_construct();
+    stList *worstPath = NULL;
+    int64_t worstScore = INT64_MAX;
+    void *block;
+    while ((block = stHash_getNext(blockIt)) != NULL) {
+        if (!stSet_search(visitedBlocks, block)) {
+            stList *blockPath = stOnlineCactus_getMaximalChainOrBridgePath(cactus, block, scoreFn);
+            for (int64_t i = 0; i < stList_length(blockPath); i++) {
+                stSet_insert(visitedBlocks, stList_get(blockPath, i));
+            }
+            int64_t score = scoreBlocks(blockPath, scoreFn);
+            if (score < worstScore) {
+                worstScore = score;
+                stList_destruct(worstPath);
+                worstPath = blockPath;
+            }
+        }
+    }
+    stHash_destructIterator(blockIt);
+    stSet_destruct(visitedBlocks);
+    return worstPath;
 }
 
 void stOnlineCactus_print(const stOnlineCactus *cactus) {

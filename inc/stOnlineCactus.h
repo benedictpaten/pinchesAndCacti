@@ -40,7 +40,9 @@ void stOnlineCactus_netMerge(stOnlineCactus *cactus, void *end1, void *end2);
 
 bool stOnlineCactus_netCleave(stOnlineCactus *cactus, void *end, stSet *endsToRemove);
 
-stList *stOnlineCactus_getBestScoringChainOrBridgePath(stOnlineCactus *cactus, void *block, int64_t scoreFn(void *));
+stList *stOnlineCactus_getMaximalChainOrBridgePath(stOnlineCactus *cactus, void *block, int64_t scoreFn(void *));
+
+stList *stOnlineCactus_getGloballyWorstMaximalChainOrBridgePath(stOnlineCactus *cactus, int64_t scoreFn(void *));
 
 void stOnlineCactus_print(const stOnlineCactus *cactus);
 

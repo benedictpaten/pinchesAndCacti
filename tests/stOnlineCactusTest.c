@@ -663,33 +663,37 @@ static int64_t alwaysReturns1(void *foo) {
     return 1;
 }
 
-static void testStOnlineCactus_getBestScoringChainOrBridgePath(CuTest *testCase) {
+static void testStOnlineCactus_scoringChainOrBridgePaths(CuTest *testCase) {
     setup();
     getCactusTree("((((((((NET_5)BLOCK_E)CHAIN_C1)BLOCK_D)NET_3)BLOCK_B, (((NET_6)BLOCK_F, (((NET_14)BLOCK_O)NET_7)BLOCK_G)NET_4)BLOCK_C)NET_2)BLOCK_A, (NET_8)BLOCK_H, (((NET_9)BLOCK_J, (((NET_11)BLOCK_L, (((NET_13)BLOCK_N)NET_12)BLOCK_M)NET_10)BLOCK_K)CHAIN_C2)BLOCK_I)NET_1;");
 
-    stList *longestPath = stOnlineCactus_getBestScoringChainOrBridgePath(cactus, stHash_search(nameToBlock, "N"), alwaysReturns1);
+    stList *longestPath = stOnlineCactus_getMaximalChainOrBridgePath(cactus, stHash_search(nameToBlock, "N"), alwaysReturns1);
     CuAssertIntEquals(testCase, 3, stList_length(longestPath));
     stList_destruct(longestPath);
 
-    longestPath = stOnlineCactus_getBestScoringChainOrBridgePath(cactus, stHash_search(nameToBlock, "L"), alwaysReturns1);
+    longestPath = stOnlineCactus_getMaximalChainOrBridgePath(cactus, stHash_search(nameToBlock, "L"), alwaysReturns1);
     CuAssertIntEquals(testCase, 3, stList_length(longestPath));
     stList_destruct(longestPath);
 
-    longestPath = stOnlineCactus_getBestScoringChainOrBridgePath(cactus, stHash_search(nameToBlock, "H"), alwaysReturns1);
+    longestPath = stOnlineCactus_getMaximalChainOrBridgePath(cactus, stHash_search(nameToBlock, "H"), alwaysReturns1);
     CuAssertIntEquals(testCase, 5, stList_length(longestPath));
     stList_destruct(longestPath);
 
-    longestPath = stOnlineCactus_getBestScoringChainOrBridgePath(cactus, stHash_search(nameToBlock, "E"), alwaysReturns1);
+    longestPath = stOnlineCactus_getMaximalChainOrBridgePath(cactus, stHash_search(nameToBlock, "E"), alwaysReturns1);
     CuAssertIntEquals(testCase, 2, stList_length(longestPath));
     stList_destruct(longestPath);
 
-    longestPath = stOnlineCactus_getBestScoringChainOrBridgePath(cactus, stHash_search(nameToBlock, "I"), alwaysReturns1);
+    longestPath = stOnlineCactus_getMaximalChainOrBridgePath(cactus, stHash_search(nameToBlock, "I"), alwaysReturns1);
     CuAssertIntEquals(testCase, 3, stList_length(longestPath));
     stList_destruct(longestPath);
 
-    longestPath = stOnlineCactus_getBestScoringChainOrBridgePath(cactus, stHash_search(nameToBlock, "F"), alwaysReturns1);
+    longestPath = stOnlineCactus_getMaximalChainOrBridgePath(cactus, stHash_search(nameToBlock, "F"), alwaysReturns1);
     CuAssertIntEquals(testCase, 4, stList_length(longestPath));
     stList_destruct(longestPath);
+
+    stList *worstPath = stOnlineCactus_getGloballyWorstMaximalChainOrBridgePath(cactus, alwaysReturns1);
+    CuAssertIntEquals(testCase, 2, stList_length(worstPath));
+    stList_destruct(worstPath);
     teardown();
 }
 
@@ -702,6 +706,6 @@ CuSuite* stOnlineCactusTestSuite(void) {
     SUITE_ADD_TEST(suite, testStOnlineCactus_random_edge_add_and_delete);
     SUITE_ADD_TEST(suite, testStOnlineCactus_random_edge_add_node_insert_and_node_merge);
     SUITE_ADD_TEST(suite, testStOnlineCactus_random_edge_add_and_node_partition);
-    SUITE_ADD_TEST(suite, testStOnlineCactus_getBestScoringChainOrBridgePath);
+    SUITE_ADD_TEST(suite, testStOnlineCactus_scoringChainOrBridgePaths);
     return suite;
 }
