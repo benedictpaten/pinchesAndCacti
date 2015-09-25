@@ -48,6 +48,7 @@ stCactusTree *stCactusTree_construct(stCactusTree *parent, stCactusTree *leftSib
     if (type == NET) {
         ret->ends = stSet_construct();
     }
+    printf("constructed new tree %p\n", (void *) ret);
     return ret;
 }
 
@@ -298,6 +299,32 @@ static stList* stCactusTree_getNetGraph(stOnlineCactus *cactus, stCactusTree *tr
 static stList *get3ECComponents(stOnlineCactus *cactus, stCactusTree *tree, stHash **adjComponentToIndex) {
     stList *netGraph = stCactusTree_getNetGraph(cactus, tree, adjComponentToIndex);
     stList *components = computeThreeEdgeConnectedComponents(netGraph);
+
+    printf("got %" PRIi64 " components!\n", stList_length(components));
+    stHash *indexToAdjComponent = stHash_invert(*adjComponentToIndex,
+                                                (uint64_t (*)(const void *)) stIntTuple_hashKey,
+                                                (int (*)(const void *, const void *)) stIntTuple_equalsFn,
+                                                NULL,
+                                                NULL);
+    for (int64_t i = 0; i < stList_length(components); i++) {
+        printf("component %"PRIi64"\n", i);
+        stList *component = stList_get(components, i);
+        for (int64_t j = 0; j < stList_length(component); j++) {
+            printf("sub-component %"PRIi64"\n", j);
+            stIntTuple *index = stList_get(component, j);
+            stConnectedComponent *component = stHash_search(indexToAdjComponent, index);
+            assert(component != NULL);
+            stConnectedComponentNodeIterator *it = stConnectedComponent_getNodeIterator(component);
+            void *end;
+            while ((end = stConnectedComponentNodeIterator_getNext(it)) != NULL) {
+                if (stHash_search(cactus->endToNode, end)) {
+                    printf("end %p\n", end);
+                }
+            }
+            stConnectedComponentNodeIterator_destruct(it);
+        }
+    }
+
     stList_destruct(netGraph);
     return components;
 }
@@ -449,16 +476,33 @@ static void fix3EC(stOnlineCactus *cactus, stCactusTree *tree);
 
 // Cleave a net into two, with representative ends in endsToRemove
 // moving to a new node. If the two nets would be 3-edge-connected
-// after partition, does nothing. Takes ownership of the set.
+// after partition, does nothing.
 // Does not check the 3-edge-connectivity of the resulting net graphs.
-static stCactusTree *netCleave(stOnlineCactus *cactus, stCactusTree *tree, stSet *endsToRemove) {
-    stSet *ends2 = endsToRemove;
+static void netCleave(stOnlineCactus *cactus, stCactusTree *tree, stSet *endsToRemove, stCactusTree **remainingTree, stCactusTree **partitionedTree) {
+    printf("net cleave on %p\n", (void *)  tree);
+    // In case there are non-representative ends in the set of ends to remove.
+    stSet *ends2 = stSet_getIntersection(tree->ends, endsToRemove);
     stSet *ends1 = stSet_getDifference(tree->ends, ends2);
+
+    if (stSet_size(ends1) == 0 || stSet_size(ends2) == 0) {
+        // Nothing to partition.
+        printf("empty partition\n");
+        if (remainingTree != NULL) {
+            *remainingTree = tree;
+        }
+        if (partitionedTree != NULL) {
+            *partitionedTree = NULL;
+        }
+        return;
+    }
+
+    bool tree2IsPartitionedTree = true;
     // Without loss of generality we call ends1 the partition that contains the parent edge.
     if (tree->parent && stSet_search(ends2, getBlockEndCorrespondingToNet(cactus, tree->parentEdge->block, tree))) {
         stSet *tmp = ends1;
         ends1 = ends2;
         ends2 = tmp;
+        tree2IsPartitionedTree = false;
     }
 
     // The chains with ends in different partitions.
@@ -489,7 +533,14 @@ static stCactusTree *netCleave(stOnlineCactus *cactus, stCactusTree *tree, stSet
                     stList_destruct(connectingChains);
                     stSet_destruct(ends1);
                     stSet_destruct(ends2);
-                    return tree;
+                    printf("3ec because of two connecting chains!\n");
+                    if (remainingTree != NULL) {
+                        *remainingTree = tree;
+                    }
+                    if (partitionedTree != NULL) {
+                        *partitionedTree = NULL;
+                    }
+                    return;
                 }
             } else if (stSet_search(ends2, end1)) {
                 // This chain wholly belongs to the new tree.
@@ -556,6 +607,7 @@ static stCactusTree *netCleave(stOnlineCactus *cactus, stCactusTree *tree, stSet
         void *otherEnd = end == cactus->edgeToEnd(block, 0) ? cactus->edgeToEnd(block, 1) : cactus->edgeToEnd(block, 0);
         stCactusTree *attachmentPoint = stHash_search(cactus->endToNode, otherEnd);
         stCactusTree_prependChild(attachmentPoint, tree2, block);
+        stHash_insert(cactus->blockToEdge, block, tree2->parentEdge);
 
         // We may have changed the 3EC of the unraveled nodes.
         stList_appendAll(nodesToCheck3ECOf, otherNodesInChain);
@@ -696,36 +748,47 @@ static stCactusTree *netCleave(stOnlineCactus *cactus, stCactusTree *tree, stSet
         stCactusTree *cur = stList_get(nodesToCheck3ECOf, i);
         // FIXME: does the 3-edge-connectivity computation twice.
         if (!stOnlineCactus_check3EC(cactus, cur)) {
-            printf("fixing connectivity of %p\n", (void *) cur);
             fix3EC(cactus, cur);
         }
     }
     stList_destruct(nodesToCheck3ECOf);
 
-    // Return whatever tree has the ends not in endsToRemove.
-    if (ends2 == endsToRemove) {
-        return tree;
+    // Return whatever tree doesn't have the partitioned ends.
+    if (tree2IsPartitionedTree) {
+        if (remainingTree != NULL) {
+            *remainingTree = tree;
+        }
+        if (partitionedTree != NULL) {
+            *partitionedTree = tree2;
+        }
     } else {
-        return tree2;
+        if (remainingTree != NULL) {
+            *remainingTree = tree2;
+        }
+        if (partitionedTree != NULL) {
+            *partitionedTree = tree;
+        }
     }
 }
 
 // Cleave a net into two, with representative ends in endsToRemove
 // moving to a new node. If the two nets would be 3-edge-connected
-// after partition, does nothing. Takes ownership of the set.
+// after partition, does nothing.
 // Ensures 3-edge-connectivity of the resulting net graphs.
-void stOnlineCactus_netCleave(stOnlineCactus *cactus, stCactusTree *tree, stSet *endsToRemove) {
-    tree = netCleave(cactus, tree, endsToRemove);
+// Returns 'true' if the partition was successful, or 'false' if the partition was 3EC.
+bool stOnlineCactus_netCleave(stOnlineCactus *cactus, void *end, stSet *endsToRemove) {
+    stCactusTree *tree = stHash_search(cactus->endToNode, end);
+    stCactusTree *tree2;
+    netCleave(cactus, tree, endsToRemove, &tree, &tree2);
 
-    // Get an arbitrary end from the partition.
-    stSetIterator *it = stSet_getIterator(endsToRemove);
-    void *end = stSet_getNext(it);
-    stSet_destructIterator(it);
-    stCactusTree *tree2 = stHash_search(cactus->endToNode, end);
-    if (tree == tree2) {
+    printf("got tree %p, tree2 %p\n", (void *) tree, (void *) tree2);
+
+    printf("is net 3ec after? %d\n", stOnlineCactus_check3EC(cactus, tree));
+
+    if (tree2 == NULL) {
         // the two sets were 3-edge-connected and nothing was done. No
         // need to check the 3-edge-connectivity of the net graphs.
-        return;
+        return false;
     }
     if (!stOnlineCactus_check3EC(cactus, tree)) {
         fix3EC(cactus, tree);
@@ -734,6 +797,8 @@ void stOnlineCactus_netCleave(stOnlineCactus *cactus, stCactusTree *tree, stSet 
     if (!stOnlineCactus_check3EC(cactus, tree2)) {
         fix3EC(cactus, tree2);
     }
+
+    return true;
 }
 
 static stCactusTree *stCactusTree_getMRCA(stCactusTree *node1, stCactusTree *node2) {
@@ -1196,10 +1261,13 @@ void stOnlineCactus_netMerge(stOnlineCactus *cactus, void *end1, void *end2) {
 
 // Add a new edge between the adjacency components containing two existing ends.
 void stOnlineCactus_addEdge(stOnlineCactus *cactus, void *end1, void *end2, void *edge) {
+    printf("adding edge %p\n", edge);
     stCactusTree *node1 = stHash_search(cactus->endToNode, end1);
     assert(node1 != NULL);
     stCactusTree *node2 = stHash_search(cactus->endToNode, end2);
     assert(node2 != NULL);
+
+    assert(stHash_search(cactus->blockToEdge, edge) == NULL);
 
     // Are node1 and node2 in the same tree?
     if (stCactusTree_root(node1) == stCactusTree_root(node2)) {
@@ -1233,7 +1301,6 @@ static void fix3EC(stOnlineCactus *cactus, stCactusTree *tree) {
                                                 (int (*)(const void *, const void *)) stIntTuple_equalsFn,
                                                 NULL,
                                                 NULL);
-
     for (int64_t i = 0; i < stList_length(components) - 1; i++) {
         stList *component = stList_get(components, i);
         stSet *ends = stSet_construct();
@@ -1250,7 +1317,9 @@ static void fix3EC(stOnlineCactus *cactus, stCactusTree *tree) {
             }
             stConnectedComponentNodeIterator_destruct(it);
         }
-        tree = netCleave(cactus, tree, ends);
+        stCactusTree *tree2;
+        netCleave(cactus, tree, ends, &tree, &tree2);
+        assert(tree2 != NULL); // If this is a separate 3EC component, the cleave must succeed!!
     }
     stList_destruct(components);
     stHash_destruct(adjComponentToIndex);
@@ -1263,10 +1332,12 @@ void stOnlineCactus_deleteEdge(stOnlineCactus *cactus, void *end1, void *end2, v
     stCactusTree *node2 = stHash_search(cactus->endToNode, end2);
     assert(node2 != NULL);
     assert(stCactusTree_root(node1) == stCactusTree_root(node2));
+    printf("deleting edge %p\n", block);
     unmapEndToNode(cactus->endToNode, end1, node1);
     unmapEndToNode(cactus->endToNode, end2, node2);
     stCactusTreeEdge *edge = stHash_search(cactus->blockToEdge, block);
     if (node1->parent == node2 || node2->parent == node1) {
+        printf("bridge edge %p\n", (void *) edge);
         // a bridge edge
         assert(stCactusTree_type(node1) == NET);
         assert(stCactusTree_type(node2) == NET);
@@ -1287,17 +1358,20 @@ void stOnlineCactus_deleteEdge(stOnlineCactus *cactus, void *end1, void *end2, v
         child->parentEdge = NULL;
         stCactusTree_removeChild(parent, child);
     } else if (node1 == node2) {
+        printf("loop edge\n");
         // endpoints are in the same net, we need to delete a chain
         stCactusTree *chain = edge->child;
         assert(stCactusTree_type(chain) == CHAIN);
         assert(chain->firstChild == NULL);
         stCactusTree_removeChild(node1, chain);
+        stHash_remove(cactus->blockToEdge, chain->parentEdge->block);
         stCactusTree_destruct(chain);
         if (!stOnlineCactus_check3EC(cactus, node1)) {
             // FIXME: this ends up doing the 3-edge-connectedness computation twice.
             fix3EC(cactus, node1);
         }
     } else {
+        printf("chain edge\n");
         // We save the chain nodes for checking 3EC later on.
         stCactusTree *chain;
         if (stCactusTree_type(edge->child) == CHAIN) {
@@ -1383,6 +1457,9 @@ static void stCactusTree_check(stCactusTree *tree, stOnlineCactus *cactus) {
         stSetIterator *it = stSet_getIterator(tree->ends);
         void *end;
         while ((end = stSet_getNext(it)) != NULL) {
+            if (stHash_search(cactus->endToNode, end) != tree) {
+                st_errAbort("end not mapped to correct node");
+            }
             stConnectedComponent *component = stConnectivity_getConnectedComponent(cactus->adjacencyComponents, end);
             // Check that each of the ends in the adjacency component belong
             // to the node (or none, if they are not representative ends).
@@ -1407,6 +1484,9 @@ static void stCactusTree_check(stCactusTree *tree, stOnlineCactus *cactus) {
         }
         // Check that this parent edge is actually connecting what it's supposed to in the tree.
         void *block = tree->parentEdge->block;
+        if (stHash_search(cactus->blockToEdge, block) != tree->parentEdge) {
+            st_errAbort("block edge not correctly registered in blockToEdge");
+        }
         void *end1 = cactus->edgeToEnd(block, 0);
         void *end2 = cactus->edgeToEnd(block, 1);
         if (tree->type == NET) {
@@ -1510,6 +1590,28 @@ static void stCactusTree_check(stCactusTree *tree, stOnlineCactus *cactus) {
 
 // Make sure Joel hasn't fucked anything up.
 void stOnlineCactus_check(stOnlineCactus *cactus) {
+    // Check that the end->node mappings are correct.
+    stHashIterator *it = stHash_getIterator(cactus->endToNode);
+    void *end;
+    while ((end = stHash_getNext(it)) != NULL) {
+        stCactusTree *tree = stHash_search(cactus->endToNode, end);
+        if (stSet_search(tree->ends, end) == NULL) {
+            st_errAbort("node does not contain correct end");
+        }
+    }
+    stHash_destructIterator(it);
+
+    // Check that the block (i.e. edge) mappings are correct.
+    it = stHash_getIterator(cactus->blockToEdge);
+    void *block;
+    while ((block = stHash_getNext(it)) != NULL) {
+        stCactusTreeEdge *edge = stHash_search(cactus->blockToEdge, block);
+        if (edge->block != block) {
+            st_errAbort("Block->edge mapping broken");
+        }
+    }
+    stHash_destructIterator(it);
+
     for (int64_t i = 0; i < stList_length(cactus->trees); i++) {
         stCactusTree_check(stList_get(cactus->trees, i), cactus);
     }

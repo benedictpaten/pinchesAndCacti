@@ -29,6 +29,7 @@ static void setup(void) {
     stPinchThreadSet_setBlockCreationCallback(threadSet, (void (*)(void *, stPinchSegmentCap *, stPinchSegmentCap *, stPinchBlock *)) stOnlineCactus_addEdge, cactus);
     stPinchThreadSet_setBlockDeletionCallback(threadSet, (void (*)(void *, stPinchSegmentCap *, stPinchSegmentCap *, stPinchBlock *)) stOnlineCactus_deleteEdge, cactus);
     stPinchThreadSet_setEndMergeCallback(threadSet, (void (*)(void *, stPinchSegmentCap *, stPinchSegmentCap *)) stOnlineCactus_netMerge, cactus);
+    stPinchThreadSet_setEndCleaveCallback(threadSet, (bool (*)(void *, stPinchSegmentCap *, stSet *)) stOnlineCactus_netCleave, cactus);
 }
 
 static void teardown(void) {
@@ -90,11 +91,77 @@ static void testStOnlineCactus_blockCreation(CuTest *testCase) {
     teardown();
 }
 
+static void testStOnlineCactus_endCleave(CuTest *testCase) {
+    setup();
+    stPinchThread_pinch(thread1, thread2, 50, 50, 30, 1);
+    stOnlineCactus_print(cactus);
+    stPinchUndo *undo = stPinchThread_prepareUndo(thread1, thread2, 0, 0, 50, 0);
+    stPinchThread_pinch(thread1, thread2, 0, 0, 50, 0);
+    stOnlineCactus_print(cactus);
+    stPinchThreadSet_undoPinch(threadSet, undo);
+    stOnlineCactus_print(cactus);
+    stOnlineCactus_check(cactus);
+    teardown();
+}
+
+static void testStOnlinePinchToCactus_random(CuTest *testCase) {
+    for (int64_t i = 0; i < 10000; i++) {
+        printf("Random test %" PRIi64"\n", i);
+        threadSet = stPinchThreadSet_getRandomEmptyGraph();
+        connectivity = stPinchThreadSet_getAdjacencyConnectivity(threadSet);
+        cactus = stOnlineCactus_construct(
+            connectivity,
+            (void *(*)(void *, bool)) stPinchBlock_getRepresentativeSegmentCap,
+            (void *(*)(void *)) stPinchSegmentCap_getBlock);
+        stPinchThreadSet_setAdjComponentCreationCallback(threadSet, (void (*)(void *, stPinchSegmentCap *)) stOnlineCactus_createEnd, cactus);
+        stPinchThreadSet_setBlockCreationCallback(threadSet, (void (*)(void *, stPinchSegmentCap *, stPinchSegmentCap *, stPinchBlock *)) stOnlineCactus_addEdge, cactus);
+        stPinchThreadSet_setBlockDeletionCallback(threadSet, (void (*)(void *, stPinchSegmentCap *, stPinchSegmentCap *, stPinchBlock *)) stOnlineCactus_deleteEdge, cactus);
+        stPinchThreadSet_setEndMergeCallback(threadSet, (void (*)(void *, stPinchSegmentCap *, stPinchSegmentCap *)) stOnlineCactus_netMerge, cactus);
+        stPinchThreadSet_setEndCleaveCallback(threadSet, (bool (*)(void *, stPinchSegmentCap *, stSet *)) stOnlineCactus_netCleave, cactus);
+
+        double threshold = st_random();
+        if (threshold < 0.01) {
+            threshold = 0.01; // Just to prevent the test from
+            // exploding every so often.
+        }
+        while (st_random() > threshold) {
+            stPinch pinch = stPinchThreadSet_getRandomPinch(threadSet);
+            stPinchUndo *undo = stPinchThread_prepareUndo(stPinchThreadSet_getThread(threadSet, pinch.name1),
+                                                          stPinchThreadSet_getThread(threadSet, pinch.name2), pinch.start1, pinch.start2, pinch.length,
+                                                          pinch.strand);
+            stPinchThread_pinch(stPinchThreadSet_getThread(threadSet, pinch.name1),
+                                stPinchThreadSet_getThread(threadSet, pinch.name2), pinch.start1, pinch.start2, pinch.length,
+                                pinch.strand);
+
+            stOnlineCactus_print(cactus);
+            stOnlineCactus_check(cactus);
+            simpleSanityChecks(testCase);
+
+            if (st_random() > 0.5) {
+                int64_t offset = 0;
+                while (offset < pinch.length) {
+                    int64_t undoLength = st_randomInt64(0, pinch.length - offset + 1);
+                    stPinchThreadSet_partiallyUndoPinch(threadSet, undo, offset, undoLength);
+                    offset += undoLength;
+                    stOnlineCactus_print(cactus);
+                    stOnlineCactus_check(cactus);
+                    simpleSanityChecks(testCase);
+                }
+            }
+            stOnlineCactus_print(cactus);
+            stOnlineCactus_check(cactus);
+            simpleSanityChecks(testCase);
+        }
+    }
+}
+
 CuSuite* stOnlinePinchToCactusTestSuite(void) {
     CuSuite* suite = CuSuiteNew();
     SUITE_ADD_TEST(suite, testStOnlineCactus_blockCreation);
     SUITE_ADD_TEST(suite, testStOnlineCactus_simpleBlockDelete);
     SUITE_ADD_TEST(suite, testStOnlineCactus_edgeSplit);
     SUITE_ADD_TEST(suite, testStOnlineCactus_edgeMerge);
+    SUITE_ADD_TEST(suite, testStOnlineCactus_endCleave);
+    SUITE_ADD_TEST(suite, testStOnlinePinchToCactus_random);
     return suite;
 }

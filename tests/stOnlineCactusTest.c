@@ -463,7 +463,6 @@ static void testStOnlineCactus_random_edge_add_and_delete(CuTest *testCase) {
         int64_t node2 = st_randomInt64(0, numNodes);
         addEdge(node1, node2, i);
         stList_append(edges, stIntTuple_construct3(node1, node2, i));
-        stOnlineCactus_check(cactus);
     }
     int64_t numDeletions = st_randomInt64(0, stList_length(edges));
     for (int64_t i = 0; i < numDeletions; i++) {
@@ -473,9 +472,9 @@ static void testStOnlineCactus_random_edge_add_and_delete(CuTest *testCase) {
         int64_t node1 = stIntTuple_get(edge, 0);
         int64_t node2 = stIntTuple_get(edge, 1);
         deleteEdge(node1, node2, edgeNum);
-        stOnlineCactus_check(cactus);
         stList_remove(edges, randomIndex);
     }
+    stOnlineCactus_check(cactus);
     printNiceCactus();
     checkAgainstStatic3ECAlgorithm(testCase);
     teardown();
@@ -549,8 +548,8 @@ static void testStOnlineCactus_random_edge_add_node_insert_and_node_merge(CuTest
             addNode();
             break;
         }
-        stOnlineCactus_check(cactus);
     }
+    stOnlineCactus_check(cactus);
     printNiceCactus();
     checkAgainstStatic3ECAlgorithm(testCase);
     teardown();
@@ -625,7 +624,7 @@ static void partitionNode(int64_t node) {
         stConnectivity_addEdge(connectivity, end, nullEnd);
         stSet_insert(endsToRemove, end);
     }
-    stOnlineCactus_netCleave(cactus, getNodeByLabel(label), endsToRemove);
+    stOnlineCactus_netCleave(cactus, getEndByLabel(label), endsToRemove);
     stOnlineCactus_createEnd(cactus, nullEnd); // So we can get the null end mapped to the proper node.
     free(label);
 }
@@ -652,9 +651,8 @@ void testStOnlineCactus_random_edge_add_and_node_partition(CuTest *testCase) {
             partitionNode(node1);
             break;
         }
-        printNiceCactus();
-        stOnlineCactus_check(cactus);
     }
+    stOnlineCactus_check(cactus);
     printNiceCactus();
     checkAgainstStatic3ECAlgorithm(testCase);
     teardown();

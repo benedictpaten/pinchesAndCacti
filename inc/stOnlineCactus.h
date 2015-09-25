@@ -38,7 +38,7 @@ void stOnlineCactus_deleteEdge(stOnlineCactus *cactus, void *end1, void *end2, v
 
 void stOnlineCactus_netMerge(stOnlineCactus *cactus, void *end1, void *end2);
 
-void stOnlineCactus_netCleave(stOnlineCactus *cactus, stCactusTree *tree, stSet *endsToRemove);
+bool stOnlineCactus_netCleave(stOnlineCactus *cactus, void *end, stSet *endsToRemove);
 
 void stOnlineCactus_print(const stOnlineCactus *cactus);
 

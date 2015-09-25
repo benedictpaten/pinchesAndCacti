@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include "sonLib.h"
 #include "stPinchGraphs.h"
+#include "stOnlineCactus.h"
 
 struct _stPinchThreadSet {
     stList *threads;
@@ -23,6 +24,8 @@ struct _stPinchThreadSet {
     void *blockDeletionExtraData;
     void (*endMergeCallback)(void *, stPinchSegmentCap *, stPinchSegmentCap *);
     void *endMergeExtraData;
+    bool (*endCleaveCallback)(void *, stPinchSegmentCap *, stSet *);
+    void *endCleaveExtraData;
 };
 
 struct _stPinchThread {
@@ -50,31 +53,36 @@ struct _stPinchBlock {
     stPinchSegment *tailSegment;
 };
 
+static void connectSingleSegmentComponent(stPinchSegment *segment1, stPinchSegment *segment2,
+                                          bool blockOrientation2, bool capOrientation) {
+    stConnectivity *adjacencyComponents = segment1->thread->threadSet->adjacencyComponents;
+    stConnectivity_addEdge(adjacencyComponents,
+                           stPinchSegment_getSegmentCap(segment1, capOrientation ^ segment1->blockOrientation),
+                           stPinchSegment_getSegmentCap(segment2, capOrientation ^ blockOrientation2));
+}
+
 // Connect two segments together in the adjacency components "vertically",
 // so that they become part of the same block components. The first
 // segment must be in a block already, but the second segment may or
 // may not be.
 static void connectSegmentComponents(stPinchSegment *segment1, stPinchSegment *segment2,
                                      bool blockOrientation2) {
+    connectSingleSegmentComponent(segment1, segment2, blockOrientation2, 0);
+    connectSingleSegmentComponent(segment1, segment2, blockOrientation2, 1);
+}
+
+static void disconnectSingleSegmentComponent(stPinchSegment *segment1, stPinchSegment *segment2, bool capOrientation) {
     stConnectivity *adjacencyComponents = segment1->thread->threadSet->adjacencyComponents;
-    stConnectivity_addEdge(adjacencyComponents,
-                           stPinchSegment_getSegmentCap(segment1, segment1->blockOrientation),
-                           stPinchSegment_getSegmentCap(segment2, blockOrientation2));
-    stConnectivity_addEdge(adjacencyComponents,
-                           stPinchSegment_getSegmentCap(segment1, !segment1->blockOrientation),
-                           stPinchSegment_getSegmentCap(segment2, !blockOrientation2));
+    stConnectivity_removeEdge(adjacencyComponents, stPinchSegment_getSegmentCap(segment1, capOrientation ^ stPinchSegment_getBlockOrientation(segment1)),
+                              stPinchSegment_getSegmentCap(segment2, capOrientation ^ stPinchSegment_getBlockOrientation(segment2)));
 }
 
 // Disconnect two segments that were linked together into a block
 // component. NB: the two segments must be adjacent in the block's
 // segment list!
 static void disconnectSegmentComponents(stPinchSegment *segment1, stPinchSegment *segment2) {
-    stConnectivity *adjacencyComponents = segment1->thread->threadSet->adjacencyComponents;
-    stConnectivity_removeEdge(adjacencyComponents, stPinchSegment_getSegmentCap(segment1, stPinchSegment_getBlockOrientation(segment1)),
-                              stPinchSegment_getSegmentCap(segment2, stPinchSegment_getBlockOrientation(segment2)));
-    stConnectivity_removeEdge(adjacencyComponents, stPinchSegment_getSegmentCap(segment1, !stPinchSegment_getBlockOrientation(segment1)),
-                              stPinchSegment_getSegmentCap(segment2, !stPinchSegment_getBlockOrientation(segment2)));
-
+    disconnectSingleSegmentComponent(segment1, segment2, 0);
+    disconnectSingleSegmentComponent(segment1, segment2, 1);
 }
 
 //Blocks
@@ -133,13 +141,20 @@ void stPinchBlock_destruct(stPinchBlock *block) {
     stPinchBlockIt blockIt = stPinchBlock_getSegmentIterator(block);
     stPinchSegment *segment = stPinchBlockIt_getNext(&blockIt);
     stPinchThreadSet *threadSet = segment->thread->threadSet;
-    if (threadSet->blockDeletionCallback) {
-        threadSet->blockDeletionCallback(threadSet->blockDeletionExtraData, stPinchBlock_getRepresentativeSegmentCap(block, 0), stPinchBlock_getRepresentativeSegmentCap(block, 1), block);
+    stConnectivity *adjacencyComponents = segment->thread->threadSet->adjacencyComponents;
+    bool mergeEnds = false;
+    stPinchSegmentCap *cap0 = stPinchBlock_getRepresentativeSegmentCap(block, 0);
+    stPinchSegmentCap *cap1 = stPinchBlock_getRepresentativeSegmentCap(block, 1);
+    // Check if the deletion of this block will cause a merger of adjacency components.
+    stConnectedComponent *component0 = stConnectivity_getConnectedComponent(adjacencyComponents, cap0);
+    stConnectedComponent *component1 = stConnectivity_getConnectedComponent(adjacencyComponents, cap1);
+    if (component0 != component1) {
+        mergeEnds = true;
     }
+
     while (segment != NULL) {
         stPinchSegment *nSegment = stPinchBlockIt_getNext(&blockIt);
         if (nSegment != NULL) {
-            stConnectivity *adjacencyComponents = segment->thread->threadSet->adjacencyComponents;
             stConnectivity_removeEdge(adjacencyComponents, stPinchSegment_getSegmentCap(segment, segment->blockOrientation),
                                       stPinchSegment_getSegmentCap(nSegment, nSegment->blockOrientation));
             stConnectivity_removeEdge(adjacencyComponents, stPinchSegment_getSegmentCap(segment, !segment->blockOrientation),
@@ -148,6 +163,15 @@ void stPinchBlock_destruct(stPinchBlock *block) {
         connectBlockToSegment(segment, 0, NULL, NULL);
         segment = nSegment;
     }
+
+    if (threadSet->blockDeletionCallback) {
+        if (mergeEnds) {
+            threadSet->endMergeCallback(threadSet->endMergeExtraData, cap0, cap1);
+        }
+        // Delete the edge corresponding to this block.
+        threadSet->blockDeletionCallback(threadSet->blockDeletionExtraData, cap0, cap1, block);
+    }
+
     free(block);
 }
 
@@ -896,6 +920,11 @@ void stPinchThreadSet_setEndMergeCallback(stPinchThreadSet *threadSet, void (*ca
     threadSet->endMergeExtraData = extraData;
 }
 
+void stPinchThreadSet_setEndCleaveCallback(stPinchThreadSet *threadSet, bool (*callback)(void *, stPinchSegmentCap *, stSet *), void *extraData) {
+    threadSet->endCleaveCallback = callback;
+    threadSet->endCleaveExtraData = extraData;
+}
+
 //convenience functions
 
 stPinchThreadSetSegmentIt stPinchThreadSet_getSegmentIt(stPinchThreadSet *threadSet) {
@@ -1307,8 +1336,10 @@ static void merge5Prime(stPinchSegment *segment) {
     stConnectivity *adjacencyComponents = segment->thread->threadSet->adjacencyComponents;
     stConnectivity_removeNode(adjacencyComponents, stPinchSegment_getSegmentCap(pSegment, 0));
     stConnectivity_removeNode(adjacencyComponents, stPinchSegment_getSegmentCap(pSegment, 1));
-    stConnectivity_addEdge(adjacencyComponents, stPinchSegment_getSegmentCap(segment, 0),
-                           stPinchSegment_getSegmentCap(pSegment->pSegment, 1));
+    if (pSegment->pSegment != NULL) {
+        stConnectivity_addEdge(adjacencyComponents, stPinchSegment_getSegmentCap(segment, 0),
+                               stPinchSegment_getSegmentCap(pSegment->pSegment, 1));
+    }
     stPinchSegment_destruct(pSegment);
 }
 
@@ -1764,6 +1795,93 @@ static bool stPinchBlock_check(stPinchBlock *block) {
     return true;
 }
 
+static void separateComponentsCallback(stPinchThreadSet *threadSet, stPinchSegment *oldCap, stPinchSegment *newCap)  {
+    printf("attempting to separate %p and %p\n", (void *) oldCap, (void *) newCap);
+    stConnectedComponent *oldEndComponent = stConnectivity_getConnectedComponent(threadSet->adjacencyComponents, oldCap);
+    stConnectedComponent *newEndComponent = stConnectivity_getConnectedComponent(threadSet->adjacencyComponents, newCap);
+    stSet *newEnds = stSet_construct();
+    stConnectedComponentNodeIterator *it = stConnectedComponent_getNodeIterator(newEndComponent);
+    void *end;
+    while ((end = stConnectedComponentNodeIterator_getNext(it)) != NULL) {
+        stPinchSegment *segment = stPinchSegmentCap_getSegment(end);
+        if (segment->block && segment == segment->block->headSegment) {
+            printf("adding rep end %p\n", (void *) end);
+            stSet_insert(newEnds, end);
+        }
+    }
+    stConnectedComponentNodeIterator_destruct(it);
+
+    printf("attempting cleave on end %p\n", (void *) oldCap);
+    if (!threadSet->endCleaveCallback(threadSet->endCleaveExtraData, oldCap, newEnds)) {
+        printf("trying again\n");
+        // Try again, but partitioning the other way around.
+        stSet *oldEnds = stSet_construct();
+        stConnectedComponentNodeIterator *it = stConnectedComponent_getNodeIterator(oldEndComponent);
+        void *end;
+        while ((end = stConnectedComponentNodeIterator_getNext(it)) != NULL) {
+            stPinchSegment *segment = stPinchSegmentCap_getSegment(end);
+            if (segment->block && segment == segment->block->headSegment) {
+                printf("adding rep end %p\n", (void *) end);
+                stSet_insert(oldEnds, end);
+            }
+        }
+        stConnectedComponentNodeIterator_destruct(it);
+        printf("attempting cleave on end %p\n", (void *) newCap);
+        threadSet->endCleaveCallback(threadSet->endCleaveExtraData, newCap, oldEnds);
+    }
+}
+
+static void *getArbitraryRepresentativeEnd(stConnectedComponent *component) {
+    stConnectedComponentNodeIterator *it = stConnectedComponent_getNodeIterator(component);
+    void *repEnd = NULL;
+    void *end;
+    while ((end = stConnectedComponentNodeIterator_getNext(it)) != NULL) {
+        stPinchSegment *segment = stPinchSegmentCap_getSegment(end);
+        if (segment->block && segment == segment->block->headSegment) {
+            repEnd = end;
+            break;
+        }
+    }
+    stConnectedComponentNodeIterator_destruct(it);
+    return repEnd;
+}
+
+static void registerPossibleAdjComponentSplit(stPinchThreadSet *threadSet, stPinchSegmentCap *cap1, stPinchSegmentCap *cap2) {
+    if (threadSet->endCleaveCallback == NULL) {
+        return;
+    }
+    stConnectedComponent *component1 = stConnectivity_getConnectedComponent(threadSet->adjacencyComponents, cap1);
+    stConnectedComponent *component2 = stConnectivity_getConnectedComponent(threadSet->adjacencyComponents, cap2);
+
+    if (component1 != component2) {
+        printf("adj component split\n");
+        void *repEnd1 = getArbitraryRepresentativeEnd(component1);
+        void *repEnd2 = getArbitraryRepresentativeEnd(component2);
+        if (repEnd1 == NULL || repEnd2 == NULL) {
+            printf("abandoning split because of null repEnd\n");
+            return;
+        }
+
+        separateComponentsCallback(threadSet, repEnd1, repEnd2);
+    }
+}
+
+static void registerPossibleAdjComponentMerge(stPinchThreadSet *threadSet, stPinchSegmentCap *cap1, stPinchSegmentCap *cap2) {
+    if (threadSet->endMergeCallback == NULL) {
+        return;
+    }
+    if (cap1 == NULL || cap2 == NULL) {
+        return;
+    }
+    stConnectedComponent *component1 = stConnectivity_getConnectedComponent(threadSet->adjacencyComponents, cap1);
+    stConnectedComponent *component2 = stConnectivity_getConnectedComponent(threadSet->adjacencyComponents, cap2);
+
+    if (component1 == component2) {
+        printf("adj component merge\n");
+        threadSet->endMergeCallback(threadSet->endMergeExtraData, cap1, cap2);
+    }
+}
+
 // We were iterating along one of the pinched threads and found a
 // block to split. Create a new block equivalent to the portion of the
 // old block belonging to refSegment and seal up the hole we left in
@@ -1773,11 +1891,15 @@ static bool stPinchBlock_check(stPinchBlock *block) {
 // (potentially) all the segments in the block in order to seal the
 // hole, but having a doubly linked list of segments for the block
 // would cost a lot of memory.
-static stPinchBlock *splitBlockUsingUndoBlock(stPinchBlock *block, stPinchSegment *refSegment,
-                                              stPinchUndoBlock *undoBlock) {
+static stList *splitBlockUsingUndoBlock(stPinchBlock *block, stPinchSegment *refSegment,
+                                        stPinchUndoBlock *undoBlock) {
+    printf("attempting to split block %p\n", (void *) block);
     if (stPinchBlock_getDegree(block) == undoBlock->degree) {
         // This block was already undone at some point.
-        return NULL;
+        printf("block already undone\n");
+        stList *ret = stList_construct();
+        stList_append(ret, block);
+        return ret;
     }
 
     stPinchSegment *segment = block->headSegment;
@@ -1813,6 +1935,34 @@ static stPinchBlock *splitBlockUsingUndoBlock(stPinchBlock *block, stPinchSegmen
 
             int64_t endi = i + undoBlock->degree;
             stPinchBlock *newBlock = st_malloc(sizeof(stPinchBlock));
+            stPinchThreadSet *threadSet = segment->thread->threadSet;
+
+            if (prevSegment == NULL) {
+                // We want the representative end (i.e. the head
+                // segment) to stay with the same block pointer until
+                // block deletion. Here the head segment is being
+                // split away into a new block. So we flip the roles
+                // that the block pointers play, ensuring that the
+                // head segment stays with the same block pointer at all
+                // times.
+
+                // FIXME: this makes us have to do like 5000
+                // additional prevSegment == NULL checks. Look into a
+                // way of renaming/reassigning the block edges.
+                newBlock->headSegment = block->headSegment;
+                newBlock->tailSegment = block->tailSegment;
+                newBlock->degree = block->degree;
+                newBlock->numSupportingHomologies = block->numSupportingHomologies;
+                stPinchSegment *cur = newBlock->headSegment;
+                while (cur != NULL) {
+                    cur->block = newBlock;
+                    cur = cur->nBlockSegment;
+                }
+                stPinchBlock *tmp = newBlock;
+                newBlock = block;
+                block = tmp;
+            }
+
             newBlock->headSegment = segment;
             while (i < endi) {
                 segment->block = newBlock;
@@ -1835,20 +1985,85 @@ static stPinchBlock *splitBlockUsingUndoBlock(stPinchBlock *block, stPinchSegmen
                 // The new block we're extracting used to be at the
                 // head of this block.
                 block->headSegment = segment->nBlockSegment;
+                if (threadSet->endCleaveCallback != NULL) {
+                    threadSet->adjComponentCreationCallback(threadSet->adjComponentCreationExtraData, stPinchBlock_getRepresentativeSegmentCap(block, 0));
+                    threadSet->adjComponentCreationCallback(threadSet->adjComponentCreationExtraData, stPinchBlock_getRepresentativeSegmentCap(block, 1));
+                    threadSet->blockCreationCallback(threadSet->adjComponentCreationExtraData, stPinchBlock_getRepresentativeSegmentCap(block, 0), stPinchBlock_getRepresentativeSegmentCap(block, 1), block);
+                    printf("A created block edge %p between ends %p and %p\n", (void *) block, stPinchBlock_getRepresentativeSegmentCap(block, 0), stPinchBlock_getRepresentativeSegmentCap(block, 1));
+                }
             } else {
-                disconnectSegmentComponents(prevSegment, prevSegment->nBlockSegment);
-                prevSegment->nBlockSegment = segment->nBlockSegment;
+                if (threadSet->endCleaveCallback != NULL) {
+                    threadSet->adjComponentCreationCallback(threadSet->adjComponentCreationExtraData, stPinchBlock_getRepresentativeSegmentCap(newBlock, 0));
+                    threadSet->adjComponentCreationCallback(threadSet->adjComponentCreationExtraData, stPinchBlock_getRepresentativeSegmentCap(newBlock, 1));
+                    threadSet->blockCreationCallback(threadSet->adjComponentCreationExtraData, stPinchBlock_getRepresentativeSegmentCap(newBlock, 0), stPinchBlock_getRepresentativeSegmentCap(newBlock, 1), newBlock);
+                }
+                printf("B created block edge %p between ends %p and %p\n", (void *) block, stPinchBlock_getRepresentativeSegmentCap(block, 0), stPinchBlock_getRepresentativeSegmentCap(block, 1));
             }
-            if (segment->nBlockSegment == NULL) {
-                block->tailSegment = prevSegment;
-            } else {
-                disconnectSegmentComponents(segment, segment->nBlockSegment);
+
+            // Disconnect the caps in the "0" orientation.
+            if (prevSegment != NULL) {
+                disconnectSingleSegmentComponent(prevSegment, prevSegment->nBlockSegment, 0);
+                registerPossibleAdjComponentSplit(threadSet, stPinchSegment_getSegmentCap(prevSegment, prevSegment->blockOrientation), stPinchSegment_getSegmentCap(prevSegment->nBlockSegment, prevSegment->nBlockSegment->blockOrientation));
+            }
+
+            if (segment->nBlockSegment != NULL) {
+                disconnectSingleSegmentComponent(segment, segment->nBlockSegment, 0);
+                registerPossibleAdjComponentSplit(threadSet, stPinchSegment_getSegmentCap(segment, segment->blockOrientation), stPinchSegment_getSegmentCap(segment->nBlockSegment, segment->nBlockSegment->blockOrientation));
                 if (prevSegment != NULL) {
                     // Join the break in the adjacency component link
                     // between the two halves of the leftover block.
-                    connectSegmentComponents(prevSegment, segment->nBlockSegment,
-                                             stPinchSegment_getBlockOrientation(segment->nBlockSegment));
+                    void *repEnd1 = getArbitraryRepresentativeEnd(stConnectivity_getConnectedComponent(threadSet->adjacencyComponents, stPinchSegment_getSegmentCap(prevSegment, prevSegment->blockOrientation)));
+                    void *repEnd2 = getArbitraryRepresentativeEnd(stConnectivity_getConnectedComponent(threadSet->adjacencyComponents, stPinchSegment_getSegmentCap(segment->nBlockSegment, segment->nBlockSegment->blockOrientation)));
+                    connectSingleSegmentComponent(prevSegment, segment->nBlockSegment,
+                                                  stPinchSegment_getBlockOrientation(segment->nBlockSegment), 0);
+                    registerPossibleAdjComponentMerge(threadSet, repEnd1, repEnd2);
                 }
+            }
+
+            if (threadSet->endCleaveCallback != NULL) {
+                printf("=== cap 0 ===\n");
+                stPinchSegmentCap *oldCap0 = stPinchBlock_getRepresentativeSegmentCap(block, 0);
+                stPinchSegmentCap *newCap0 = stPinchBlock_getRepresentativeSegmentCap(newBlock, 0);
+                separateComponentsCallback(threadSet, oldCap0, newCap0);
+            }
+
+            // Disconnect & reconnect the caps in the "1" orientation.
+            if (prevSegment != NULL) {
+                disconnectSingleSegmentComponent(prevSegment, prevSegment->nBlockSegment, 1);
+                printf("prevSegment split\n");
+                registerPossibleAdjComponentSplit(threadSet, stPinchSegment_getSegmentCap(prevSegment, !prevSegment->blockOrientation), stPinchSegment_getSegmentCap(prevSegment->nBlockSegment, !prevSegment->nBlockSegment->blockOrientation));
+            }
+
+            if (segment->nBlockSegment != NULL) {
+                disconnectSingleSegmentComponent(segment, segment->nBlockSegment, 1);
+                printf("segment split\n");
+                registerPossibleAdjComponentSplit(threadSet, stPinchSegment_getSegmentCap(segment, !segment->blockOrientation), stPinchSegment_getSegmentCap(segment->nBlockSegment, !segment->nBlockSegment->blockOrientation));
+                if (prevSegment != NULL) {
+                    // Join the break in the adjacency component link
+                    // between the two halves of the leftover block.
+                    void *repEnd1 = getArbitraryRepresentativeEnd(stConnectivity_getConnectedComponent(threadSet->adjacencyComponents, stPinchSegment_getSegmentCap(prevSegment, !prevSegment->blockOrientation)));
+                    void *repEnd2 = getArbitraryRepresentativeEnd(stConnectivity_getConnectedComponent(threadSet->adjacencyComponents, stPinchSegment_getSegmentCap(segment->nBlockSegment, !segment->nBlockSegment->blockOrientation)));
+                    connectSingleSegmentComponent(prevSegment, segment->nBlockSegment,
+                                                  stPinchSegment_getBlockOrientation(segment->nBlockSegment), 1);
+                    registerPossibleAdjComponentMerge(threadSet, repEnd1, repEnd2);
+                }
+            }
+
+            if (threadSet->endCleaveCallback != NULL) {
+                printf("=== cap 1 ===\n");
+                stPinchSegmentCap *oldCap1 = stPinchBlock_getRepresentativeSegmentCap(block, 1);
+                stPinchSegmentCap *newCap1 = stPinchBlock_getRepresentativeSegmentCap(newBlock, 1);
+                separateComponentsCallback(threadSet, oldCap1, newCap1);
+
+                stOnlineCactus_check(threadSet->endCleaveExtraData);
+            }
+
+            if (prevSegment != NULL) {
+                prevSegment->nBlockSegment = segment->nBlockSegment;
+            }
+
+            if (segment->nBlockSegment == NULL) {
+                block->tailSegment = prevSegment;
             }
             segment->nBlockSegment = NULL;
             newBlock->degree = undoBlock->degree;
@@ -1857,7 +2072,11 @@ static stPinchBlock *splitBlockUsingUndoBlock(stPinchBlock *block, stPinchSegmen
             assert(stPinchBlock_check(block));
             newBlock->numSupportingHomologies = undoBlock->numSupportingHomologies;
             block->numSupportingHomologies -= newBlock->numSupportingHomologies + 1;
-            return newBlock;
+
+            stList *ret = stList_construct();
+            stList_append(ret, block);
+            stList_append(ret, newBlock);
+            return ret;
         }
         i++;
         prevSegment = segment;
@@ -1876,6 +2095,7 @@ static void stPinchThreadSet_undoPinchP(stPinchThread *thread, int64_t start, in
     int64_t i = 0;
     stPinchUndoBlock *undoBlock = stList_get(blocks, i);
     while (segment != NULL && stPinchSegment_getStart(segment) < start + length) {
+        printf("looking at segment %p\n", (void *) segment);
         if (stPinchSegment_getStart(segment) < start) {
             segment = stPinchSegment_split(segment, start - 1);
             segment = stPinchSegment_get3Prime(segment);
@@ -1894,20 +2114,21 @@ static void stPinchThreadSet_undoPinchP(stPinchThread *thread, int64_t start, in
 
         stPinchBlock *block = stPinchSegment_getBlock(segment);
         if (block == NULL) {
+            printf("skipping segment without a block\n");
             segment = stPinchSegment_get3Prime(segment);
             continue;
         }
 
-        stPinchBlock *newBlock = splitBlockUsingUndoBlock(block, segment, undoBlock);
+        stList *blocks = splitBlockUsingUndoBlock(block, segment, undoBlock);
 
         // We don't know if there were degree-1 blocks before, but
         // they don't affect the alignment relationships, so we remove
         // any degree-1 blocks.
-        if (newBlock != NULL && stPinchBlock_getDegree(newBlock) == 1) {
-            stPinchBlock_destruct(newBlock);
-        }
-        if (stPinchBlock_getDegree(block) == 1) {
-            stPinchBlock_destruct(block);
+        for (int64_t i = 0; i < stList_length(blocks); i++) {
+            block = stList_get(blocks, i);
+            if (stPinchBlock_getDegree(block) == 1) {
+                stPinchBlock_destruct(block);
+            }
         }
         segment = stPinchSegment_get3Prime(segment);
     }
@@ -1925,6 +2146,7 @@ void stPinchThreadSet_partiallyUndoPinch(stPinchThreadSet *threadSet, stPinchUnd
         // Nothing to undo.
         return;
     }
+    printf("attempting undo at offset %" PRIi64 ", length %" PRIi64 "\n", offset, length);
     stPinchThreadSet_undoPinchP(stPinchThreadSet_getThread(threadSet, undo->pinchToUndo->name1),
                                 undo->pinchToUndo->start1 + offset, length, undo->blocks1);
     if (undo->pinchToUndo->strand) {

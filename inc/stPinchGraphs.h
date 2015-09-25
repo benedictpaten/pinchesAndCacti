@@ -200,6 +200,8 @@ void stPinchThreadSet_setBlockDeletionCallback(stPinchThreadSet *threadSet, void
 
 void stPinchThreadSet_setEndMergeCallback(stPinchThreadSet *threadSet, void (*callback)(void *, stPinchSegmentCap *, stPinchSegmentCap *), void *extraData);
 
+void stPinchThreadSet_setEndCleaveCallback(stPinchThreadSet *threadSet, bool (*callback)(void *, stPinchSegmentCap *, stSet *), void *extraData);
+
 //convenience functions
 
 /*
