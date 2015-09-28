@@ -1397,7 +1397,7 @@ stList *getBlocksFromBestBridgePathBelow(stCactusTree *node, stCactusTree *excep
     while (child != NULL) {
         if (stCactusTree_type(child) == NET && child != except) {
             stList *bestPath = getBlocksFromBestBridgePathBelow(child, NULL, scoreFn);
-            stList_append(bestPath, child->parentEdge);
+            stList_append(bestPath, child->parentEdge->block);
             stList_append(blockss, bestPath);
         }
         child = child->next;
@@ -1424,7 +1424,7 @@ stList *getBlocksFromBestBridgePathAbove(stCactusTree *node, stCactusTree *prev,
     stList *abovePath;
     if (node->parent != NULL && stCactusTree_type(node->parent) != CHAIN) {
         abovePath = getBlocksFromBestBridgePathAbove(node->parent, node, scoreFn);
-        stList_append(abovePath, node->parentEdge);
+        stList_append(abovePath, node->parentEdge->block);
     } else {
         abovePath = stList_construct();
     }
@@ -1467,7 +1467,7 @@ stList *stOnlineCactus_getMaximalChainOrBridgePath(stOnlineCactus *cactus, void 
         stList *below = getBlocksFromBestBridgePathBelow(node, NULL, scoreFn);
         stList *above = getBlocksFromBestBridgePathAbove(node->parent, node, scoreFn);
         stList *blocks = stList_construct();
-        stList_append(blocks, edge);
+        stList_append(blocks, edge->block);
         stList_appendAll(blocks, below);
         stList_appendAll(blocks, above);
         stList_destruct(below);
