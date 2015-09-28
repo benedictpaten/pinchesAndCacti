@@ -97,6 +97,7 @@ static void testStOnlineCactus_endCleave(CuTest *testCase) {
     stPinchThreadSet_undoPinch(threadSet, undo);
     stOnlineCactus_print(cactus);
     stOnlineCactus_check(cactus);
+    stPinchUndo_destruct(undo);
     teardown();
 }
 
@@ -147,7 +148,11 @@ static void testStOnlinePinchToCactus_random(CuTest *testCase) {
             stOnlineCactus_print(cactus);
             stOnlineCactus_check(cactus);
             simpleSanityChecks(testCase);
+            stPinchUndo_destruct(undo);
         }
+
+        stPinchThreadSet_destruct(threadSet);
+        stOnlineCactus_destruct(cactus);
     }
 }
 

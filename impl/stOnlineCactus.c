@@ -156,6 +156,7 @@ void stOnlineCactus_destruct(stOnlineCactus *cactus) {
     stHash_destruct(cactus->endToNode);
     stHash_destruct(cactus->blockToEdge);
     stList_destruct(cactus->trees);
+    free(cactus);
 }
 
 stList *stOnlineCactus_getCactusTrees(stOnlineCactus *cactus) {
@@ -464,6 +465,8 @@ static void netCleave(stOnlineCactus *cactus, stCactusTree *tree, stSet *endsToR
         if (partitionedTree != NULL) {
             *partitionedTree = NULL;
         }
+        stSet_destruct(ends1);
+        stSet_destruct(ends2);
         return;
     }
 
@@ -501,6 +504,8 @@ static void netCleave(stOnlineCactus *cactus, stCactusTree *tree, stSet *endsToR
                 // Found a chain with ends in different partitions.
                 stList_append(connectingChains, curChild);
                 if (stList_length(connectingChains) > 2) {
+                    // More than 2 connecting chains, so the 2 partitions are 3EC.
+                    stList_destruct(childrenToMove);
                     stList_destruct(connectingChains);
                     stSet_destruct(ends1);
                     stSet_destruct(ends2);
@@ -815,6 +820,10 @@ static void moveToNewChain(stList *nodes, stCactusTreeEdge *chainParentEdge,
 // Merge node1 "into" node2, i.e. node1 will be deleted while node2
 // will remain with all of node1's children.
 static void mergeNets(stCactusTree *node1, stCactusTree *node2, stHash *endToNode) {
+    if (node1->parentEdge != NULL) {
+        free(node1->parentEdge);
+    }
+
     stCactusTree *first = node1->firstChild;
     stCactusTree *cur = first;
     node1->firstChild = NULL;
@@ -1207,6 +1216,7 @@ void stOnlineCactus_netMerge(stOnlineCactus *cactus, void *end1, void *end2) {
             // back-edge of the new chain. We want to end up losing
             // the fake edge during the merge.
             stCactusTree *newChain = node1->parent;
+            free(newChain->parentEdge);
             reassignParentEdge(node1->parentEdge, newChain);
         }
         // Contract the nodes.
@@ -1274,6 +1284,7 @@ static void fix3EC(stOnlineCactus *cactus, stCactusTree *tree) {
         stCactusTree *tree2;
         netCleave(cactus, tree, ends, &tree, &tree2);
         assert(tree2 != NULL); // If this is a separate 3EC component, the cleave must succeed!!
+        stSet_destruct(ends);
     }
     stList_destruct(components);
     stHash_destruct(adjComponentToIndex);

@@ -822,6 +822,15 @@ stPinchThreadSet *stPinchThreadSet_construct() {
 }
 
 void stPinchThreadSet_destruct(stPinchThreadSet *threadSet) {
+    // Need to unset the callbacks so the pinch code doesn't run
+    // callbacks on invalid data (which can happen while
+    // destructing).
+    stPinchThreadSet_setEndCreationCallback(threadSet, NULL, NULL);
+    stPinchThreadSet_setBlockCreationCallback(threadSet, NULL, NULL);
+    stPinchThreadSet_setBlockDeletionCallback(threadSet, NULL, NULL);
+    stPinchThreadSet_setEndMergeCallback(threadSet, NULL, NULL);
+    stPinchThreadSet_setEndCleaveCallback(threadSet, NULL, NULL);
+
     stList_destruct(threadSet->threads);
     stHash_destruct(threadSet->threadsHash);
     stConnectivity_destruct(threadSet->adjacencyComponents);
@@ -1805,6 +1814,7 @@ static void separateComponentsCallback(stPinchThreadSet *threadSet, stPinchSegme
     stConnectedComponentNodeIterator_destruct(it);
 
     threadSet->endCleaveCallback(threadSet->endCleaveExtraData, oldCap, newEnds);
+    stSet_destruct(newEnds);
 }
 
 // We were iterating along one of the pinched threads and found a
@@ -2004,6 +2014,7 @@ static void stPinchThreadSet_undoPinchP(stPinchThread *thread, int64_t start, in
                 stPinchBlock_destruct(block);
             }
         }
+        stList_destruct(blocks);
         segment = stPinchSegment_get3Prime(segment);
     }
 }

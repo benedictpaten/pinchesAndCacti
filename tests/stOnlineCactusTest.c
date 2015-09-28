@@ -121,7 +121,9 @@ static stCactusTree *getCactusTreeR_node(stTree *stNode, stCactusTree *parent, s
         stTree *childStNode = stTree_getChild(blockEdge, 0);
         stCactusTree *child = getCactusTreeR_node(childStNode, tree, prevChild, block);
 
-        myEnd *arbitraryEnd = getEndByLabel(getTreeLabel(child));
+        char *childLabel = getTreeLabel(child);
+        myEnd *arbitraryEnd = getEndByLabel(childLabel);
+        free(childLabel);
         end2->originalLabel = stString_copy(arbitraryEnd->originalLabel);
         stHash_insert(cactus->endToNode, end2, child);
         stConnectivity_addNode(connectivity, end2);
@@ -264,7 +266,9 @@ static void testStOnlineCactus_collapse3ECNets(CuTest *testCase) {
     collapse3ECNets(node9, node15, &node9, &node15, cactus->endToNode);
     CuAssertIntEquals(testCase, 1, stList_length(cactus->trees));
     printNiceTree(stList_get(cactus->trees, 0));
+    teardown();
 
+    setup();
     // Test the case when the MRCA is a chain (sadly because we root trees this needs to be special-cased).
     stCactusTree *mrcaChain = getCactusTree("((((((CHAIN_C2)BLOCK_F)NET_2)BLOCK_B, (((((NET_8)BLOCK_J, (NET_9)BLOCK_K, (NET_10)BLOCK_L)CHAIN_C3)BLOCK_I)NET_3)BLOCK_C, (NET_11)BLOCK_M, (NET_12)BLOCK_N, (((NET_7)BLOCK_H)NET_4)BLOCK_D, (((NET_6)BLOCK_G)NET_5)BLOCK_E)CHAIN_C1)BLOCK_A)NET_1;");
     node9 = getNodeByLabel("9");
@@ -274,7 +278,7 @@ static void testStOnlineCactus_collapse3ECNets(CuTest *testCase) {
     CuAssertTrue(testCase, node7 != NULL);
     CuAssertTrue(testCase, stCactusTree_type(node7) == NET);
     collapse3ECNets(node7, node9, &node7, &node9, cactus->endToNode);
-    CuAssertIntEquals(testCase, 2, stList_length(cactus->trees));
+    CuAssertIntEquals(testCase, 1, stList_length(cactus->trees));
     printNiceTree(mrcaChain);
     teardown();
 }
@@ -288,11 +292,13 @@ static void testStOnlineCactus_reroot(CuTest *testCase) {
     CuAssertIntEquals(testCase, 1, stList_length(cactus->trees));
     CuAssertTrue(testCase, stList_get(cactus->trees, 0) == getNodeByLabel("9"));
     printNiceTree(getNodeByLabel("9"));
+    teardown();
 
+    setup();
     // more complicated chain
     getCactusTree("((((((NET_3)BLOCK_B, (NET_4)BLOCK_C, (NET_5)BLOCK_D, (NET_6)BLOCK_E, (NET_7)BLOCK_F)CHAIN_C1)BLOCK_G)NET_2)BLOCK_A)NET_1;");
     stCactusTree_reroot(getNodeByLabel("5"), cactus->trees);
-    CuAssertIntEquals(testCase, 2, stList_length(cactus->trees));
+    CuAssertIntEquals(testCase, 1, stList_length(cactus->trees));
     printNiceTree(getNodeByLabel("5"));
     teardown();
 }
@@ -309,6 +315,7 @@ static void testStOnlineCactus_addEdge(CuTest *testCase) {
     block->end2 = end2;
     stOnlineCactus_addEdge(cactus, getEndByLabel("9"), getEndByLabel("15"), block);
     printNiceTree(tree);
+    free(block);
     teardown();
 }
 
@@ -350,7 +357,7 @@ static void addEdge(int64_t i, int64_t j, int64_t edgeNum) {
     block->end1 = iEnd;
     block->end2 = jEnd;
     block->label = stString_print("%" PRIi64, edgeNum);
-    stHash_insert(nameToBlock, stString_print("%" PRIi64, edgeNum), block);
+    stHash_insert(nameToBlock, block->label, block);
     iEnd->block = block;
     iEnd->originalLabel = iLabel;
     stConnectivity_addNode(connectivity, iEnd);
@@ -426,26 +433,28 @@ static void testStOnlineCactus_random_edge_add(CuTest *testCase) {
     }
     printNiceCactus();
     checkAgainstStatic3ECAlgorithm(testCase);
+    stList_destruct(adjacencyList);
     teardown();
 }
 
 static void deleteEdge(int64_t node1, int64_t node2, int64_t i) {
     char *blockLabel = stString_print("%" PRIi64, i);
     myBlock *block = stHash_search(nameToBlock, blockLabel);
+    free(blockLabel);
     stOnlineCactus_deleteEdge(cactus, block->end1, block->end2, block);
     stConnectivity_removeNode(connectivity, block->end1);
     stConnectivity_removeNode(connectivity, block->end2);
     stList *node1Edges = stList_get(adjacencyList, node1);
     for (int64_t i = 0; i < stList_length(node1Edges); i++) {
         if (stIntTuple_get(stList_get(node1Edges, i), 0) == node2) {
-            stList_remove(node1Edges, i);
+            stIntTuple_destruct(stList_remove(node1Edges, i));
             break;
         }
     }
     stList *node2Edges = stList_get(adjacencyList, node2);
     for (int64_t i = 0; i < stList_length(node2Edges); i++) {
         if (stIntTuple_get(stList_get(node2Edges, i), 0) == node1) {
-            stList_remove(node2Edges, i);
+            stIntTuple_destruct(stList_remove(node2Edges, i));
             break;
         }
     }
@@ -473,11 +482,13 @@ static void testStOnlineCactus_random_edge_add_and_delete(CuTest *testCase) {
         int64_t node1 = stIntTuple_get(edge, 0);
         int64_t node2 = stIntTuple_get(edge, 1);
         deleteEdge(node1, node2, edgeNum);
-        stList_remove(edges, randomIndex);
+        stIntTuple_destruct(stList_remove(edges, randomIndex));
     }
     stOnlineCactus_check(cactus);
     printNiceCactus();
     checkAgainstStatic3ECAlgorithm(testCase);
+    stList_destruct(edges);
+    stList_destruct(adjacencyList);
     teardown();
 }
 
@@ -513,7 +524,7 @@ static void mergeNodes(int64_t node1, int64_t node2) {
 // Create a new isolated node in the online cactus and in the adjacency list.
 static void addNode(void) {
     int64_t index = stList_length(adjacencyList);
-    stList_append(adjacencyList, stList_construct());
+    stList_append(adjacencyList, stList_construct3(0, (void (*)(void *)) stIntTuple_destruct));
     char *label = stString_print("%" PRIi64, index);
     myEnd *end = calloc(1, sizeof(myEnd));
     end->block = NULL;
@@ -553,6 +564,7 @@ static void testStOnlineCactus_random_edge_add_node_insert_and_node_merge(CuTest
     stOnlineCactus_check(cactus);
     printNiceCactus();
     checkAgainstStatic3ECAlgorithm(testCase);
+    stList_destruct(adjacencyList);
     teardown();
 }
 
@@ -608,6 +620,7 @@ static void partitionNode(int64_t node) {
         int64_t edgeNum = stIntTuple_get(stList_get(newAdjacencies, i), 1);
         char *blockLabel = stString_print("%" PRIi64, edgeNum);
         myBlock *block = stHash_search(nameToBlock, blockLabel);
+        free(blockLabel);
         myEnd *end1 = block->end1;
         myEnd *end2 = block->end2;
         myEnd *end;
@@ -626,6 +639,7 @@ static void partitionNode(int64_t node) {
         stSet_insert(endsToRemove, end);
     }
     stOnlineCactus_netCleave(cactus, getEndByLabel(label), endsToRemove);
+    stSet_destruct(endsToRemove);
     stOnlineCactus_createEnd(cactus, nullEnd); // So we can get the null end mapped to the proper node.
     free(label);
 }
@@ -656,6 +670,7 @@ static void testStOnlineCactus_random_edge_add_and_node_partition(CuTest *testCa
     stOnlineCactus_check(cactus);
     printNiceCactus();
     checkAgainstStatic3ECAlgorithm(testCase);
+    stList_destruct(adjacencyList);
     teardown();
 }
 
