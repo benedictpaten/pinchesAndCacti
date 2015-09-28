@@ -15,8 +15,8 @@ struct _stPinchThreadSet {
     stList *threads;
     stHash *threadsHash;
     stConnectivity *adjacencyComponents;
-    void (*adjComponentCreationCallback)(void *, stPinchSegmentCap *);
-    void *adjComponentCreationExtraData;
+    void (*endCreationCallback)(void *, stPinchSegmentCap *);
+    void *endCreationExtraData;
     void (*blockCreationCallback)(void *, stPinchSegmentCap *, stPinchSegmentCap *, stPinchBlock *);
     void *blockCreationExtraData;
     void (*blockDeletionCallback)(void *, stPinchSegmentCap *, stPinchSegmentCap *, stPinchBlock *);
@@ -111,9 +111,9 @@ static stPinchBlock *stPinchBlock_construct3_noCallback(stPinchSegment *segment,
 stPinchBlock *stPinchBlock_construct3(stPinchSegment *segment, bool orientation) {
     stPinchBlock *block = stPinchBlock_construct3_noCallback(segment, orientation);
     stPinchThreadSet *threadSet = segment->thread->threadSet;
-    if (threadSet->adjComponentCreationCallback) {
-        threadSet->adjComponentCreationCallback(threadSet->adjComponentCreationExtraData, stPinchBlock_getRepresentativeSegmentCap(block, 0));
-        threadSet->adjComponentCreationCallback(threadSet->adjComponentCreationExtraData, stPinchBlock_getRepresentativeSegmentCap(block, 1));
+    if (threadSet->endCreationCallback) {
+        threadSet->endCreationCallback(threadSet->endCreationExtraData, stPinchBlock_getRepresentativeSegmentCap(block, 0));
+        threadSet->endCreationCallback(threadSet->endCreationExtraData, stPinchBlock_getRepresentativeSegmentCap(block, 1));
         threadSet->blockCreationCallback(threadSet->blockCreationExtraData, stPinchBlock_getRepresentativeSegmentCap(block, 0), stPinchBlock_getRepresentativeSegmentCap(block, 1), block);
     }
     return block;
@@ -460,10 +460,10 @@ stPinchSegment *stPinchSegment_split(stPinchSegment *segment, int64_t leftSideOf
             threadSet->blockDeletionCallback(threadSet->blockDeletionExtraData, end1, end2, block);
             stPinchSegmentCap *end3 = stPinchBlock_getRepresentativeSegmentCap(block2, 0);
             stPinchSegmentCap *end4 = stPinchBlock_getRepresentativeSegmentCap(block2, 1);
-            threadSet->adjComponentCreationCallback(threadSet->adjComponentCreationExtraData, end1);
-            threadSet->adjComponentCreationCallback(threadSet->adjComponentCreationExtraData, end2);
-            threadSet->adjComponentCreationCallback(threadSet->adjComponentCreationExtraData, end3);
-            threadSet->adjComponentCreationCallback(threadSet->adjComponentCreationExtraData, end4);
+            threadSet->endCreationCallback(threadSet->endCreationExtraData, end1);
+            threadSet->endCreationCallback(threadSet->endCreationExtraData, end2);
+            threadSet->endCreationCallback(threadSet->endCreationExtraData, end3);
+            threadSet->endCreationCallback(threadSet->endCreationExtraData, end4);
             threadSet->blockCreationCallback(threadSet->blockCreationExtraData, end1, end2, block);
             threadSet->blockCreationCallback(threadSet->blockCreationExtraData, end3, end4, block2);
         }
@@ -892,9 +892,9 @@ stPinchSegment *stPinchThreadSet_getSegment(stPinchThreadSet *threadSet, int64_t
     return stPinchThread_getSegment(thread, coordinate);
 }
 
-void stPinchThreadSet_setAdjComponentCreationCallback(stPinchThreadSet *threadSet, void (*callback)(void *, stPinchSegmentCap *), void *extraData) {
-    threadSet->adjComponentCreationCallback = callback;
-    threadSet->adjComponentCreationExtraData = extraData;
+void stPinchThreadSet_setEndCreationCallback(stPinchThreadSet *threadSet, void (*callback)(void *, stPinchSegmentCap *), void *extraData) {
+    threadSet->endCreationCallback = callback;
+    threadSet->endCreationExtraData = extraData;
 }
 
 void stPinchThreadSet_setBlockCreationCallback(stPinchThreadSet *threadSet, void (*callback)(void *, stPinchSegmentCap *, stPinchSegmentCap *, stPinchBlock *), void *extraData) {
@@ -985,6 +985,10 @@ bool stPinchSegmentCap_getOrientation(stPinchSegmentCap *segmentCap) {
 
 stPinchSegmentCap *stPinchSegment_getSegmentCap(stPinchSegment *segment, bool orientation) {
     return (stPinchSegmentCap *) ((uintptr_t) segment + orientation);
+}
+
+stPinchBlock *stPinchSegmentCap_getBlock(stPinchSegmentCap *cap) {
+    return stPinchSegment_getBlock(stPinchSegmentCap_getSegment(cap));
 }
 
 stPinchSegmentCap *stPinchBlock_getRepresentativeSegmentCap(stPinchBlock *block, bool orientation) {
@@ -1905,15 +1909,15 @@ static stList *splitBlockUsingUndoBlock(stPinchBlock *block, stPinchSegment *ref
                 // head of this block.
                 block->headSegment = segment->nBlockSegment;
                 if (threadSet->endCleaveCallback != NULL) {
-                    threadSet->adjComponentCreationCallback(threadSet->adjComponentCreationExtraData, stPinchBlock_getRepresentativeSegmentCap(block, 0));
-                    threadSet->adjComponentCreationCallback(threadSet->adjComponentCreationExtraData, stPinchBlock_getRepresentativeSegmentCap(block, 1));
-                    threadSet->blockCreationCallback(threadSet->adjComponentCreationExtraData, stPinchBlock_getRepresentativeSegmentCap(block, 0), stPinchBlock_getRepresentativeSegmentCap(block, 1), block);
+                    threadSet->endCreationCallback(threadSet->endCreationExtraData, stPinchBlock_getRepresentativeSegmentCap(block, 0));
+                    threadSet->endCreationCallback(threadSet->endCreationExtraData, stPinchBlock_getRepresentativeSegmentCap(block, 1));
+                    threadSet->blockCreationCallback(threadSet->blockCreationExtraData, stPinchBlock_getRepresentativeSegmentCap(block, 0), stPinchBlock_getRepresentativeSegmentCap(block, 1), block);
                 }
             } else {
                 if (threadSet->endCleaveCallback != NULL) {
-                    threadSet->adjComponentCreationCallback(threadSet->adjComponentCreationExtraData, stPinchBlock_getRepresentativeSegmentCap(newBlock, 0));
-                    threadSet->adjComponentCreationCallback(threadSet->adjComponentCreationExtraData, stPinchBlock_getRepresentativeSegmentCap(newBlock, 1));
-                    threadSet->blockCreationCallback(threadSet->adjComponentCreationExtraData, stPinchBlock_getRepresentativeSegmentCap(newBlock, 0), stPinchBlock_getRepresentativeSegmentCap(newBlock, 1), newBlock);
+                    threadSet->endCreationCallback(threadSet->endCreationExtraData, stPinchBlock_getRepresentativeSegmentCap(newBlock, 0));
+                    threadSet->endCreationCallback(threadSet->endCreationExtraData, stPinchBlock_getRepresentativeSegmentCap(newBlock, 1));
+                    threadSet->blockCreationCallback(threadSet->blockCreationExtraData, stPinchBlock_getRepresentativeSegmentCap(newBlock, 0), stPinchBlock_getRepresentativeSegmentCap(newBlock, 1), newBlock);
                 }
                 disconnectSegmentComponents(prevSegment, prevSegment->nBlockSegment);
                 prevSegment->nBlockSegment = segment->nBlockSegment;

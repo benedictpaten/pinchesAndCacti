@@ -4,10 +4,6 @@
 #include "stPinchGraphs.h"
 #include <stdlib.h>
 
-stPinchBlock *stPinchSegmentCap_getBlock(stPinchSegmentCap *cap) {
-    return stPinchSegment_getBlock(stPinchSegmentCap_getSegment(cap));
-}
-
 stPinchThreadSet *threadSet;
 stPinchThread *thread1;
 stPinchThread *thread2;
@@ -25,7 +21,7 @@ static void setup(void) {
         connectivity,
         (void *(*)(void *, bool)) stPinchBlock_getRepresentativeSegmentCap,
         (void *(*)(void *)) stPinchSegmentCap_getBlock);
-    stPinchThreadSet_setAdjComponentCreationCallback(threadSet, (void (*)(void *, stPinchSegmentCap *)) stOnlineCactus_createEnd, cactus);
+    stPinchThreadSet_setEndCreationCallback(threadSet, (void (*)(void *, stPinchSegmentCap *)) stOnlineCactus_createEnd, cactus);
     stPinchThreadSet_setBlockCreationCallback(threadSet, (void (*)(void *, stPinchSegmentCap *, stPinchSegmentCap *, stPinchBlock *)) stOnlineCactus_addEdge, cactus);
     stPinchThreadSet_setBlockDeletionCallback(threadSet, (void (*)(void *, stPinchSegmentCap *, stPinchSegmentCap *, stPinchBlock *)) stOnlineCactus_deleteEdge, cactus);
     stPinchThreadSet_setEndMergeCallback(threadSet, (void (*)(void *, stPinchSegmentCap *, stPinchSegmentCap *)) stOnlineCactus_netMerge, cactus);
@@ -113,7 +109,7 @@ static void testStOnlinePinchToCactus_random(CuTest *testCase) {
             connectivity,
             (void *(*)(void *, bool)) stPinchBlock_getRepresentativeSegmentCap,
             (void *(*)(void *)) stPinchSegmentCap_getBlock);
-        stPinchThreadSet_setAdjComponentCreationCallback(threadSet, (void (*)(void *, stPinchSegmentCap *)) stOnlineCactus_createEnd, cactus);
+        stPinchThreadSet_setEndCreationCallback(threadSet, (void (*)(void *, stPinchSegmentCap *)) stOnlineCactus_createEnd, cactus);
         stPinchThreadSet_setBlockCreationCallback(threadSet, (void (*)(void *, stPinchSegmentCap *, stPinchSegmentCap *, stPinchBlock *)) stOnlineCactus_addEdge, cactus);
         stPinchThreadSet_setBlockDeletionCallback(threadSet, (void (*)(void *, stPinchSegmentCap *, stPinchSegmentCap *, stPinchBlock *)) stOnlineCactus_deleteEdge, cactus);
         stPinchThreadSet_setEndMergeCallback(threadSet, (void (*)(void *, stPinchSegmentCap *, stPinchSegmentCap *)) stOnlineCactus_netMerge, cactus);

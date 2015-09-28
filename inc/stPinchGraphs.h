@@ -192,7 +192,13 @@ stPinch stPinchThreadSet_getRandomPinch(stPinchThreadSet *threadSet);
  */
 stPinchThreadSet *stPinchThreadSet_getRandomGraph(void);
 
-void stPinchThreadSet_setAdjComponentCreationCallback(stPinchThreadSet *threadSet, void (*callback)(void *, stPinchSegmentCap *), void *extraData);
+/*
+ * Callbacks. These notify other code of events happening in the pinch
+ * graph. Likely not useful for anything except the online cactus
+ * code.
+ */
+
+void stPinchThreadSet_setEndCreationCallback(stPinchThreadSet *threadSet, void (*callback)(void *, stPinchSegmentCap *), void *extraData);
 
 void stPinchThreadSet_setBlockCreationCallback(stPinchThreadSet *threadSet, void (*callback)(void *, stPinchSegmentCap *, stPinchSegmentCap *, stPinchBlock *), void *extraData);
 
@@ -424,6 +430,8 @@ void stPinchBlock_trim(stPinchBlock *block, int64_t blockEndTrim);
  * Get a cap that represents this block (unless this block is modified).
  */
 stPinchSegmentCap *stPinchBlock_getRepresentativeSegmentCap(stPinchBlock *block, bool orientation);
+
+stPinchBlock *stPinchSegmentCap_getBlock(stPinchSegmentCap *cap);
 
 //Block ends
 

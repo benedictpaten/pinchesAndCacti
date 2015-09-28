@@ -1,6 +1,29 @@
 #ifndef __ST_ONLINE_CACTUS_H_
 #define __ST_ONLINE_CACTUS_H_
 
+/*
+ * The online cactus implementation. Keeps track of
+ * 3-edge-connectivity relationships among nodes in a "base graph", by
+ * creating a "cactus forest" where the nodes are either
+ * 3-edge-connected components or "chain nodes" which keep track of
+ * cycles (2-edge-connected components) in the base graph. Base edges
+ * are sometimes called "blocks."
+ *
+ * The 3-edge-connectivity relationships are maintained through
+ * callbacks for basic operations on the base graph: edge insertion,
+ * edge deletion, node creation, node split, and node merge.
+ *
+ * Edges in the base graph are assumed to have two ends, arbitrarily
+ * called the + and - ends (represented by 1 and 0). Both ends of an
+ * edge may be in the same node. Currently, these ends are grouped
+ * into the nodes of the base graph by means of connectivity in a
+ * separate graph--if two ends are connected, then they are in the
+ * same node (i.e. the nodes are defined by the connected components
+ * in this graph). There may be extra non-end nodes in these connected
+ * components for convenience. This connectivity graph *must* be
+ * updated before calling the callbacks.
+ */
+
 typedef enum {
     NET,
     CHAIN
@@ -14,40 +37,71 @@ typedef struct _stCactusTreeEdge stCactusTreeEdge;
 
 typedef struct _stCactusTreeIt stCactusTreeIt;
 
+// Create a new online cactus, given a connected-components graph
+// where all "ends" comprising the same "node" in the base graph are
+// in a single component, and functions mapping from an edge to its ends
+// and back again.
 stOnlineCactus *stOnlineCactus_construct(stConnectivity *connectivity,
                                          void *(*edgeToEnd)(void *, bool),
                                          void *(*endToEdge)(void *));
 
+// Free the online cactus properly.
 void stOnlineCactus_destruct(stOnlineCactus *cactus);
 
-stCactusTree *stOnlineCactus_getCactusTree(stOnlineCactus *cactus);
-
+// Get the type (NET or CHAIN) of this cactus-forest node.
 cactusNodeType stCactusTree_type(const stCactusTree *tree);
 
+// Get an iterator over this node's children.
 stCactusTreeIt *stCactusTree_getIt(stCactusTree *tree);
 
+// Get the next child from the iterator.
 stCactusTree *stCactusTreeIt_getNext(stCactusTreeIt *it);
 
+// Free a cactus-tree-node iterator properly.
 void stCactusTreeIt_destruct(stCactusTreeIt *it);
 
+// Create a new end in the base graph. If this end corresponds to a
+// new base node (i.e. is in an isolated component in the
+// connected-components graph), then a new cactus-forest node is created.
 void stOnlineCactus_createEnd(stOnlineCactus *cactus, void *end);
 
+// Add a new edge between two existing ends in the base graph.
 void stOnlineCactus_addEdge(stOnlineCactus *cactus, void *end1, void *end2, void *edge);
 
-void stOnlineCactus_deleteEdge(stOnlineCactus *cactus, void *end1, void *end2, void *edge);
+// Remove an edge in the base graph, and delete its two ends. If a base
+// node ends up having no ends afterward, the node is considered
+// deleted.
+void stOnlineCactus_deleteEdge(stOnlineCactus *cactus, void *end1, void *end2, void *block);
 
+// Merge two nodes in the base graph, specified by any one of their
+// ends. This transfers all edges in "node1" (specified by end1) to
+// "node2" (specified by end2).
 void stOnlineCactus_netMerge(stOnlineCactus *cactus, void *end1, void *end2);
 
+// Partition some of the ends in a particular node in the base graph
+// (specified by "end"), removing the ends in "endsToRemove" and
+// placing them in a new node in the base graph.
 bool stOnlineCactus_netCleave(stOnlineCactus *cactus, void *end, stSet *endsToRemove);
 
+// Get the maximal (according to scoreFn) path of base edges including
+// "block" in the cactus forest, such that if the edge is in a chain
+// the path is the edges of the chain, and if the edge is a bridge,
+// the path is the maximal path of bridge edges in the forest.
 stList *stOnlineCactus_getMaximalChainOrBridgePath(stOnlineCactus *cactus, void *block, int64_t scoreFn(void *));
 
+// Get the *smallest* maximal path (see definition above) in the cactus forest.
 stList *stOnlineCactus_getGloballyWorstMaximalChainOrBridgePath(stOnlineCactus *cactus, int64_t scoreFn(void *));
 
+// Print an online cactus forest, for debugging purposes. Uses pointer
+// values to name the nodes, so the output will be inscrutable.
 void stOnlineCactus_print(const stOnlineCactus *cactus);
 
+// Check to make sure Joel hasn't fucked anything up. Exits the
+// program with an error message on finding a flaw in the cactus
+// forest.
 void stOnlineCactus_check(stOnlineCactus *cactus);
 
+// Get a particular edge in the cactus forest, given an edge in the base graph.
 stCactusTreeEdge *stOnlineCactus_getEdge(stOnlineCactus *cactus, void *block);
 
 #endif

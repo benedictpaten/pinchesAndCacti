@@ -793,8 +793,6 @@ stCactusTreeEdge *stOnlineCactus_getEdge(stOnlineCactus *cactus, void *block) {
 // NB: ordering of nodes in the input list MUST reflect the ordering in their parent chain.
 static void moveToNewChain(stList *nodes, stCactusTreeEdge *chainParentEdge,
                            stCactusTree *netToAttachNewChainTo) {
-    // UPDATE PAPER: In fig 3, a block edge is in B) that was not in
-    // A)--this is the anonymous chain node under 6,9
     stCactusTree *chain = stCactusTree_construct(netToAttachNewChainTo, NULL, CHAIN, NULL);
     reassignParentEdge(chainParentEdge, chain);
     stCactusTree *prev = NULL;
@@ -880,9 +878,6 @@ static stCactusTree *collapse3ECNetsBetweenChain(stCactusTree *node1, stCactusTr
         return node1;
     } else {
         // Create lists of the nodes before and after node1 in the chain ordering.
-        // UPDATE PAPER: currently only one list X is created.
-        // UPDATE PAPER: N_l should presumably be
-        //               N_j'. Realistically there should be two: N_j+ and N_j-.
         stList *before = stList_construct();
         stCactusTree *cur = node1->prev;
         while (cur != NULL) {
@@ -1176,7 +1171,6 @@ static bool stCactusTree_isAncestralTo(stCactusTree *a, stCactusTree *b) {
 }
 
 void stOnlineCactus_netMerge(stOnlineCactus *cactus, void *end1, void *end2) {
-    // UPDATE PAPER: if they are *NOT* in the same tree of CF(G) do the trivial merge
     stCactusTree *node1 = stHash_search(cactus->endToNode, end1);
     assert(node1 != NULL);
     stCactusTree *node2 = stHash_search(cactus->endToNode, end2);
@@ -1192,15 +1186,9 @@ void stOnlineCactus_netMerge(stOnlineCactus *cactus, void *end1, void *end2) {
         // They're in the same tree so we have to do the tricky bit.
         collapse3ECNets(node1, node2, &node1, &node2, cactus->endToNode);
         if (node1 == node2) {
-            // UPDATE PAPER: a cycle may not exist after
-            // edge removal if the two nodes got squashed together.
-
             // All done.
             return;
         }
-        // UPDATE PAPER: may need to be more specific about what
-        // happens in the case where one node is directly connected to
-        // the other.
         createChainOnPathConnectingNets(node1, node2, NULL, cactus->blockToEdge);
         if (stCactusTree_isAncestralTo(node1, node2) || stCactusTree_leftOf(node1, node2)) {
             // We always merge node1 into node2, keeping node2's
@@ -1344,10 +1332,6 @@ void stOnlineCactus_deleteEdge(stOnlineCactus *cactus, void *end1, void *end2, v
         stList *chainNodes = chainToList(chain);
         // part of a chain. Delete the relevant edge and unravel the chain from either end.
         unravelChain(cactus, edge);
-        // UPDATE PAPER: the 3-edge-connectivity must be checked on ALL
-        // nodes of a chain rather than just the two ends of the deleted
-        // edge. (The newly partitioned nets, on the other hand, may not
-        // have to be checked--still not 100% positive).
 
         for (int64_t i = 0; i < stList_length(chainNodes); i++) {
             stCactusTree *node = stList_get(chainNodes, i);
@@ -1509,6 +1493,8 @@ stList *stOnlineCactus_getGloballyWorstMaximalChainOrBridgePath(stOnlineCactus *
                 worstScore = score;
                 stList_destruct(worstPath);
                 worstPath = blockPath;
+            } else {
+                stList_destruct(blockPath);
             }
         }
     }
