@@ -820,10 +820,6 @@ static void moveToNewChain(stList *nodes, stCactusTreeEdge *chainParentEdge,
 // Merge node1 "into" node2, i.e. node1 will be deleted while node2
 // will remain with all of node1's children.
 static void mergeNets(stCactusTree *node1, stCactusTree *node2, stHash *endToNode) {
-    if (node1->parentEdge != NULL) {
-        free(node1->parentEdge);
-    }
-
     stCactusTree *first = node1->firstChild;
     stCactusTree *cur = first;
     node1->firstChild = NULL;
