@@ -721,10 +721,7 @@ static void netCleave(stOnlineCactus *cactus, stCactusTree *tree, stSet *endsToR
     // connectivity.
     for (int64_t i = 0; i < stList_length(nodesToCheck3ECOf); i++) {
         stCactusTree *cur = stList_get(nodesToCheck3ECOf, i);
-        // FIXME: does the 3-edge-connectivity computation twice.
-        if (!stOnlineCactus_check3EC(cactus, cur)) {
-            fix3EC(cactus, cur);
-        }
+        fix3EC(cactus, cur);
     }
     stList_destruct(nodesToCheck3ECOf);
 
@@ -756,9 +753,7 @@ bool stOnlineCactus_netCleave(stOnlineCactus *cactus, void *end, stSet *endsToRe
     stCactusTree *tree2;
     netCleave(cactus, tree, endsToRemove, &tree, &tree2);
 
-    if (!stOnlineCactus_check3EC(cactus, tree)) {
-        fix3EC(cactus, tree);
-    }
+    fix3EC(cactus, tree);
 
     if (tree2 == NULL) {
         // the two sets were 3-edge-connected and nothing was done. No
@@ -766,9 +761,7 @@ bool stOnlineCactus_netCleave(stOnlineCactus *cactus, void *end, stSet *endsToRe
         return false;
     }
 
-    if (!stOnlineCactus_check3EC(cactus, tree2)) {
-        fix3EC(cactus, tree2);
-    }
+    fix3EC(cactus, tree2);
 
     return true;
 }
@@ -1252,39 +1245,41 @@ void stOnlineCactus_addEdge(stOnlineCactus *cactus, void *end1, void *end2, void
     }
 }
 
-// Fix a net that is no longer 3-edge-connected.
+// Fix a net that might no longer be 3-edge-connected.
 static void fix3EC(stOnlineCactus *cactus, stCactusTree *tree) {
     stHash *adjComponentToIndex;
     stList *components = get3ECComponents(cactus, tree, &adjComponentToIndex);
-    stHash *indexToAdjComponent = stHash_invert(adjComponentToIndex,
-                                                (uint64_t (*)(const void *)) stIntTuple_hashKey,
-                                                (int (*)(const void *, const void *)) stIntTuple_equalsFn,
-                                                NULL,
-                                                NULL);
-    for (int64_t i = 0; i < stList_length(components) - 1; i++) {
-        stList *component = stList_get(components, i);
-        stSet *ends = stSet_construct();
-        for (int64_t j = 0; j < stList_length(component); j++) {
-            stIntTuple *index = stList_get(component, j);
-            stConnectedComponent *component = stHash_search(indexToAdjComponent, index);
-            assert(component != NULL);
-            stConnectedComponentNodeIterator *it = stConnectedComponent_getNodeIterator(component);
-            void *end;
-            while ((end = stConnectedComponentNodeIterator_getNext(it)) != NULL) {
-                if (stSet_search(tree->ends, end)) { // Check that this end is representative.
-                    stSet_insert(ends, end);
+    if (stList_length(components) != 1) {
+        stHash *indexToAdjComponent = stHash_invert(adjComponentToIndex,
+                                                    (uint64_t (*)(const void *)) stIntTuple_hashKey,
+                                                    (int (*)(const void *, const void *)) stIntTuple_equalsFn,
+                                                    NULL,
+                                                    NULL);
+        for (int64_t i = 0; i < stList_length(components) - 1; i++) {
+            stList *component = stList_get(components, i);
+            stSet *ends = stSet_construct();
+            for (int64_t j = 0; j < stList_length(component); j++) {
+                stIntTuple *index = stList_get(component, j);
+                stConnectedComponent *component = stHash_search(indexToAdjComponent, index);
+                assert(component != NULL);
+                stConnectedComponentNodeIterator *it = stConnectedComponent_getNodeIterator(component);
+                void *end;
+                while ((end = stConnectedComponentNodeIterator_getNext(it)) != NULL) {
+                    if (stSet_search(tree->ends, end)) { // Check that this end is representative.
+                        stSet_insert(ends, end);
+                    }
                 }
+                stConnectedComponentNodeIterator_destruct(it);
             }
-            stConnectedComponentNodeIterator_destruct(it);
+            stCactusTree *tree2;
+            netCleave(cactus, tree, ends, &tree, &tree2);
+            assert(tree2 != NULL); // If this is a separate 3EC component, the cleave must succeed!!
+            stSet_destruct(ends);
         }
-        stCactusTree *tree2;
-        netCleave(cactus, tree, ends, &tree, &tree2);
-        assert(tree2 != NULL); // If this is a separate 3EC component, the cleave must succeed!!
-        stSet_destruct(ends);
+        stHash_destruct(indexToAdjComponent);
     }
     stList_destruct(components);
     stHash_destruct(adjComponentToIndex);
-    stHash_destruct(indexToAdjComponent);
 }
 
 void stOnlineCactus_deleteEdge(stOnlineCactus *cactus, void *end1, void *end2, void *block) {
@@ -1324,10 +1319,7 @@ void stOnlineCactus_deleteEdge(stOnlineCactus *cactus, void *end1, void *end2, v
         stCactusTree_removeChild(node1, chain);
         stHash_remove(cactus->blockToEdge, chain->parentEdge->block);
         stCactusTree_destruct(chain);
-        if (!stOnlineCactus_check3EC(cactus, node1)) {
-            // FIXME: this ends up doing the 3-edge-connectedness computation twice.
-            fix3EC(cactus, node1);
-        }
+        fix3EC(cactus, node1);
     } else {
         // We save the chain nodes for checking 3EC later on.
         stCactusTree *chain;
@@ -1342,10 +1334,7 @@ void stOnlineCactus_deleteEdge(stOnlineCactus *cactus, void *end1, void *end2, v
 
         for (int64_t i = 0; i < stList_length(chainNodes); i++) {
             stCactusTree *node = stList_get(chainNodes, i);
-            if (!stOnlineCactus_check3EC(cactus, node)) {
-                // FIXME: this ends up doing the 3-edge-connectedness computation twice.
-                fix3EC(cactus, node);
-            }
+            fix3EC(cactus, node);
         }
         stList_destruct(chainNodes);
     }
