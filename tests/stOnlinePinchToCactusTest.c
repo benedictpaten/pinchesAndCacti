@@ -4,6 +4,8 @@
 #include "stPinchGraphs.h"
 #include <stdlib.h>
 
+#if 0
+
 stPinchThreadSet *threadSet;
 stPinchThread *thread1;
 stPinchThread *thread2;
@@ -166,3 +168,4 @@ CuSuite* stOnlinePinchToCactusTestSuite(void) {
     SUITE_ADD_TEST(suite, testStOnlinePinchToCactus_random);
     return suite;
 }
+#endif

@@ -11,10 +11,9 @@ struct _stCactusTree {
     // Next child in the parent's child ordering.
     stCactusTree *next;
     stCactusTree *firstChild;
+    // Contains the base nodes contained in this net.
     // NULL if this is a chain node.
-    // This is needed because we don't have the guarantee (yet, anyway) that
-    // the connected components have consistent pointers over time.
-    stSet *ends;
+    stSet *nodes;
 };
 
 struct _stCactusTreeEdge {
@@ -26,18 +25,19 @@ struct _stOnlineCactus {
     stList *trees;
     stHash *blockToEdge;
     stHash *endToNode;
+    stHash *nodeToEnds;
+    stHash *nodeToNet;
     void *(*edgeToEnd)(void *, bool);
     void *(*endToEdge)(void *);
-    stConnectivity *adjacencyComponents;
 };
 
 struct _stCactusTreeIt {
     stCactusTree *cur;
 };
 
-void collapse3ECNets(stCactusTree *node1, stCactusTree *node2,
-                     stCactusTree **newNode1, stCactusTree **newNode2,
-                     stHash *endToNode);
+void collapse3ECNets(stOnlineCactus *cactus,
+                     stCactusTree *node1, stCactusTree *node2,
+                     stCactusTree **newNode1, stCactusTree **newNode2);
 
 stCactusTree *stCactusTree_construct(stCactusTree *parent, stCactusTree *leftSib, cactusNodeType type, void *block);
 

@@ -7,9 +7,8 @@
 #include <stdlib.h>
 
 stOnlineCactus *cactus;
-stConnectivity *connectivity;
 
-stHash *nameToEnd;
+stHash *nameToNode;
 stHash *nameToBlock;
 
 stHash *blockToEnd1;
@@ -19,6 +18,7 @@ stList *adjacencyList;
 
 typedef struct _myBlock myBlock;
 typedef struct _myEnd myEnd;
+typedef struct _myNode myNode;
 
 struct _myBlock {
     myEnd *end1;
@@ -31,7 +31,11 @@ struct _myEnd {
     char *originalLabel;
 };
 
-static myEnd *getEndByLabel(char *label);
+struct _myNode {
+    char *label;
+};
+
+static myNode *getNodeByLabel(char *label);
 static char *getTreeLabel(stCactusTree *tree);
 
 static void *blockToEnd(void *block, bool orientation) {
@@ -60,12 +64,16 @@ static void myBlock_destruct(myBlock *block) {
     free(block);
 }
 
+static void myNode_destruct(myNode *node) {
+    free(node->label);
+    free(node);
+}
+
 static void setup() {
-    connectivity = stConnectivity_construct();
-    cactus = stOnlineCactus_construct(connectivity, blockToEnd, endToBlock);
+    cactus = stOnlineCactus_construct(blockToEnd, endToBlock);
     blockToEnd1 = stHash_construct3(NULL, NULL, NULL, NULL);
     blockToEnd2 = stHash_construct3(NULL, NULL, NULL, NULL);
-    nameToEnd = stHash_construct3(stHash_stringKey, stHash_stringEqualKey, free, (void (*)(void *)) myEnd_destruct);
+    nameToNode = stHash_construct3(stHash_stringKey, stHash_stringEqualKey, free, (void (*)(void *)) myNode_destruct);
     nameToBlock = stHash_construct3(stHash_stringKey, stHash_stringEqualKey, NULL,
                                     (void (*)(void *)) myBlock_destruct);
 }
@@ -86,15 +94,15 @@ static stCactusTree *getCactusTreeR_node(stTree *stNode, stCactusTree *parent, s
 
     stCactusTree *tree = stCactusTree_construct(parent, NULL, type, block);
 
-    myEnd *nullNode = calloc(1, sizeof(myEnd));
-    nullNode->originalLabel = stString_copy(nodeLabel);
-    stConnectivity_addNode(connectivity, nullNode);
-    stHash_insert(cactus->endToNode, nullNode, tree);
-    stHash_insert(nameToEnd, nodeLabel, nullNode);
+    myNode *node = calloc(1, sizeof(myNode));
+    node->label = stString_copy(nodeLabel);
+    stHash_insert(cactus->nodeToNet, node, tree);
+    stHash_insert(cactus->nodeToEnds, node, stSet_construct());
+    stHash_insert(nameToNode, nodeLabel, node);
     if (type == CHAIN) {
-        tree->ends = stSet_construct();
+        tree->nodes = stSet_construct();
     }
-    stSet_insert(tree->ends, nullNode);
+    stSet_insert(tree->nodes, node);
 
     stCactusTree *prevChild = NULL;
     for (int64_t i = 0; i < stTree_getChildNumber(stNode); i++) {
@@ -112,23 +120,19 @@ static stCactusTree *getCactusTreeR_node(stTree *stNode, stCactusTree *parent, s
         end1->block = block;
         end1->originalLabel = stString_copy(nodeLabel);
         end2->block = block;
-        stConnectivity_addNode(connectivity, end1);
-        stConnectivity_addEdge(connectivity, end1, nullNode);
-        stHash_insert(cactus->endToNode, end1, tree);
-        stSet_insert(tree->ends, end1);
+        stHash_insert(cactus->endToNode, end1, node);
+        stSet_insert(stHash_search(cactus->nodeToEnds, node), end1);
 
         assert(stTree_getChildNumber(blockEdge) == 1);
         stTree *childStNode = stTree_getChild(blockEdge, 0);
         stCactusTree *child = getCactusTreeR_node(childStNode, tree, prevChild, block);
 
         char *childLabel = getTreeLabel(child);
-        myEnd *arbitraryEnd = getEndByLabel(childLabel);
+        myNode *childNode = getNodeByLabel(childLabel);
         free(childLabel);
-        end2->originalLabel = stString_copy(arbitraryEnd->originalLabel);
-        stHash_insert(cactus->endToNode, end2, child);
-        stConnectivity_addNode(connectivity, end2);
-        stConnectivity_addEdge(connectivity, end2, arbitraryEnd);
-        stSet_insert(child->ends, end2);
+        end2->originalLabel = stString_copy(childNode->label);
+        stHash_insert(cactus->endToNode, end2, childNode);
+        stSet_insert(stHash_search(cactus->nodeToEnds, childNode), end2);
         stHash_insert(cactus->blockToEdge, block, child->parentEdge);
         stHash_insert(nameToBlock, blockLabel, block);
         stList_destruct(blockLabelParts);
@@ -155,31 +159,29 @@ static stCactusTree *getCactusTree(char *newick) {
 }
 
 static void teardown() {
-    stConnectivity_destruct(connectivity);
     stOnlineCactus_destruct(cactus);
     stHash_destruct(blockToEnd1);
     stHash_destruct(blockToEnd2);
     stHash_destruct(nameToBlock);
-    stHash_destruct(nameToEnd);
+    stHash_destruct(nameToNode);
 }
 
-// Get an arbitrary end that originally belonged to this label.
-static myEnd *getEndByLabel(char *label) {
-    return stHash_search(nameToEnd, label);
+static myNode *getNodeByLabel(char *label) {
+    return stHash_search(nameToNode, label);
 }
 
-static stCactusTree *getNodeByLabel(char *label) {
-    myEnd *end = getEndByLabel(label);
-    return stHash_search(cactus->endToNode, end);
+static stCactusTree *getNetByLabel(char *label) {
+    myNode *node = getNodeByLabel(label);
+    return stHash_search(cactus->nodeToNet, node);
 }
 
-// Get the set of labels for this node based on its ends.
+// Get the set of labels for this net based on its nodes.
 static char *getTreeLabel(stCactusTree *tree) {
-    stSetIterator *it = stSet_getIterator(tree->ends);
-    myEnd *end;
+    stSetIterator *it = stSet_getIterator(tree->nodes);
+    myNode *node;
     stSet *labels = stSet_construct3(stHash_stringKey, stHash_stringEqualKey, NULL);
-    while ((end = stSet_getNext(it)) != NULL) {
-        stSet_insert(labels, end->originalLabel);
+    while ((node = stSet_getNext(it)) != NULL) {
+        stSet_insert(labels, node->label);
     }
     stSet_destructIterator(it);
 
@@ -218,7 +220,7 @@ static void printNiceTree_r(stCactusTree *tree) {
     }
 
     char *treeLabel;
-    if (tree->ends == NULL) {
+    if (tree->nodes == NULL) {
         treeLabel = stString_copy("newLabel");
     } else {
         treeLabel = getTreeLabel(tree);
@@ -257,13 +259,13 @@ static void testStOnlineCactus_collapse3ECNets(CuTest *testCase) {
     setup();
     // Copy of Fig. 3A from the paper (up to node 17). Yes, I actually sat here and wrote this thing out.
     getCactusTree("((((((((((CHAIN_C3)BLOCK_E)NET_3)BLOCK_D)CHAIN_C2)BLOCK_C, (CHAIN_C4)BLOCK_F)NET_2)BLOCK_B, (((((((((((((NET_8)BLOCK_M)CHAIN_C6)BLOCK_L)NET_7)BLOCK_K, (((((((NET_11)BLOCK_Q)CHAIN_C7)BLOCK_P)NET_10)BLOCK_O)NET_9)BLOCK_N, (NET_12)BLOCK_R)CHAIN_C5)BLOCK_J)NET_6)BLOCK_I)NET_5)BLOCK_H)NET_4)BLOCK_G)CHAIN_C1)BLOCK_A, (((((((((NET_15)BLOCK_W, (NET_16)BLOCK_X, (NET_17)BLOCK_Y)CHAIN_C9)BLOCK_V)NET_14)BLOCK_U)CHAIN_C8)BLOCK_T)NET_13)BLOCK_S)NET_1;");
-    stCactusTree *node9 = getNodeByLabel("9");
+    stCactusTree *node9 = getNetByLabel("9");
     CuAssertTrue(testCase, node9 != NULL);
     CuAssertTrue(testCase, stCactusTree_type(node9) == NET);
-    stCactusTree *node15 = getNodeByLabel("15");
+    stCactusTree *node15 = getNetByLabel("15");
     CuAssertTrue(testCase, node15 != NULL);
     CuAssertTrue(testCase, stCactusTree_type(node15) == NET);
-    collapse3ECNets(node9, node15, &node9, &node15, cactus->endToNode);
+    collapse3ECNets(cactus, node9, node15, &node9, &node15);
     CuAssertIntEquals(testCase, 1, stList_length(cactus->trees));
     printNiceTree(stList_get(cactus->trees, 0));
     teardown();
@@ -271,13 +273,13 @@ static void testStOnlineCactus_collapse3ECNets(CuTest *testCase) {
     setup();
     // Test the case when the MRCA is a chain (sadly because we root trees this needs to be special-cased).
     stCactusTree *mrcaChain = getCactusTree("((((((CHAIN_C2)BLOCK_F)NET_2)BLOCK_B, (((((NET_8)BLOCK_J, (NET_9)BLOCK_K, (NET_10)BLOCK_L)CHAIN_C3)BLOCK_I)NET_3)BLOCK_C, (NET_11)BLOCK_M, (NET_12)BLOCK_N, (((NET_7)BLOCK_H)NET_4)BLOCK_D, (((NET_6)BLOCK_G)NET_5)BLOCK_E)CHAIN_C1)BLOCK_A)NET_1;");
-    node9 = getNodeByLabel("9");
+    node9 = getNetByLabel("9");
     CuAssertTrue(testCase, node9 != NULL);
     CuAssertTrue(testCase, stCactusTree_type(node9) == NET);
-    stCactusTree *node7 = getNodeByLabel("7");
+    stCactusTree *node7 = getNetByLabel("7");
     CuAssertTrue(testCase, node7 != NULL);
     CuAssertTrue(testCase, stCactusTree_type(node7) == NET);
-    collapse3ECNets(node7, node9, &node7, &node9, cactus->endToNode);
+    collapse3ECNets(cactus, node7, node9, &node7, &node9);
     CuAssertIntEquals(testCase, 1, stList_length(cactus->trees));
     printNiceTree(mrcaChain);
     teardown();
@@ -288,18 +290,18 @@ static void testStOnlineCactus_reroot(CuTest *testCase) {
     // fig 1a again
     getCactusTree("((((((((((CHAIN_C3)BLOCK_E)NET_3)BLOCK_D)CHAIN_C2)BLOCK_C, (CHAIN_C4)BLOCK_F)NET_2)BLOCK_B, (((((((((((((NET_8)BLOCK_M)CHAIN_C6)BLOCK_L)NET_7)BLOCK_K, (((((((NET_11)BLOCK_Q)CHAIN_C7)BLOCK_P)NET_10)BLOCK_O)NET_9)BLOCK_N, (NET_12)BLOCK_R)CHAIN_C5)BLOCK_J)NET_6)BLOCK_I)NET_5)BLOCK_H)NET_4)BLOCK_G)CHAIN_C1)BLOCK_A, (((((((((NET_15)BLOCK_W, (NET_16)BLOCK_X, (NET_17)BLOCK_Y)CHAIN_C9)BLOCK_V)NET_14)BLOCK_U)CHAIN_C8)BLOCK_T)NET_13)BLOCK_S)NET_1;");
     // reroot at 9
-    stCactusTree_reroot(getNodeByLabel("9"), cactus->trees);
+    stCactusTree_reroot(getNetByLabel("9"), cactus->trees);
     CuAssertIntEquals(testCase, 1, stList_length(cactus->trees));
-    CuAssertTrue(testCase, stList_get(cactus->trees, 0) == getNodeByLabel("9"));
-    printNiceTree(getNodeByLabel("9"));
+    CuAssertTrue(testCase, stList_get(cactus->trees, 0) == getNetByLabel("9"));
+    printNiceTree(getNetByLabel("9"));
     teardown();
 
     setup();
     // more complicated chain
     getCactusTree("((((((NET_3)BLOCK_B, (NET_4)BLOCK_C, (NET_5)BLOCK_D, (NET_6)BLOCK_E, (NET_7)BLOCK_F)CHAIN_C1)BLOCK_G)NET_2)BLOCK_A)NET_1;");
-    stCactusTree_reroot(getNodeByLabel("5"), cactus->trees);
+    stCactusTree_reroot(getNetByLabel("5"), cactus->trees);
     CuAssertIntEquals(testCase, 1, stList_length(cactus->trees));
-    printNiceTree(getNodeByLabel("5"));
+    printNiceTree(getNetByLabel("5"));
     teardown();
 }
 
@@ -307,13 +309,21 @@ static void testStOnlineCactus_addEdge(CuTest *testCase) {
     setup();
     // fig 1a
     stCactusTree *tree = getCactusTree("((((((((((CHAIN_C3)BLOCK_E)NET_3)BLOCK_D)CHAIN_C2)BLOCK_C, (CHAIN_C4)BLOCK_F)NET_2)BLOCK_B, (((((((((((((NET_8)BLOCK_M)CHAIN_C6)BLOCK_L)NET_7)BLOCK_K, (((((((NET_11)BLOCK_Q)CHAIN_C7)BLOCK_P)NET_10)BLOCK_O)NET_9)BLOCK_N, (NET_12)BLOCK_R)CHAIN_C5)BLOCK_J)NET_6)BLOCK_I)NET_5)BLOCK_H)NET_4)BLOCK_G)CHAIN_C1)BLOCK_A, (((((((((NET_15)BLOCK_W, (NET_16)BLOCK_X, (NET_17)BLOCK_Y)CHAIN_C9)BLOCK_V)NET_14)BLOCK_U)CHAIN_C8)BLOCK_T)NET_13)BLOCK_S)NET_1;");
-    myEnd *end1 = getEndByLabel("9");
-    myEnd *end2 = getEndByLabel("15");
+    myNode *node1 = getNodeByLabel("9");
+    myNode *node2 = getNodeByLabel("15");
+
+    myEnd *end1 = calloc(1, sizeof(myEnd));
+    end1->originalLabel = "9";
+    myEnd *end2 = calloc(1, sizeof(myEnd));
+    end2->originalLabel = "15";
+
     myBlock *block = calloc(1, sizeof(myBlock));
     block->label = "new";
     block->end1 = end1;
     block->end2 = end2;
-    stOnlineCactus_addEdge(cactus, getEndByLabel("9"), getEndByLabel("15"), block);
+    end1->block = block;
+    end2->block = block;
+    stOnlineCactus_addEdge(cactus, node1, node2, end1, end2, block);
     printNiceTree(tree);
     free(block);
     teardown();
@@ -360,15 +370,9 @@ static void addEdge(int64_t i, int64_t j, int64_t edgeNum) {
     stHash_insert(nameToBlock, block->label, block);
     iEnd->block = block;
     iEnd->originalLabel = iLabel;
-    stConnectivity_addNode(connectivity, iEnd);
-    stConnectivity_addEdge(connectivity, getEndByLabel(iLabel), iEnd);
-    stConnectivity_addNode(connectivity, jEnd);
-    stConnectivity_addEdge(connectivity, getEndByLabel(jLabel), jEnd);
-    stOnlineCactus_createEnd(cactus, iEnd);
-    stOnlineCactus_createEnd(cactus, jEnd);
     jEnd->block = block;
     jEnd->originalLabel = jLabel;
-    stOnlineCactus_addEdge(cactus, iEnd, jEnd, block);
+    stOnlineCactus_addEdge(cactus, getNodeByLabel(iLabel), getNodeByLabel(jLabel), iEnd, jEnd, block);
 }
 
 // Get, in a very hacky way, the set of integers (as 1-length
@@ -391,20 +395,35 @@ static stSet *getMergedNodesBelongingToNode(stCactusTree *tree) {
 // Check the current 3-edge-connected components of the online cactus
 // graph against a known-good algorithm running on the current
 // adjacency list.
-static void checkAgainstStatic3ECAlgorithm(CuTest *testCase) {
+static void checkAgainstStatic3ECAlgorithm(CuTest *testCase, stHash *mergedInto) {
     stList *components = computeThreeEdgeConnectedComponents(adjacencyList);
     printf("Got %" PRIi64 " components from 3-edge-connected code\n", stList_length(components));
     for (int64_t i = 0; i < stList_length(components); i++) {
         stList *component = stList_get(components, i);
-        char *label = stString_print("%" PRIi64, stIntTuple_get(stList_get(component, 0), 0));
-        stCactusTree *tree = getNodeByLabel(label);
+        stCactusTree *tree = NULL;
+        for (int64_t j = 0; j < stList_length(component); j++) {
+            char *label = stString_print("%" PRIi64, stIntTuple_get(stList_get(component, j), 0));
+            tree = getNetByLabel(label);
+            free(label);
+            if (tree != NULL) {
+                // This index wasn't merged.
+                break;
+            }
+        }
+        CuAssertTrue(testCase, tree != NULL);
         stSet *mergedNodes = getMergedNodesBelongingToNode(tree);
         // Check that the component and the tree nodes are composed of the same original nodes.
         stSet *componentNodes = stSet_construct3((uint64_t (*)(const void * )) stIntTuple_hashKey,
                                                  (int (*)(const void *, const void *)) stIntTuple_equalsFn,
                                                  NULL);
         for (int64_t j = 0; j < stList_length(component); j++) {
-            stSet_insert(componentNodes, stList_get(component, j));
+            if (mergedInto == NULL || !stHash_search(mergedInto, stList_get(component, j))) {
+                // Add this node to the expected set only if the node
+                // in the base graph hasn't been merged into another
+                // node (in which case it doesn't actually exist
+                // anymore).
+                stSet_insert(componentNodes, stList_get(component, j));
+            }
         }
         CuAssertIntEquals(testCase, stSet_size(componentNodes), stSet_size(mergedNodes));
         stSet *difference = stSet_getDifference(componentNodes, mergedNodes);
@@ -412,7 +431,6 @@ static void checkAgainstStatic3ECAlgorithm(CuTest *testCase) {
         stSet_destruct(difference);
         stSet_destruct(componentNodes);
         stSet_destruct(mergedNodes);
-        free(label);
     }
     stList_destruct(components);
 }
@@ -422,17 +440,17 @@ static void checkAgainstStatic3ECAlgorithm(CuTest *testCase) {
 // non-dynamic algorithm.
 static void testStOnlineCactus_random_edge_add(CuTest *testCase) {
     setup();
-    int64_t numNodes = 100;
+    int64_t numNodes = 2000;
     getRandomNodeSet(numNodes);
     int64_t numEdges = numNodes * 2;
     for (int64_t i = 0; i < numEdges; i++) {
         int64_t node1 = st_randomInt64(0, numNodes);
         int64_t node2 = st_randomInt64(0, numNodes);
         addEdge(node1, node2, i);
-        stOnlineCactus_check(cactus);
     }
     printNiceCactus();
-    checkAgainstStatic3ECAlgorithm(testCase);
+    stOnlineCactus_check(cactus);
+    checkAgainstStatic3ECAlgorithm(testCase, NULL);
     stList_destruct(adjacencyList);
     teardown();
 }
@@ -442,8 +460,6 @@ static void deleteEdge(int64_t node1, int64_t node2, int64_t i) {
     myBlock *block = stHash_search(nameToBlock, blockLabel);
     free(blockLabel);
     stOnlineCactus_deleteEdge(cactus, block->end1, block->end2, block);
-    stConnectivity_removeNode(connectivity, block->end1);
-    stConnectivity_removeNode(connectivity, block->end2);
     stList *node1Edges = stList_get(adjacencyList, node1);
     for (int64_t i = 0; i < stList_length(node1Edges); i++) {
         if (stIntTuple_get(stList_get(node1Edges, i), 0) == node2) {
@@ -464,7 +480,7 @@ static void deleteEdge(int64_t node1, int64_t node2, int64_t i) {
 // the 3-edge-connectivity relationships still make sense.
 static void testStOnlineCactus_random_edge_add_and_delete(CuTest *testCase) {
     setup();
-    int64_t numNodes = 200;
+    int64_t numNodes = 2000;
     getRandomNodeSet(numNodes);
     int64_t numEdges = numNodes * 1.5;
     stList *edges = stList_construct3(0, (void (*)(void *)) stIntTuple_destruct);
@@ -486,39 +502,40 @@ static void testStOnlineCactus_random_edge_add_and_delete(CuTest *testCase) {
     }
     stOnlineCactus_check(cactus);
     printNiceCactus();
-    checkAgainstStatic3ECAlgorithm(testCase);
+    checkAgainstStatic3ECAlgorithm(testCase, NULL);
     stList_destruct(edges);
     stList_destruct(adjacencyList);
     teardown();
 }
 
-static void mergeNodes(int64_t node1, int64_t node2) {
-    if (node1 == node2) {
+// Returns true if the merge was valid and could be completed, false otherwise.
+static bool mergeNodes(int64_t i, int64_t j) {
+    if (i == j) {
         // done already
-        return;
+        return false;
     }
     // For my own sanity we just "merge" the adjacency lists by
     // forcing the two nodes to be 3-edge-connected. Otherwise it's a
     // mess trying to keep track of how the adjacency list indices
     // correspond to the online cactus ends.
-    stList *node1Adj = stList_get(adjacencyList, node1);
-    stList *node2Adj = stList_get(adjacencyList, node2);
-    stList_append(node1Adj, stIntTuple_construct1(node2));
-    stList_append(node1Adj, stIntTuple_construct1(node2));
-    stList_append(node1Adj, stIntTuple_construct1(node2));
+    stList *iAdj = stList_get(adjacencyList, i);
+    stList *jAdj = stList_get(adjacencyList, j);
+    stList_append(iAdj, stIntTuple_construct1(j));
+    stList_append(iAdj, stIntTuple_construct1(j));
+    stList_append(iAdj, stIntTuple_construct1(j));
 
-    stList_append(node2Adj, stIntTuple_construct1(node1));
-    stList_append(node2Adj, stIntTuple_construct1(node1));
-    stList_append(node2Adj, stIntTuple_construct1(node1));
+    stList_append(jAdj, stIntTuple_construct1(i));
+    stList_append(jAdj, stIntTuple_construct1(i));
+    stList_append(jAdj, stIntTuple_construct1(i));
 
-    char *label1 = stString_print("%" PRIi64, node1);
-    char *label2 = stString_print("%" PRIi64, node2);
-    myEnd *end1 = getEndByLabel(label1);
-    myEnd *end2 = getEndByLabel(label2);
-    stConnectivity_addEdge(connectivity, end1, end2);
-    stOnlineCactus_netMerge(cactus, end1, end2);
+    char *label1 = stString_print("%" PRIi64, i);
+    char *label2 = stString_print("%" PRIi64, j);
+    myNode *node1 = getNodeByLabel(label1);
+    myNode *node2 = getNodeByLabel(label2);
+    stOnlineCactus_nodeMerge(cactus, node1, node2);
     free(label1);
     free(label2);
+    return true;
 }
 
 // Create a new isolated node in the online cactus and in the adjacency list.
@@ -526,22 +543,38 @@ static void addNode(void) {
     int64_t index = stList_length(adjacencyList);
     stList_append(adjacencyList, stList_construct3(0, (void (*)(void *)) stIntTuple_destruct));
     char *label = stString_print("%" PRIi64, index);
-    myEnd *end = calloc(1, sizeof(myEnd));
-    end->block = NULL;
-    end->originalLabel = label;
-    stHash_insert(nameToEnd, stString_copy(label), end);
-    stConnectivity_addNode(connectivity, end);
-    stOnlineCactus_createEnd(cactus, end);
+    myNode *node = calloc(1, sizeof(myNode));
+    node->label = label;
+    stHash_insert(nameToNode, stString_copy(label), node);
+    stOnlineCactus_createNode(cactus, node);
+}
+
+static stIntTuple *searchIntTupleHash(stHash *hash, int64_t key) {
+    stIntTuple *query = stIntTuple_construct1(key);
+    stIntTuple *ret = stHash_search(hash, query);
+    stIntTuple_destruct(query);
+    return ret;
 }
 
 static void testStOnlineCactus_random_edge_add_node_insert_and_node_merge(CuTest *testCase) {
     setup();
-    int64_t initialNumNodes = 100;
+    int64_t initialNumNodes = 1000;
     getRandomNodeSet(initialNumNodes);
-    int64_t numOps = 1000;
+    int64_t numOps = 10000;
+    // Keep track of which nodes got merged into which.
+    stHash *mergedInto = stHash_construct3((uint64_t (*)(const void *)) stIntTuple_hashKey,
+                                           (int (*)(const void *, const void *)) stIntTuple_equalsFn,
+                                           (void (*)(void *)) stIntTuple_destruct,
+                                           (void (*)(void *)) stIntTuple_destruct);
     for (int64_t i = 0; i < numOps; i++) {
         int64_t node1 = st_randomInt64(0, stList_length(adjacencyList));
+        while (searchIntTupleHash(mergedInto, node1)) {
+            node1 = stIntTuple_get(searchIntTupleHash(mergedInto, node1), 0);
+        }
         int64_t node2 = st_randomInt64(0, stList_length(adjacencyList));
+        while (searchIntTupleHash(mergedInto, node2)) {
+            node2 = stIntTuple_get(searchIntTupleHash(mergedInto, node2), 0);
+        }
         int64_t opType = st_randomInt64(0, 3);
         switch (opType) {
         case 0:
@@ -552,7 +585,9 @@ static void testStOnlineCactus_random_edge_add_node_insert_and_node_merge(CuTest
         case 1:
             // Node merge
             printf("merging nodes %" PRIi64 " and %" PRIi64 "\n", node1, node2);
-            mergeNodes(node1, node2);
+            if (mergeNodes(node1, node2)) {
+                stHash_insert(mergedInto, stIntTuple_construct1(node1), stIntTuple_construct1(node2));
+            }
             break;
         case 2:
             // Isolated node addition
@@ -563,7 +598,8 @@ static void testStOnlineCactus_random_edge_add_node_insert_and_node_merge(CuTest
     }
     stOnlineCactus_check(cactus);
     printNiceCactus();
-    checkAgainstStatic3ECAlgorithm(testCase);
+    checkAgainstStatic3ECAlgorithm(testCase, mergedInto);
+    stHash_destruct(mergedInto);
     stList_destruct(adjacencyList);
     teardown();
 }
@@ -610,12 +646,9 @@ static void partitionNode(int64_t node) {
     // Partition the online cactus.
     char *label = stString_print("%" PRIi64, node);
     stSet *endsToRemove = stSet_construct();
-    // This end is for bookkeeping purposes so all the edge ends end up in the same component.
-    myEnd *nullEnd = calloc(1, sizeof(myEnd));
-    nullEnd->block = NULL;
-    nullEnd->originalLabel = stString_print("%" PRIi64, newIndex);
-    stHash_insert(nameToEnd, stString_copy(nullEnd->originalLabel), nullEnd);
-    stConnectivity_addNode(connectivity, nullEnd);
+    myNode *newNode = calloc(1, sizeof(myNode));
+    newNode->label = stString_print("%" PRIi64, newIndex);
+    stHash_insert(nameToNode, stString_copy(newNode->label), newNode);
     for (int64_t i = 0; i < stList_length(newAdjacencies); i++) {
         int64_t edgeNum = stIntTuple_get(stList_get(newAdjacencies, i), 1);
         char *blockLabel = stString_print("%" PRIi64, edgeNum);
@@ -634,21 +667,18 @@ static void partitionNode(int64_t node) {
         // only way to sanely compare against the known-good 3ec code.
         free(end->originalLabel);
         end->originalLabel = stString_print("%" PRIi64, newIndex);
-        stConnectivity_removeEdge(connectivity, end, getEndByLabel(label));
-        stConnectivity_addEdge(connectivity, end, nullEnd);
         stSet_insert(endsToRemove, end);
     }
-    stOnlineCactus_netCleave(cactus, getEndByLabel(label), endsToRemove);
+    stOnlineCactus_nodeCleave(cactus, getNodeByLabel(label), newNode, endsToRemove);
     stSet_destruct(endsToRemove);
-    stOnlineCactus_createEnd(cactus, nullEnd); // So we can get the null end mapped to the proper node.
     free(label);
 }
 
 static void testStOnlineCactus_random_edge_add_and_node_partition(CuTest *testCase) {
     setup();
-    int64_t initialNumNodes = 100;
+    int64_t initialNumNodes = 1000;
     getRandomNodeSet(initialNumNodes);
-    int64_t numOps = 200;
+    int64_t numOps = 2000;
     for (int64_t i = 0; i < numOps; i++) {
         int64_t node1 = st_randomInt64(0, stList_length(adjacencyList));
         int64_t node2 = st_randomInt64(0, stList_length(adjacencyList));
@@ -666,10 +696,10 @@ static void testStOnlineCactus_random_edge_add_and_node_partition(CuTest *testCa
             partitionNode(node1);
             break;
         }
+        stOnlineCactus_check(cactus);
     }
-    stOnlineCactus_check(cactus);
     printNiceCactus();
-    checkAgainstStatic3ECAlgorithm(testCase);
+    checkAgainstStatic3ECAlgorithm(testCase, NULL);
     stList_destruct(adjacencyList);
     teardown();
 }

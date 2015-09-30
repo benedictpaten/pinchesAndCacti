@@ -37,12 +37,9 @@ typedef struct _stCactusTreeEdge stCactusTreeEdge;
 
 typedef struct _stCactusTreeIt stCactusTreeIt;
 
-// Create a new online cactus, given a connected-components graph
-// where all "ends" comprising the same "node" in the base graph are
-// in a single component, and functions mapping from an edge to its ends
-// and back again.
-stOnlineCactus *stOnlineCactus_construct(stConnectivity *connectivity,
-                                         void *(*edgeToEnd)(void *, bool),
+// Create a new online cactus, given functions mapping from an edge to
+// its ends and back again.
+stOnlineCactus *stOnlineCactus_construct(void *(*edgeToEnd)(void *, bool),
                                          void *(*endToEdge)(void *));
 
 // Free the online cactus properly.
@@ -60,28 +57,31 @@ stCactusTree *stCactusTreeIt_getNext(stCactusTreeIt *it);
 // Free a cactus-tree-node iterator properly.
 void stCactusTreeIt_destruct(stCactusTreeIt *it);
 
-// Create a new end in the base graph. If this end corresponds to a
-// new base node (i.e. is in an isolated component in the
-// connected-components graph), then a new cactus-forest node is created.
-void stOnlineCactus_createEnd(stOnlineCactus *cactus, void *end);
+// Create a new node in the base graph.
+void stOnlineCactus_createNode(stOnlineCactus *cactus, void *node);
 
-// Add a new edge between two existing ends in the base graph.
-void stOnlineCactus_addEdge(stOnlineCactus *cactus, void *end1, void *end2, void *edge);
+// Add a new edge between two new ends in two nodes (which may be the
+// same node) in the base graph.
+void stOnlineCactus_addEdge(stOnlineCactus *cactus,
+                            void *node1, void *node2,
+                            void *end1, void *end2,
+                            void *edge);
 
 // Remove an edge in the base graph, and delete its two ends. If a base
 // node ends up having no ends afterward, the node is considered
 // deleted.
 void stOnlineCactus_deleteEdge(stOnlineCactus *cactus, void *end1, void *end2, void *block);
 
-// Merge two nodes in the base graph, specified by any one of their
-// ends. This transfers all edges in "node1" (specified by end1) to
-// "node2" (specified by end2).
-void stOnlineCactus_netMerge(stOnlineCactus *cactus, void *end1, void *end2);
+// Merge two nodes in the base graph. This transfers all edges in
+// "node1" to "node2" and deletes "node1".
+void stOnlineCactus_nodeMerge(stOnlineCactus *cactus, void *node1, void *node2);
 
-// Partition some of the ends in a particular node in the base graph
-// (specified by "end"), removing the ends in "endsToRemove" and
-// placing them in a new node in the base graph.
-bool stOnlineCactus_netCleave(stOnlineCactus *cactus, void *end, stSet *endsToRemove);
+// Partition some of the ends in a particular node in the base graph,
+// removing the ends in "endsToRemove" and placing them in a new node
+// in the base graph. There may be extra ends not associated with any
+// net in endsToRemove; they will be ignored.
+// Does not take ownership of endsToRemove.
+void stOnlineCactus_nodeCleave(stOnlineCactus *cactus, void *node, void *newNode, stSet *endsToRemove);
 
 // Get the maximal (according to scoreFn) path of base edges including
 // "block" in the cactus forest, such that if the edge is in a chain
