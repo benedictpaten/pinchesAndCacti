@@ -356,6 +356,9 @@ void stOnlineCactus_deleteNode(stOnlineCactus *cactus, void *node) {
 
     stHash_remove(cactus->nodeToNet, node);
 
+    assert(stList_contains(cactus->trees, node));
+    stList_removeItem(cactus->trees, node);
+
     stCactusTree_destruct(net);
 }
 
