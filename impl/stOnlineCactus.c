@@ -344,6 +344,21 @@ void stOnlineCactus_createNode(stOnlineCactus *cactus, void *node) {
     stList_append(cactus->trees, new);
 }
 
+void stOnlineCactus_deleteNode(stOnlineCactus *cactus, void *node) {
+    stCactusTree *net = stHash_search(cactus->nodeToNet, node);
+    assert(net != NULL);
+
+    assert(stSet_size(net->nodes) == 1);
+
+    stSet *ends = stHash_search(cactus->nodeToEnds, node);
+    assert(stSet_size(ends) == 0);
+    stSet_destruct(ends);
+
+    stHash_remove(cactus->nodeToNet, node);
+
+    stCactusTree_destruct(net);
+}
+
 static void reassignParentEdge(stCactusTreeEdge *edge, stCactusTree *node) {
     node->parentEdge = edge;
     if (edge->child != NULL && edge->child != node) {
@@ -464,13 +479,7 @@ static stSet *getEndsInNodeSet(stOnlineCactus *cactus, stSet *nodes) {
 static void netCleave(stOnlineCactus *cactus, stCactusTree *tree, stSet *nodesToRemove, stCactusTree **remainingTree, stCactusTree **partitionedTree) {
     stSet *nodes1 = stSet_getDifference(tree->nodes, nodesToRemove);
     stSet *nodes2 = nodesToRemove;
-    // TODO: This may be a bottleneck. Rather than collecting all the
-    // ends here and querying these sets, we could instead query
-    // endToNode and the node set, which will end up being much faster
-    // on very large nets.
-    stSet *ends1 = getEndsInNodeSet(cactus, nodes1);
-    stSet *ends2 = getEndsInNodeSet(cactus, nodes2);
-    if (stSet_size(ends1) == 0 || stSet_size(ends2) == 0) {
+    if (stSet_size(nodes1) == 0 || stSet_size(nodes2) == 0) {
         // Nothing to partition.
         if (remainingTree != NULL) {
             *remainingTree = tree;
@@ -478,11 +487,16 @@ static void netCleave(stOnlineCactus *cactus, stCactusTree *tree, stSet *nodesTo
         if (partitionedTree != NULL) {
             *partitionedTree = NULL;
         }
-        stSet_destruct(ends1);
-        stSet_destruct(ends2);
+        stSet_destruct(nodes1);
         stSet_destruct(nodes2);
         return;
     }
+    // TODO: This may be a bottleneck. Rather than collecting all the
+    // ends here and querying these sets, we could instead query
+    // endToNode and the node set, which will end up being much faster
+    // on very large nets.
+    stSet *ends1 = getEndsInNodeSet(cactus, nodes1);
+    stSet *ends2 = getEndsInNodeSet(cactus, nodes2);
 
     bool tree2IsPartitionedTree = true;
     // Without loss of generality we call ends1 the partition that contains the parent edge.
@@ -717,7 +731,10 @@ static void netCleave(stOnlineCactus *cactus, stCactusTree *tree, stSet *nodesTo
         stList_append(cactus->trees, stCactusTree_root(tree2));
     }
 
-    // Split the ends.
+    stSet_destruct(ends1);
+    stSet_destruct(ends2);
+
+    // Split the nodes.
     stSet_destruct(tree2->nodes);
     tree2->nodes = nodes2;
     // Remap the nodes.
@@ -1298,13 +1315,16 @@ static void fix3EC(stOnlineCactus *cactus, stCactusTree *tree) {
                                                     NULL);
         for (int64_t i = 0; i < stList_length(components) - 1; i++) {
             stList *component = stList_get(components, i);
-            stSet *nodes = stSet_construct();
+            stSet *nodesToRemove = stSet_construct();
             for (int64_t j = 0; j < stList_length(component); j++) {
                 stIntTuple *index = stList_get(component, j);
-                stSet_insert(nodes, stHash_search(indexToNode, index));
+                void *node = stHash_search(indexToNode, index);
+                if (stSet_search(tree->nodes, node)) {
+                    stSet_insert(nodesToRemove, node);
+                }
             }
             stCactusTree *tree2;
-            netCleave(cactus, tree, nodes, &tree, &tree2);
+            netCleave(cactus, tree, nodesToRemove, &tree, &tree2);
             assert(tree2 != NULL); // If this is a separate 3EC component, the cleave must succeed!!
         }
         stHash_destruct(indexToNode);

@@ -4,30 +4,26 @@
 #include "stPinchGraphs.h"
 #include <stdlib.h>
 
-#if 0
-
 stPinchThreadSet *threadSet;
 stPinchThread *thread1;
 stPinchThread *thread2;
 stPinchThread *thread3;
-stConnectivity *connectivity;
 stOnlineCactus *cactus;
 
 static void setup(void) {
     threadSet = stPinchThreadSet_construct();
+    cactus = stOnlineCactus_construct(
+        (void *(*)(void *, bool)) stPinchBlock_getRepresentativeSegmentCap,
+        (void *(*)(void *)) stPinchSegmentCap_getBlock);
+    stPinchThreadSet_setAdjComponentCreationCallback(threadSet, (void (*)(void *, stConnectedComponent *)) stOnlineCactus_createNode, cactus);
+    stPinchThreadSet_setBlockCreationCallback(threadSet, (void (*)(void *, stConnectedComponent *, stConnectedComponent *, stPinchSegmentCap *, stPinchSegmentCap *, stPinchBlock *)) stOnlineCactus_addEdge, cactus);
+    stPinchThreadSet_setBlockDeletionCallback(threadSet, (void (*)(void *, stPinchSegmentCap *, stPinchSegmentCap *, stPinchBlock *)) stOnlineCactus_deleteEdge, cactus);
+    stPinchThreadSet_setAdjComponentMergeCallback(threadSet, (void (*)(void *, stConnectedComponent *, stConnectedComponent *)) stOnlineCactus_nodeMerge, cactus);
+    stPinchThreadSet_setAdjComponentCleaveCallback(threadSet, (void (*)(void *, stConnectedComponent *, stConnectedComponent *, stSet *)) stOnlineCactus_nodeCleave, cactus);
+    stPinchThreadSet_setAdjComponentDeletionCallback(threadSet, (void (*)(void *, stConnectedComponent *)) stOnlineCactus_deleteNode, cactus);
     thread1 = stPinchThreadSet_addThread(threadSet, 1, 0, 100);
     thread2 = stPinchThreadSet_addThread(threadSet, 2, 0, 200);
     thread3 = stPinchThreadSet_addThread(threadSet, 3, 0, 100);
-    connectivity = stPinchThreadSet_getAdjacencyConnectivity(threadSet);
-    cactus = stOnlineCactus_construct(
-        connectivity,
-        (void *(*)(void *, bool)) stPinchBlock_getRepresentativeSegmentCap,
-        (void *(*)(void *)) stPinchSegmentCap_getBlock);
-    stPinchThreadSet_setEndCreationCallback(threadSet, (void (*)(void *, stPinchSegmentCap *)) stOnlineCactus_createEnd, cactus);
-    stPinchThreadSet_setBlockCreationCallback(threadSet, (void (*)(void *, stPinchSegmentCap *, stPinchSegmentCap *, stPinchBlock *)) stOnlineCactus_addEdge, cactus);
-    stPinchThreadSet_setBlockDeletionCallback(threadSet, (void (*)(void *, stPinchSegmentCap *, stPinchSegmentCap *, stPinchBlock *)) stOnlineCactus_deleteEdge, cactus);
-    stPinchThreadSet_setEndMergeCallback(threadSet, (void (*)(void *, stPinchSegmentCap *, stPinchSegmentCap *)) stOnlineCactus_netMerge, cactus);
-    stPinchThreadSet_setEndCleaveCallback(threadSet, (bool (*)(void *, stPinchSegmentCap *, stSet *)) stOnlineCactus_netCleave, cactus);
 }
 
 static void teardown(void) {
@@ -103,20 +99,33 @@ static void testStOnlineCactus_endCleave(CuTest *testCase) {
     teardown();
 }
 
+// We can't do getRandomEmptyGraph first and add callbacks later, because
+// an adjacency component is created for each thread during creation.
+static void getRandomEmptyPinchAndOnlineCactus(void) {
+    threadSet = stPinchThreadSet_construct();
+    cactus = stOnlineCactus_construct(
+        (void *(*)(void *, bool)) stPinchBlock_getRepresentativeSegmentCap,
+        (void *(*)(void *)) stPinchSegmentCap_getBlock);
+    stPinchThreadSet_setAdjComponentCreationCallback(threadSet, (void (*)(void *, stConnectedComponent *)) stOnlineCactus_createNode, cactus);
+    stPinchThreadSet_setBlockCreationCallback(threadSet, (void (*)(void *, stConnectedComponent *, stConnectedComponent *, stPinchSegmentCap *, stPinchSegmentCap *, stPinchBlock *)) stOnlineCactus_addEdge, cactus);
+    stPinchThreadSet_setBlockDeletionCallback(threadSet, (void (*)(void *, stPinchSegmentCap *, stPinchSegmentCap *, stPinchBlock *)) stOnlineCactus_deleteEdge, cactus);
+    stPinchThreadSet_setAdjComponentMergeCallback(threadSet, (void (*)(void *, stConnectedComponent *, stConnectedComponent *)) stOnlineCactus_nodeMerge, cactus);
+    stPinchThreadSet_setAdjComponentCleaveCallback(threadSet, (void (*)(void *, stConnectedComponent *, stConnectedComponent *, stSet *)) stOnlineCactus_nodeCleave, cactus);
+    stPinchThreadSet_setAdjComponentDeletionCallback(threadSet, (void (*)(void *, stConnectedComponent *)) stOnlineCactus_deleteNode, cactus);
+    int64_t randomThreadNumber = st_randomInt(2, 10);
+    for (int64_t threadIndex = 0; threadIndex < randomThreadNumber; threadIndex++) {
+        int64_t start = st_randomInt(1, 100);
+        int64_t length = st_randomInt(1, 100);
+        int64_t threadName = threadIndex + 4;
+        stPinchThreadSet_addThread(threadSet, threadName, start, length);
+    }
+}
+
 static void testStOnlinePinchToCactus_random(CuTest *testCase) {
     for (int64_t i = 0; i < 100; i++) {
         printf("Random test %" PRIi64"\n", i);
-        threadSet = stPinchThreadSet_getRandomEmptyGraph();
-        connectivity = stPinchThreadSet_getAdjacencyConnectivity(threadSet);
-        cactus = stOnlineCactus_construct(
-            connectivity,
-            (void *(*)(void *, bool)) stPinchBlock_getRepresentativeSegmentCap,
-            (void *(*)(void *)) stPinchSegmentCap_getBlock);
-        stPinchThreadSet_setEndCreationCallback(threadSet, (void (*)(void *, stPinchSegmentCap *)) stOnlineCactus_createEnd, cactus);
-        stPinchThreadSet_setBlockCreationCallback(threadSet, (void (*)(void *, stPinchSegmentCap *, stPinchSegmentCap *, stPinchBlock *)) stOnlineCactus_addEdge, cactus);
-        stPinchThreadSet_setBlockDeletionCallback(threadSet, (void (*)(void *, stPinchSegmentCap *, stPinchSegmentCap *, stPinchBlock *)) stOnlineCactus_deleteEdge, cactus);
-        stPinchThreadSet_setEndMergeCallback(threadSet, (void (*)(void *, stPinchSegmentCap *, stPinchSegmentCap *)) stOnlineCactus_netMerge, cactus);
-        stPinchThreadSet_setEndCleaveCallback(threadSet, (bool (*)(void *, stPinchSegmentCap *, stSet *)) stOnlineCactus_netCleave, cactus);
+
+        getRandomEmptyPinchAndOnlineCactus();
 
         double threshold = st_random();
         if (threshold < 0.01) {
@@ -168,4 +177,3 @@ CuSuite* stOnlinePinchToCactusTestSuite(void) {
     SUITE_ADD_TEST(suite, testStOnlinePinchToCactus_random);
     return suite;
 }
-#endif

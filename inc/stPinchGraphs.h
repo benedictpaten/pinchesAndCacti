@@ -198,15 +198,17 @@ stPinchThreadSet *stPinchThreadSet_getRandomGraph(void);
  * code.
  */
 
-void stPinchThreadSet_setEndCreationCallback(stPinchThreadSet *threadSet, void (*callback)(void *, stPinchSegmentCap *), void *extraData);
+void stPinchThreadSet_setAdjComponentCreationCallback(stPinchThreadSet *threadSet, void (*callback)(void *, stConnectedComponent *), void *extraData);
 
-void stPinchThreadSet_setBlockCreationCallback(stPinchThreadSet *threadSet, void (*callback)(void *, stPinchSegmentCap *, stPinchSegmentCap *, stPinchBlock *), void *extraData);
+void stPinchThreadSet_setBlockCreationCallback(stPinchThreadSet *threadSet, void (*callback)(void *, stConnectedComponent *, stConnectedComponent *, stPinchSegmentCap *, stPinchSegmentCap *, stPinchBlock *), void *extraData);
 
 void stPinchThreadSet_setBlockDeletionCallback(stPinchThreadSet *threadSet, void (*blockDeletionCallback)(void *, stPinchSegmentCap *, stPinchSegmentCap *, stPinchBlock *), void *extraData);
 
-void stPinchThreadSet_setEndMergeCallback(stPinchThreadSet *threadSet, void (*callback)(void *, stPinchSegmentCap *, stPinchSegmentCap *), void *extraData);
+void stPinchThreadSet_setAdjComponentMergeCallback(stPinchThreadSet *threadSet, void (*callback)(void *, stConnectedComponent *, stConnectedComponent *), void *extraData);
 
-void stPinchThreadSet_setEndCleaveCallback(stPinchThreadSet *threadSet, bool (*callback)(void *, stPinchSegmentCap *, stSet *), void *extraData);
+void stPinchThreadSet_setAdjComponentCleaveCallback(stPinchThreadSet *threadSet, void (*callback)(void *, stConnectedComponent *, stConnectedComponent *, stSet *), void *extraData);
+
+void stPinchThreadSet_setAdjComponentDeletionCallback(stPinchThreadSet *threadSet, void (*callback)(void *, stConnectedComponent *), void *extraData);
 
 //convenience functions
 

@@ -313,19 +313,19 @@ static void testStOnlineCactus_addEdge(CuTest *testCase) {
     myNode *node2 = getNodeByLabel("15");
 
     myEnd *end1 = calloc(1, sizeof(myEnd));
-    end1->originalLabel = "9";
+    end1->originalLabel = stString_copy("9");
     myEnd *end2 = calloc(1, sizeof(myEnd));
-    end2->originalLabel = "15";
+    end2->originalLabel = stString_copy("15");
 
     myBlock *block = calloc(1, sizeof(myBlock));
-    block->label = "new";
+    block->label = stString_copy("new");
     block->end1 = end1;
     block->end2 = end2;
     end1->block = block;
     end2->block = block;
     stOnlineCactus_addEdge(cactus, node1, node2, end1, end2, block);
     printNiceTree(tree);
-    free(block);
+    myBlock_destruct(block);
     teardown();
 }
 
@@ -440,7 +440,7 @@ static void checkAgainstStatic3ECAlgorithm(CuTest *testCase, stHash *mergedInto)
 // non-dynamic algorithm.
 static void testStOnlineCactus_random_edge_add(CuTest *testCase) {
     setup();
-    int64_t numNodes = 2000;
+    int64_t numNodes = 200;
     getRandomNodeSet(numNodes);
     int64_t numEdges = numNodes * 2;
     for (int64_t i = 0; i < numEdges; i++) {
@@ -480,7 +480,7 @@ static void deleteEdge(int64_t node1, int64_t node2, int64_t i) {
 // the 3-edge-connectivity relationships still make sense.
 static void testStOnlineCactus_random_edge_add_and_delete(CuTest *testCase) {
     setup();
-    int64_t numNodes = 2000;
+    int64_t numNodes = 200;
     getRandomNodeSet(numNodes);
     int64_t numEdges = numNodes * 1.5;
     stList *edges = stList_construct3(0, (void (*)(void *)) stIntTuple_destruct);
@@ -558,9 +558,9 @@ static stIntTuple *searchIntTupleHash(stHash *hash, int64_t key) {
 
 static void testStOnlineCactus_random_edge_add_node_insert_and_node_merge(CuTest *testCase) {
     setup();
-    int64_t initialNumNodes = 1000;
+    int64_t initialNumNodes = 100;
     getRandomNodeSet(initialNumNodes);
-    int64_t numOps = 10000;
+    int64_t numOps = 1000;
     // Keep track of which nodes got merged into which.
     stHash *mergedInto = stHash_construct3((uint64_t (*)(const void *)) stIntTuple_hashKey,
                                            (int (*)(const void *, const void *)) stIntTuple_equalsFn,
@@ -676,9 +676,9 @@ static void partitionNode(int64_t node) {
 
 static void testStOnlineCactus_random_edge_add_and_node_partition(CuTest *testCase) {
     setup();
-    int64_t initialNumNodes = 1000;
+    int64_t initialNumNodes = 100;
     getRandomNodeSet(initialNumNodes);
-    int64_t numOps = 2000;
+    int64_t numOps = 200;
     for (int64_t i = 0; i < numOps; i++) {
         int64_t node1 = st_randomInt64(0, stList_length(adjacencyList));
         int64_t node2 = st_randomInt64(0, stList_length(adjacencyList));

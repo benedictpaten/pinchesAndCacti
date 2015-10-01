@@ -83,6 +83,9 @@ void stOnlineCactus_nodeMerge(stOnlineCactus *cactus, void *node1, void *node2);
 // Does not take ownership of endsToRemove.
 void stOnlineCactus_nodeCleave(stOnlineCactus *cactus, void *node, void *newNode, stSet *endsToRemove);
 
+// Delete an *isolated* node from the base graph. The node must not have any associated ends/edges.
+void stOnlineCactus_deleteNode(stOnlineCactus *cactus, void *node);
+
 // Get the maximal (according to scoreFn) path of base edges including
 // "block" in the cactus forest, such that if the edge is in a chain
 // the path is the edges of the chain, and if the edge is a bridge,
