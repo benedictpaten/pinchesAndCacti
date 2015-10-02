@@ -1765,7 +1765,7 @@ static bool stPinchInterval_containsSegment(stPinchInterval *interval, stPinchSe
 }
 
 // Sanity check for a block.
-static bool stPinchBlock_check(stPinchBlock *block) {
+bool stPinchBlock_check(stPinchBlock *block) {
     stPinchSegment *segment = block->headSegment;
     int64_t i = 0;
     while (segment->nBlockSegment != NULL) {

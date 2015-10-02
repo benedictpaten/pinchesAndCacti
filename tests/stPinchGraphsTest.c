@@ -756,8 +756,118 @@ static void testStPinchThreadSet_getAdjacencyComponents(CuTest *testCase) {
     teardown();
 }
 
+static stList *getAdjacencyComponentP(stPinchSegment *segment, int64_t position, stHash *pinchEndsToAdjacencyComponents) {
+    stPinchBlock *block = stPinchSegment_getBlock(segment);
+    assert(block != NULL);
+    bool orientation = (position >= stPinchSegment_getLength(segment) / 2)
+            ^ stPinchSegment_getBlockOrientation(segment);
+    stPinchEnd pinchEnd = stPinchEnd_constructStatic(block, orientation);
+    stList *adjacencyComponent = stHash_search(pinchEndsToAdjacencyComponents, &pinchEnd);
+    assert(adjacencyComponent != NULL);
+    return adjacencyComponent;
+}
+
+static stList *getAdjacencyComponent(stPinchSegment *segment, int64_t position, stHash *pinchEndsToAdjacencyComponents) {
+    if (stPinchSegment_getBlock(segment) != NULL) {
+        return getAdjacencyComponentP(segment, position, pinchEndsToAdjacencyComponents);
+    }
+    stPinchSegment *segment2 = stPinchSegment_get3Prime(segment);
+    while (segment2 != NULL) {
+        if (stPinchSegment_getBlock(segment2) != NULL) {
+            return getAdjacencyComponentP(segment2, -1, pinchEndsToAdjacencyComponents);
+        }
+        segment2 = stPinchSegment_get3Prime(segment2);
+    }
+    segment2 = stPinchSegment_get5Prime(segment);
+    while (segment2 != NULL) {
+        if (stPinchSegment_getBlock(segment2) != NULL) {
+            return getAdjacencyComponentP(segment2, INT64_MAX, pinchEndsToAdjacencyComponents);
+        }
+        segment2 = stPinchSegment_get5Prime(segment2);
+    }
+    return NULL;
+}
+
+// Copy of the old non-dynamic adjacency components code.
+void getAdjacencyComponentsP2(stHash *endsToAdjacencyComponents, stList *adjacencyComponent, stPinchEnd *end) {
+    stList *stack = stList_construct();
+    stList_append(adjacencyComponent, end);
+    stHash_insert(endsToAdjacencyComponents, end, adjacencyComponent);
+    stList_append(stack, end);
+    while (stList_length(stack) > 0) {
+        end = stList_pop(stack);
+        stPinchBlockIt blockIt = stPinchBlock_getSegmentIterator(end->block);
+        stPinchSegment *segment;
+        while ((segment = stPinchBlockIt_getNext(&blockIt)) != NULL) {
+            bool _5PrimeTraversal = stPinchEnd_traverse5Prime(end->orientation, segment);
+            while (1) {
+                segment = _5PrimeTraversal ? stPinchSegment_get5Prime(segment) : stPinchSegment_get3Prime(segment);
+                if (segment == NULL) {
+                    break;
+                }
+                stPinchBlock *block = stPinchSegment_getBlock(segment);
+                if (block != NULL) {
+                    stPinchEnd end2 = stPinchEnd_constructStatic(block, stPinchEnd_endOrientation(_5PrimeTraversal, segment));
+                    if (stHash_search(endsToAdjacencyComponents, &end2) == NULL) {
+                        stPinchEnd *end3 = stPinchEnd_construct(end2.block, end2.orientation);
+                        stList_append(adjacencyComponent, end3);
+                        stHash_insert(endsToAdjacencyComponents, end3, adjacencyComponent);
+                        stList_append(stack, end3);
+                    }
+                    break;
+                }
+            }
+        }
+    }
+    stList_destruct(stack);
+}
+
+static void getAdjacencyComponentsP(stHash *endsToAdjacencyComponents, stList *adjacencyComponents, stPinchBlock *block,
+        bool orientation) {
+    stPinchEnd end = stPinchEnd_constructStatic(block, orientation);
+    stList *adjacencyComponent = stHash_search(endsToAdjacencyComponents, &end);
+    if (adjacencyComponent == NULL) {
+        adjacencyComponent = stList_construct3(0, (void(*)(void *)) stPinchEnd_destruct);
+        stList_append(adjacencyComponents, adjacencyComponent);
+        getAdjacencyComponentsP2(endsToAdjacencyComponents, adjacencyComponent, stPinchEnd_construct(block, orientation));
+    }
+}
+
+static stList *getAdjacencyComponents2(stPinchThreadSet *threadSet, stHash **endsToAdjacencyComponents) {
+    *endsToAdjacencyComponents = stHash_construct3(stPinchEnd_hashFn, stPinchEnd_equalsFn, NULL, NULL);
+    stList *adjacencyComponents = stList_construct3(0, (void(*)(void *)) stList_destruct);
+    stPinchThreadSetBlockIt blockIt = stPinchThreadSet_getBlockIt(threadSet);
+    stPinchBlock *block;
+    while ((block = stPinchThreadSetBlockIt_getNext(&blockIt)) != NULL) {
+        getAdjacencyComponentsP(*endsToAdjacencyComponents, adjacencyComponents, block, 0);
+        getAdjacencyComponentsP(*endsToAdjacencyComponents, adjacencyComponents, block, 1);
+    }
+    return adjacencyComponents;
+}
+
+// Check that the dynamic adjacency components match those computed by the non-dynamic version.
+void compareAdjacencyComponentsToNaive(CuTest *testCase, stPinchThreadSet *threadSet) {
+    stHash *endsToAdjacencyComponents;
+    stList *naiveComponents = getAdjacencyComponents2(threadSet, &endsToAdjacencyComponents);
+    stList *dynamicComponents = stPinchThreadSet_getAdjacencyComponents(threadSet);
+    CuAssertTrue(testCase, stList_length(naiveComponents) == stList_length(dynamicComponents));
+    for (int64_t i = 0; i < stList_length(dynamicComponents); i++) {
+        stList *dynamicComponent = stList_get(dynamicComponents, i);
+        // The corresponding naive component.
+        stList *naiveComponent = stHash_search(endsToAdjacencyComponents, stList_get(dynamicComponent, 0));
+        CuAssertTrue(testCase, naiveComponent != NULL);
+        CuAssertTrue(testCase, stList_length(dynamicComponent) == stList_length(naiveComponent));
+        for (int64_t j = 0; j < stList_length(dynamicComponent); j++) {
+            stPinchEnd *end = stList_get(dynamicComponent, j);
+            CuAssertTrue(testCase, stHash_search(endsToAdjacencyComponents, end) == naiveComponent);
+        }
+    }
+    stList_destruct(naiveComponents);
+    stList_destruct(dynamicComponents);
+    stHash_destruct(endsToAdjacencyComponents);
+}
+
 static void testStPinchThreadSet_getAdjacencyComponents_randomTests(CuTest *testCase) {
-    //return;
     for (int64_t test = 0; test < 100; test++) {
         st_logInfo("Starting random adjacency component test %" PRIi64 "\n", test);
         stPinchThreadSet *threadSet = stPinchThreadSet_getRandomGraph();
@@ -778,7 +888,7 @@ static void testStPinchThreadSet_getAdjacencyComponents_randomTests(CuTest *test
             blockNumber++;
         }
         CuAssertIntEquals(testCase, 2 * blockNumber, stHash_size(ends));
-        //Check all connected nodes in same adjacency component
+        compareAdjacencyComponentsToNaive(testCase, threadSet);
         stPinchThreadSet_destruct(threadSet);
         stHash_destruct(ends);
         stList_destruct(adjacencyComponents);
@@ -821,7 +931,7 @@ static stList *getListOfBlocks(stPinchThreadSet *threadSet) {
 }
 
 static void testStPinchEnd_hasSelfLoopWithRespectToOtherBlock_randomTests(CuTest *testCase) {
-    for (int64_t test = 0; test < 10000; test++) {
+    for (int64_t test = 0; test < 100; test++) {
         st_logInfo("Starting random has self loop with respect to other end test %" PRIi64 "\n", test);
         stPinchThreadSet *threadSet = stPinchThreadSet_getRandomGraph();
         stList *blocks = getListOfBlocks(threadSet);
@@ -873,7 +983,7 @@ static stList *getSubSequenceLengthsConnectingEnds(stPinchEnd *end1, stPinchEnd 
 }
 
 static void testStPinchEnd_getSubSequenceLengthsConnectingEnds_randomTests(CuTest *testCase) {
-    for (int64_t test = 0; test < 10000; test++) {
+    for (int64_t test = 0; test < 100; test++) {
         st_logInfo("Starting random get total incident sequence connecting ends test %" PRIi64 "\n", test);
         stPinchThreadSet *threadSet = stPinchThreadSet_getRandomGraph();
         stList *blocks = getListOfBlocks(threadSet);
@@ -1009,38 +1119,6 @@ static void testStPinchThreadSet_getLabelIntervals(CuTest *testCase) {
     stSortedSet_destruct(intervals);
     stList_destruct(adjacencyComponents);
     teardown();
-}
-
-static stList *getAdjacencyComponentP(stPinchSegment *segment, int64_t position, stHash *pinchEndsToAdjacencyComponents) {
-    stPinchBlock *block = stPinchSegment_getBlock(segment);
-    assert(block != NULL);
-    bool orientation = (position >= stPinchSegment_getLength(segment) / 2)
-            ^ stPinchSegment_getBlockOrientation(segment);
-    stPinchEnd pinchEnd = stPinchEnd_constructStatic(block, orientation);
-    stList *adjacencyComponent = stHash_search(pinchEndsToAdjacencyComponents, &pinchEnd);
-    assert(adjacencyComponent != NULL);
-    return adjacencyComponent;
-}
-
-static stList *getAdjacencyComponent(stPinchSegment *segment, int64_t position, stHash *pinchEndsToAdjacencyComponents) {
-    if (stPinchSegment_getBlock(segment) != NULL) {
-        return getAdjacencyComponentP(segment, position, pinchEndsToAdjacencyComponents);
-    }
-    stPinchSegment *segment2 = stPinchSegment_get3Prime(segment);
-    while (segment2 != NULL) {
-        if (stPinchSegment_getBlock(segment2) != NULL) {
-            return getAdjacencyComponentP(segment2, -1, pinchEndsToAdjacencyComponents);
-        }
-        segment2 = stPinchSegment_get3Prime(segment2);
-    }
-    segment2 = stPinchSegment_get5Prime(segment);
-    while (segment2 != NULL) {
-        if (stPinchSegment_getBlock(segment2) != NULL) {
-            return getAdjacencyComponentP(segment2, INT64_MAX, pinchEndsToAdjacencyComponents);
-        }
-        segment2 = stPinchSegment_get5Prime(segment2);
-    }
-    return NULL;
 }
 
 static void testStPinchThreadSet_getLabelIntervals_randomTests(CuTest *testCase) {
