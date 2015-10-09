@@ -21,6 +21,7 @@ static void setup(void) {
     stPinchThreadSet_setAdjComponentMergeCallback(threadSet, (void (*)(void *, stConnectedComponent *, stConnectedComponent *)) stOnlineCactus_nodeMerge, cactus);
     stPinchThreadSet_setAdjComponentCleaveCallback(threadSet, (void (*)(void *, stConnectedComponent *, stConnectedComponent *, stSet *)) stOnlineCactus_nodeCleave, cactus);
     stPinchThreadSet_setAdjComponentDeletionCallback(threadSet, (void (*)(void *, stConnectedComponent *)) stOnlineCactus_deleteNode, cactus);
+    stOnlineCactus_setWeightFn(cactus, (uint64_t (*)(const void *)) stPinchBlock_getLength);
     thread1 = stPinchThreadSet_addThread(threadSet, 1, 0, 100);
     thread2 = stPinchThreadSet_addThread(threadSet, 2, 0, 200);
     thread3 = stPinchThreadSet_addThread(threadSet, 3, 0, 100);
@@ -112,6 +113,7 @@ static void getRandomEmptyPinchAndOnlineCactus(void) {
     stPinchThreadSet_setAdjComponentMergeCallback(threadSet, (void (*)(void *, stConnectedComponent *, stConnectedComponent *)) stOnlineCactus_nodeMerge, cactus);
     stPinchThreadSet_setAdjComponentCleaveCallback(threadSet, (void (*)(void *, stConnectedComponent *, stConnectedComponent *, stSet *)) stOnlineCactus_nodeCleave, cactus);
     stPinchThreadSet_setAdjComponentDeletionCallback(threadSet, (void (*)(void *, stConnectedComponent *)) stOnlineCactus_deleteNode, cactus);
+    stOnlineCactus_setWeightFn(cactus, (uint64_t (*)(const void *)) stPinchBlock_getLength);
     int64_t randomThreadNumber = st_randomInt(2, 10);
     for (int64_t threadIndex = 0; threadIndex < randomThreadNumber; threadIndex++) {
         int64_t start = st_randomInt(1, 100);
@@ -122,7 +124,7 @@ static void getRandomEmptyPinchAndOnlineCactus(void) {
 }
 
 static void testStOnlinePinchToCactus_random(CuTest *testCase) {
-    for (int64_t i = 0; i < 100; i++) {
+    for (int64_t i = 0; i < 10000; i++) {
         printf("Random test %" PRIi64"\n", i);
 
         getRandomEmptyPinchAndOnlineCactus();
@@ -141,7 +143,6 @@ static void testStOnlinePinchToCactus_random(CuTest *testCase) {
                                 stPinchThreadSet_getThread(threadSet, pinch.name2), pinch.start1, pinch.start2, pinch.length,
                                 pinch.strand);
 
-            stOnlineCactus_print(cactus);
             stOnlineCactus_check(cactus);
             simpleSanityChecks(testCase);
 
@@ -151,12 +152,10 @@ static void testStOnlinePinchToCactus_random(CuTest *testCase) {
                     int64_t undoLength = st_randomInt64(0, pinch.length - offset + 1);
                     stPinchThreadSet_partiallyUndoPinch(threadSet, undo, offset, undoLength);
                     offset += undoLength;
-                    stOnlineCactus_print(cactus);
                     stOnlineCactus_check(cactus);
                     simpleSanityChecks(testCase);
                 }
             }
-            stOnlineCactus_print(cactus);
             stOnlineCactus_check(cactus);
             simpleSanityChecks(testCase);
             stPinchUndo_destruct(undo);

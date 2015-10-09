@@ -45,6 +45,11 @@ stOnlineCactus *stOnlineCactus_construct(void *(*edgeToEnd)(void *, bool),
 // Free the online cactus properly.
 void stOnlineCactus_destruct(stOnlineCactus *cactus);
 
+// Set the function that determines the weight of each edge (for
+// finding the total weight of chains and bridge paths). By default,
+// each edge has weight 1. Negative weights are not allowed, sorry.
+void stOnlineCactus_setWeightFn(stOnlineCactus *cactus, uint64_t (*getEdgeWeight)(const void *));
+
 // Get the type (NET or CHAIN) of this cactus-forest node.
 cactusNodeType stCactusTree_type(const stCactusTree *tree);
 
@@ -90,10 +95,12 @@ void stOnlineCactus_deleteNode(stOnlineCactus *cactus, void *node);
 // "block" in the cactus forest, such that if the edge is in a chain
 // the path is the edges of the chain, and if the edge is a bridge,
 // the path is the maximal path of bridge edges in the forest.
-stList *stOnlineCactus_getMaximalChainOrBridgePath(stOnlineCactus *cactus, void *block, int64_t scoreFn(void *));
+// Do not free the returned list.
+stList *stOnlineCactus_getMaximalChainOrBridgePath(stOnlineCactus *cactus, void *block);
 
 // Get the *smallest* maximal path (see definition above) in the cactus forest.
-stList *stOnlineCactus_getGloballyWorstMaximalChainOrBridgePath(stOnlineCactus *cactus, int64_t scoreFn(void *));
+// Do not free the returned list.
+stList *stOnlineCactus_getGloballyWorstMaximalChainOrBridgePath(stOnlineCactus *cactus);
 
 // Print an online cactus forest, for debugging purposes. Uses pointer
 // values to name the nodes, so the output will be inscrutable.

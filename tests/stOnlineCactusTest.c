@@ -447,6 +447,7 @@ static void testStOnlineCactus_random_edge_add(CuTest *testCase) {
         int64_t node1 = st_randomInt64(0, numNodes);
         int64_t node2 = st_randomInt64(0, numNodes);
         addEdge(node1, node2, i);
+        stOnlineCactus_check(cactus);
     }
     printNiceCactus();
     stOnlineCactus_check(cactus);
@@ -499,6 +500,7 @@ static void testStOnlineCactus_random_edge_add_and_delete(CuTest *testCase) {
         int64_t node2 = stIntTuple_get(edge, 1);
         deleteEdge(node1, node2, edgeNum);
         stIntTuple_destruct(stList_remove(edges, randomIndex));
+        stOnlineCactus_check(cactus);
     }
     stOnlineCactus_check(cactus);
     printNiceCactus();
@@ -579,22 +581,20 @@ static void testStOnlineCactus_random_edge_add_node_insert_and_node_merge(CuTest
         switch (opType) {
         case 0:
             // Edge addition
-            printf("adding edge %" PRIi64 " %" PRIi64 "<->%" PRIi64 "\n", i, node1, node2);
             addEdge(node1, node2, i);
             break;
         case 1:
             // Node merge
-            printf("merging nodes %" PRIi64 " and %" PRIi64 "\n", node1, node2);
             if (mergeNodes(node1, node2)) {
                 stHash_insert(mergedInto, stIntTuple_construct1(node1), stIntTuple_construct1(node2));
             }
             break;
         case 2:
             // Isolated node addition
-            printf("adding new node %" PRIi64 "\n", stList_length(adjacencyList));
             addNode();
             break;
         }
+        stOnlineCactus_check(cactus);
     }
     stOnlineCactus_check(cactus);
     printNiceCactus();
@@ -619,7 +619,6 @@ static void partitionNode(int64_t node) {
     int64_t start = st_randomInt64(0, stList_length(adjacencies) - length);
     stList *newAdjacencies = stList_construct3(0, (void (*)(void *)) stIntTuple_destruct);
     int64_t newIndex = stList_length(adjacencyList);
-    printf("creating new node %" PRIi64 "\n", newIndex);
     stList_append(adjacencyList, newAdjacencies);
     while (stList_length(newAdjacencies) < length) {
         stList_append(newAdjacencies, stList_get(adjacencies, start));
@@ -687,12 +686,10 @@ static void testStOnlineCactus_random_edge_add_and_node_partition(CuTest *testCa
         switch (opType) {
         case 0:
             // Edge addition
-            printf("adding edge %" PRIi64 " %" PRIi64 "<->%" PRIi64 "\n", i, node1, node2);
             addEdge(node1, node2, i);
             break;
         case 1:
             // Node partition
-            printf("partitioning node %" PRIi64 "\n", node1);
             partitionNode(node1);
             break;
         }
@@ -704,41 +701,34 @@ static void testStOnlineCactus_random_edge_add_and_node_partition(CuTest *testCa
     teardown();
 }
 
-static int64_t alwaysReturns1(void *foo) {
-    return 1;
-}
-
 static void testStOnlineCactus_scoringChainOrBridgePaths(CuTest *testCase) {
     setup();
     getCactusTree("((((((((NET_5)BLOCK_E)CHAIN_C1)BLOCK_D)NET_3)BLOCK_B, (((NET_6)BLOCK_F, (((NET_14)BLOCK_O)NET_7)BLOCK_G)NET_4)BLOCK_C)NET_2)BLOCK_A, (NET_8)BLOCK_H, (((NET_9)BLOCK_J, (((NET_11)BLOCK_L, (((NET_13)BLOCK_N)NET_12)BLOCK_M)NET_10)BLOCK_K)CHAIN_C2)BLOCK_I)NET_1;");
 
-    stList *longestPath = stOnlineCactus_getMaximalChainOrBridgePath(cactus, stHash_search(nameToBlock, "N"), alwaysReturns1);
+    stList *longestPath = naivelyGetMaximalChainOrBridgePath(cactus, stHash_search(nameToBlock, "N"));
     CuAssertIntEquals(testCase, 3, stList_length(longestPath));
     stList_destruct(longestPath);
 
-    longestPath = stOnlineCactus_getMaximalChainOrBridgePath(cactus, stHash_search(nameToBlock, "L"), alwaysReturns1);
+    longestPath = naivelyGetMaximalChainOrBridgePath(cactus, stHash_search(nameToBlock, "L"));
     CuAssertIntEquals(testCase, 3, stList_length(longestPath));
     stList_destruct(longestPath);
 
-    longestPath = stOnlineCactus_getMaximalChainOrBridgePath(cactus, stHash_search(nameToBlock, "H"), alwaysReturns1);
+    longestPath = naivelyGetMaximalChainOrBridgePath(cactus, stHash_search(nameToBlock, "H"));
     CuAssertIntEquals(testCase, 5, stList_length(longestPath));
     stList_destruct(longestPath);
 
-    longestPath = stOnlineCactus_getMaximalChainOrBridgePath(cactus, stHash_search(nameToBlock, "E"), alwaysReturns1);
+    longestPath = naivelyGetMaximalChainOrBridgePath(cactus, stHash_search(nameToBlock, "E"));
     CuAssertIntEquals(testCase, 2, stList_length(longestPath));
     stList_destruct(longestPath);
 
-    longestPath = stOnlineCactus_getMaximalChainOrBridgePath(cactus, stHash_search(nameToBlock, "I"), alwaysReturns1);
+    longestPath = naivelyGetMaximalChainOrBridgePath(cactus, stHash_search(nameToBlock, "I"));
     CuAssertIntEquals(testCase, 3, stList_length(longestPath));
     stList_destruct(longestPath);
 
-    longestPath = stOnlineCactus_getMaximalChainOrBridgePath(cactus, stHash_search(nameToBlock, "F"), alwaysReturns1);
+    longestPath = naivelyGetMaximalChainOrBridgePath(cactus, stHash_search(nameToBlock, "F"));
     CuAssertIntEquals(testCase, 4, stList_length(longestPath));
     stList_destruct(longestPath);
 
-    stList *worstPath = stOnlineCactus_getGloballyWorstMaximalChainOrBridgePath(cactus, alwaysReturns1);
-    CuAssertIntEquals(testCase, 2, stList_length(worstPath));
-    stList_destruct(worstPath);
     teardown();
 }
 
