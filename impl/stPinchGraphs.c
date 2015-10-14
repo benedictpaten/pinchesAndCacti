@@ -1996,18 +1996,18 @@ static void stPinchThreadSet_undoPinchP(stPinchThread *thread, int64_t start, in
             continue;
         }
 
-        stList *blocks = splitBlockUsingUndoBlock(block, segment, undoBlock);
+        stList *newBlocks = splitBlockUsingUndoBlock(block, segment, undoBlock);
 
         // We don't know if there were degree-1 blocks before, but
         // they don't affect the alignment relationships, so we remove
         // any degree-1 blocks.
-        for (int64_t i = 0; i < stList_length(blocks); i++) {
-            block = stList_get(blocks, i);
+        for (int64_t i = 0; i < stList_length(newBlocks); i++) {
+            block = stList_get(newBlocks, i);
             if (stPinchBlock_getDegree(block) == 1) {
                 stPinchBlock_destruct(block);
             }
         }
-        stList_destruct(blocks);
+        stList_destruct(newBlocks);
         segment = stPinchSegment_get3Prime(segment);
     }
 }
@@ -2053,12 +2053,15 @@ static bool stPinchUndo_findOffsetForBlockP(stList *blocks, stPinchBlock *block,
             if (stPinchBlock_getDegree(block) != undoBlock->degree) {
                 if (stPinchSegment_getName(segment) == pinch->name1 && stPinchSegment_getStart(segment) >= pinch->start1 && stPinchSegment_getStart(segment) < pinch->start1 + pinch->length) {
                     *undoOffset = stPinchSegment_getStart(segment) - pinch->start1;
-                } else {
+                } else if (stPinchSegment_getName(segment) == pinch->name2 && stPinchSegment_getStart(segment) >= pinch->start2 && stPinchSegment_getStart(segment) < pinch->start2 + pinch->length) {
                     if (pinch->strand) {
                         *undoOffset = stPinchSegment_getStart(segment) - pinch->start2;
                     } else {
                         *undoOffset = pinch->start2 + pinch->length - stPinchSegment_getStart(segment) - stPinchSegment_getLength(segment);
                     }
+                } else {
+                    segment = segment->nBlockSegment;
+                    continue;
                 }
                 *undoLength = stPinchSegment_getLength(segment);
                 return true;
