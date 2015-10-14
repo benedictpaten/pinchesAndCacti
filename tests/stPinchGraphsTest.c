@@ -1380,6 +1380,7 @@ static void testStPinchUndo_random(CuTest *testCase) {
         if (st_random() > 0.5) {
             stPinchThreadSet_joinTrivialBoundaries(threadSet); //Checks this function does not affect result
         }
+        compareAdjacencyComponentsToNaive(testCase, threadSet);
         checkPinchSetsAreEquivalentAndCleanup(testCase, threadSet, columns);
         st_logInfo("Random undo test %" PRIi64 " passed\n", testNum);
     }
@@ -1458,13 +1459,132 @@ static void testStPinchPartialUndo_random(CuTest *testCase) {
         if (st_random() > 0.5) {
             stPinchThreadSet_joinTrivialBoundaries(threadSet); //Checks this function does not affect result
         }
+        compareAdjacencyComponentsToNaive(testCase, threadSet);
         checkPinchSetsAreEquivalentAndCleanup(testCase, threadSet, columns);
         st_logInfo("Random undo test %" PRIi64 " passed\n", testNum);
     }
 }
 
+static stList *getRandomGappedPinchSet(stPinchThreadSet *threadSet) {
+    stList *threads = stList_construct();
+    stPinchThreadSetIt it = stPinchThreadSet_getIt(threadSet);
+    stPinchThread *thread;
+    while ((thread = stPinchThreadSetIt_getNext(&it)) != NULL) {
+        stList_append(threads, thread);
+    }
+
+    stPinchThread *thread1 = st_randomChoice(threads);
+    stPinchThread *thread2 = st_randomChoice(threads);
+    stList_destruct(threads);
+
+    int64_t maxNumPinches = st_randomInt(1, 100);
+    stList *ret = stList_construct3(0, (void (*)(void *)) stPinch_destruct);
+    // We go through the threads from left to right, to ensure that we don't accidentally overlap.
+    int64_t prevEnd1 = stPinchThread_getStart(thread1);
+    int64_t prevEnd2 = stPinchThread_getStart(thread2);
+    for (int64_t i = 0; i < maxNumPinches; i++) {
+        int64_t start1 = st_randomInt(prevEnd1, stPinchThread_getStart(thread1) + stPinchThread_getLength(thread1));
+        int64_t start2 = st_randomInt(prevEnd2, stPinchThread_getStart(thread2) + stPinchThread_getLength(thread2));
+        int64_t maxLength1 = stPinchThread_getStart(thread1) + stPinchThread_getLength(thread1) - start1;
+        int64_t maxLength2 = stPinchThread_getStart(thread2) + stPinchThread_getLength(thread2) - start2;
+        int64_t length = st_randomInt64(0, maxLength1 < maxLength2 ? maxLength1 : maxLength2);
+        stPinch *pinch = stPinch_construct(stPinchThread_getName(thread1), stPinchThread_getName(thread2),
+                                           start1, start2, length, 1);
+        stList_append(ret, pinch);
+        if (length == maxLength1 - 1 || length == maxLength2 - 1) {
+            // Reached the end of the thread.
+            break;
+        }
+        prevEnd1 = start1 + length;
+        prevEnd2 = start2 + length;
+    }
+    // Just to test that we don't actually rely on any ordering of the pinches.
+    stList_shuffle(ret);
+    return ret;
+}
+
+// This code is for a gapped undo test undoing entire pinches, which
+// is hard to define properly, very similarly to the partial pinch
+// problem. Should probably just convert to a "undo whole gapped
+// alignment" test, which wouldn't test anything much but might still
+// be a bit useful at least.
+/* static void testStPinchUndo_gapped(CuTest *testCase) { */
+/*     for (int64_t testNum = 0; testNum < 1000; testNum++) { */
+/*         stPinchThreadSet *threadSet = stPinchThreadSet_getRandomEmptyGraph(); */
+/*         stHash *columns = getUnalignedColumns(threadSet); */
+
+/*         //Randomly push them together, updating both sets, and checking that set of alignments is what we expect */
+/*         double threshold = st_random(); */
+/*         if (threshold < 0.01) { */
+/*             threshold = 0.01; // Just to prevent the test from */
+/*                               // exploding every so often. */
+/*         } */
+/*         while (st_random() > threshold) { */
+/*             stList *pinches = getRandomGappedPinchSet(threadSet); */
+
+/*             stPinchUndo *undo = stPinchThreadSet_prepareGappedUndo(threadSet, pinches); */
+/*             for (int64_t i = 0; i < stList_length(pinches); i++) { */
+/*                 stPinch *pinch = stList_get(pinches, i); */
+/*                 printf("pinch #%" PRIi64 ": thread1: %" PRIi64 ", start1: %" PRIi64 ", thread2: %" PRIi64 ", start2: %" PRIi64 ", length: %" PRIi64 "\n", i, pinch->name1, pinch->start1, pinch->name2, pinch->start2, pinch->length); */
+/*                 stPinchThread_pinch(stPinchThreadSet_getThread(threadSet, pinch->name1), */
+/*                                     stPinchThreadSet_getThread(threadSet, pinch->name2), pinch->start1, pinch->start2, pinch->length, */
+/*                                     pinch->strand); */
+
+/*                 if (st_random() > 0.5) { */
+/*                     //now do all the pushing together of the equivalence classes */
+/*                     for (int64_t i = 0; i < pinch->length; i++) { */
+/*                         mergePositionsSymmetric(columns, pinch->name1, pinch->start1 + i, 1, pinch->name2, */
+/*                                                 pinch->strand ? pinch->start2 + i : pinch->start2 + pinch->length - 1 - i, pinch->strand); */
+/*                     } */
+/*                 } else { */
+/*                     // Find all the pinched blocks and undo them. */
+/*                     printf("finding undoable blocks for thread1\n"); */
+/*                     stPinchSegment *segment = stPinchThread_getSegment(stPinchThreadSet_getThread(threadSet, pinch->name1), pinch->start1); */
+/*                     while (segment != NULL && stPinchSegment_getStart(segment) < pinch->start1 + pinch->length) { */
+/*                         stPinchBlock *block = stPinchSegment_getBlock(segment); */
+/*                         if (block != NULL) { */
+/*                             int64_t undoOffset, undoLength; */
+/*                             if (stPinchUndo_findOffsetForBlock(undo, threadSet, block, &undoOffset, &undoLength)) { */
+/*                                 printf("undioing\n"); */
+/*                                 stPinchThreadSet_partiallyUndoPinch(threadSet, undo, undoOffset, undoLength); */
+/*                                 continue; */
+/*                             } */
+/*                         } */
+/*                         segment = stPinchSegment_get3Prime(segment); */
+/*                     } */
+
+/*                     printf("finding undoable blocks for thread2\n"); */
+/*                     segment = stPinchThread_getSegment(stPinchThreadSet_getThread(threadSet, pinch->name2), pinch->start2); */
+/*                     while (segment != NULL && stPinchSegment_getStart(segment) < pinch->start2 + pinch->length) { */
+/*                         stPinchBlock *block = stPinchSegment_getBlock(segment); */
+/*                         if (block != NULL) { */
+/*                             int64_t undoOffset, undoLength; */
+/*                             if (stPinchUndo_findOffsetForBlock(undo, threadSet, block, &undoOffset, &undoLength)) { */
+/*                                 printf("undioing\n"); */
+/*                                 stPinchThreadSet_partiallyUndoPinch(threadSet, undo, undoOffset, undoLength); */
+/*                                 continue; */
+/*                             } */
+/*                         } */
+/*                         segment = stPinchSegment_get3Prime(segment); */
+/*                     } */
+/*                     checkPinchSetsAreEquivalentAndCleanup(testCase, threadSet, columns); */
+/*                 } */
+/*             } */
+/*             stPinchUndo_destruct(undo); */
+/*             stList_destruct(pinches); */
+/*         } */
+/*         compareAdjacencyComponentsToNaive(testCase, threadSet); */
+/*         if (st_random() > 0.5) { */
+/*             stPinchThreadSet_joinTrivialBoundaries(threadSet); //Checks this function does not affect result */
+/*         } */
+/*         checkPinchSetsAreEquivalentAndCleanup(testCase, threadSet, columns); */
+/*         st_logInfo("Random gapped undo test %" PRIi64 " passed\n", testNum); */
+/*     } */
+/* } */
+
 CuSuite* stPinchGraphsTestSuite(void) {
     CuSuite* suite = CuSuiteNew();
+
     SUITE_ADD_TEST(suite, testStPinchThreadSet);
     SUITE_ADD_TEST(suite, testStPinchThreadAndSegment);
     SUITE_ADD_TEST(suite, testStPinchBlock_NoSplits);
