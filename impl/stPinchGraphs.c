@@ -1758,6 +1758,37 @@ stPinchUndo *stPinchThread_prepareUndo(stPinchThread *thread1, stPinchThread *th
     return ret;
 }
 
+stPinchUndo *stPinchThreadSet_prepareGappedUndo(stPinchThreadSet *threadSet, stList *pinches) {
+    assert(stList_length(pinches) > 0);
+    stPinchUndo *ret = malloc(sizeof(stPinchUndo));
+    ret->blocks1 = stList_construct3(0, (void (*)(void *)) stPinchUndoBlock_destruct);
+    ret->blocks2 = stList_construct3(0, (void (*)(void *)) stPinchUndoBlock_destruct);
+    stPinch *firstPinch = stList_get(pinches, 0);
+    int64_t name1 = -1;
+    int64_t start1 = firstPinch->start1;
+    int64_t end1 = 0;
+    int64_t start2 = firstPinch->start2;
+    int64_t end2 = 0;
+    int64_t name2 = -1;
+    for (int64_t i = 0; i < stList_length(pinches); i++) {
+        stPinch *pinch = stList_get(pinches, i);
+        start1 = pinch->start1 > start1 ? start1 : pinch->start1;
+        start2 = pinch->start2 > start2 ? start2 : pinch->start2;
+        end1 = pinch->start1 + pinch->length > end1 ? pinch->start1 + pinch->length : end1;
+        end2 = pinch->start2 + pinch->length > end2 ? pinch->start2 + pinch->length : end2;
+        name1 = pinch->name1;
+        name2 = pinch->name2;
+        stPinchThread_prepareUndoP(stPinchThreadSet_getThread(threadSet, pinch->name1),
+                                   pinch->start1, pinch->length, ret->blocks1);
+        stPinchThread_prepareUndoP(stPinchThreadSet_getThread(threadSet, pinch->name2),
+                                   pinch->start2, pinch->length, ret->blocks2);
+    }
+    int64_t length1 = end1 - start1;
+    int64_t length2 = end2 - start2;
+    ret->pinchToUndo = stPinch_construct(name1, name2, start1, start2, length1 > length2 ? length1 : length2, 1);
+    return ret;
+}
+
 static bool stPinchInterval_containsSegment(stPinchInterval *interval, stPinchSegment *segment) {
     return stPinchInterval_getName(interval) == stPinchSegment_getName(segment)
         && stPinchInterval_getStart(interval) <= stPinchSegment_getStart(segment)
@@ -2009,16 +2040,16 @@ static bool stPinchUndo_findOffsetForBlockP(stList *blocks, stPinchBlock *block,
                                             stPinchThread *thread, int64_t start,
                                             int64_t length, stPinch *pinch,
                                             int64_t *undoOffset, int64_t *undoLength) {
-    stPinchSegment *segment = stPinchThread_getSegment(thread, start);
-    int64_t i = 0;
-    stPinchUndoBlock *undoBlock = stList_get(blocks, i);
-    while (segment != NULL && stPinchSegment_getStart(segment) < start + length) {
-        if (stPinchSegment_getBlock(segment) == block) {
-            // Fast-forward to the proper undo block.
-            while (stList_length(blocks) != i && !stPinchInterval_containsSegment(undoBlock->refInterval, segment)) {
-                i++;
-                undoBlock = stList_get(blocks, i);
-            }
+    stPinchSegment *segment = stPinchBlock_getFirst(block);
+    while (segment != NULL) {
+        int64_t i = 0;
+        stPinchUndoBlock *undoBlock = stList_get(blocks, i);
+        // Fast-forward to the proper undo block.
+        while (i != stList_length(blocks) && !stPinchInterval_containsSegment(undoBlock->refInterval, segment)) {
+            i++;
+            undoBlock = stList_get(blocks, i);
+        }
+        if (i != stList_length(blocks)) {
             if (stPinchBlock_getDegree(block) != undoBlock->degree) {
                 if (stPinchSegment_getName(segment) == pinch->name1 && stPinchSegment_getStart(segment) >= pinch->start1 && stPinchSegment_getStart(segment) < pinch->start1 + pinch->length) {
                     *undoOffset = stPinchSegment_getStart(segment) - pinch->start1;
@@ -2033,7 +2064,7 @@ static bool stPinchUndo_findOffsetForBlockP(stList *blocks, stPinchBlock *block,
                 return true;
             }
         }
-        segment = stPinchSegment_get3Prime(segment);
+        segment = segment->nBlockSegment;
     }
     return false;
 }

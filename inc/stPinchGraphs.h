@@ -632,6 +632,11 @@ stPinchInterval *stPinchIntervals_getInterval(stSortedSet *pinchIntervals, int64
 stPinchUndo *stPinchThread_prepareUndo(stPinchThread *thread1, stPinchThread *thread2, int64_t start1, int64_t start2, int64_t length, bool strand2);
 
 /*
+ * Prepare an undo for a set of non-overlapping pinches involving the same threads.
+ */
+stPinchUndo *stPinchThreadSet_prepareGappedUndo(stPinchThreadSet *threadSet, stList *pinches);
+
+/*
  * Undo a pinch, restoring all alignment relationships to be the same
  * as before the pinch. Extra trivial boundaries may still exist, and
  * any degree-1 blocks present in the pinched regions may have been
