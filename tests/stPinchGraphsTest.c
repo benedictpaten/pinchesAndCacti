@@ -1585,6 +1585,8 @@ static stList *getRandomGappedPinchSet(stPinchThreadSet *threadSet) {
 CuSuite* stPinchGraphsTestSuite(void) {
     CuSuite* suite = CuSuiteNew();
 
+    (void) getRandomGappedPinchSet;
+
     SUITE_ADD_TEST(suite, testStPinchThreadSet);
     SUITE_ADD_TEST(suite, testStPinchThreadAndSegment);
     SUITE_ADD_TEST(suite, testStPinchBlock_NoSplits);
