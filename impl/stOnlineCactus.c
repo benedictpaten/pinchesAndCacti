@@ -154,6 +154,9 @@ static cactusPath *cactusPath_construct(stOnlineCactus *cactus, stList *blocks) 
 }
 
 static void cactusPath_destruct(cactusPath *path) {
+    if (path == NULL) {
+        return;
+    }
     stList_destruct(path->blocks);
     free(path);
 }
@@ -206,6 +209,8 @@ void stOnlineCactus_destruct(stOnlineCactus *cactus) {
     stHash_destruct(cactus->nodeToNet);
     stHash_destruct(cactus->nodeToEnds);
     stList_destruct(cactus->trees);
+    stHash_destruct(cactus->blockToMaximalPath);
+    stSortedSet_destruct(cactus->maximalPaths);
     free(cactus);
 }
 
@@ -421,7 +426,7 @@ static void reassignParentEdge(stCactusTreeEdge *edge, stCactusTree *node) {
 // Unravel a chain by deleting a given edge. The edge *must* be part of a chain.
 static void unravelChain(stOnlineCactus *cactus, stCactusTreeEdge *edge) {
     stCactusTree *tree = edge->child;
-    stSortedSet_remove(cactus->maximalPaths, stHash_remove(cactus->blockToMaximalPath, edge->block));
+    cactusPath_destruct(stSortedSet_remove(cactus->maximalPaths, stHash_remove(cactus->blockToMaximalPath, edge->block)));
     if (stCactusTree_type(tree) == CHAIN) {
         // This is the "parent edge" of the chain.
         stHash_remove(cactus->blockToEdge, edge->block);
@@ -1489,7 +1494,7 @@ void stOnlineCactus_deleteEdge(stOnlineCactus *cactus, void *end1, void *end2, v
         child->parentEdge = NULL;
         stCactusTree_removeChild(parent, child);
 
-        stSortedSet_remove(cactus->maximalPaths, stHash_remove(cactus->blockToMaximalPath, block));
+        cactusPath_destruct(stSortedSet_remove(cactus->maximalPaths, stHash_remove(cactus->blockToMaximalPath, block)));
         updateMaximalBridgePathForTree(cactus, parent);
         updateMaximalBridgePathForTree(cactus, child);
     } else if (net1 == net2) {
@@ -1500,7 +1505,7 @@ void stOnlineCactus_deleteEdge(stOnlineCactus *cactus, void *end1, void *end2, v
         stCactusTree_removeChild(net1, chain);
         stHash_remove(cactus->blockToEdge, chain->parentEdge->block);
         stCactusTree_destruct(chain);
-        stSortedSet_remove(cactus->maximalPaths, stHash_remove(cactus->blockToMaximalPath, block));
+        cactusPath_destruct(stSortedSet_remove(cactus->maximalPaths, stHash_remove(cactus->blockToMaximalPath, block)));
         fix3EC(cactus, net1);
     } else {
         // We save the chain nodes for checking 3EC later on.
@@ -1554,51 +1559,51 @@ void stOnlineCactus_printR(const stCactusTree *tree, stHash *nodeToEnd) {
 }
 
 stList *getBlocksFromBestBridgePathBelow(stCactusTree *node, stCactusTree *except,
-                                         uint64_t scoreFn(const void *)) {
+                                         uint64_t *bestScore, uint64_t scoreFn(const void *)) {
     stCactusTree *child = node->firstChild;
-    stList *blockss = stList_construct3(0, (void (*)(void *)) stList_destruct);
+    stList *bestPath = stList_construct();
+    *bestScore = 0;
     while (child != NULL) {
         if (stCactusTree_type(child) == NET && child != except) {
-            stList *bestPath = getBlocksFromBestBridgePathBelow(child, NULL, scoreFn);
-            stList_append(bestPath, child->parentEdge->block);
-            stList_append(blockss, bestPath);
+            uint64_t score;
+            stList *bestSubPath = getBlocksFromBestBridgePathBelow(child, NULL, &score, scoreFn);
+            score += scoreFn(child->parentEdge->block);
+            if (score > *bestScore) {
+                stList_destruct(bestPath);
+                bestPath = bestSubPath;
+                stList_append(bestPath, child->parentEdge->block);
+                *bestScore = score;
+            } else {
+                stList_destruct(bestSubPath);
+            }
         }
         child = child->next;
     }
-    stList *bestBlocks = NULL;
-    int64_t bestScore = INT64_MIN;
-    // Find the best path.
-    for (int64_t i = 0; i < stList_length(blockss); i++) {
-        int64_t score = scoreBlocks(stList_get(blockss, i), scoreFn);
-        if (score > bestScore) {
-            bestBlocks = stList_get(blockss, i);
-            bestScore = score;
-        }
-    }
-    stList_removeItem(blockss, bestBlocks);
-    stList_destruct(blockss);
-    if (bestBlocks == NULL) {
-        bestBlocks = stList_construct();
-    }
-    return bestBlocks;
+    return bestPath;
 }
 
 stList *getBlocksFromBestBridgePathAbove(stCactusTree *node, stCactusTree *prev,
+                                         uint64_t *bestScore,
                                          uint64_t scoreFn(const void *)) {
     stList *abovePath;
+    uint64_t aboveScore = 0;
     if (node->parent != NULL && stCactusTree_type(node->parent) != CHAIN) {
-        abovePath = getBlocksFromBestBridgePathAbove(node->parent, node, scoreFn);
+        abovePath = getBlocksFromBestBridgePathAbove(node->parent, node, &aboveScore, scoreFn);
         stList_append(abovePath, node->parentEdge->block);
+        aboveScore += scoreFn(node->parentEdge->block);
     } else {
         abovePath = stList_construct();
     }
-    stList *belowPath = getBlocksFromBestBridgePathBelow(node, prev, scoreFn);
-    if (scoreBlocks(abovePath, scoreFn) > scoreBlocks(belowPath, scoreFn)) {
-        stList_destruct(belowPath);
-        return abovePath;
-    } else {
+    uint64_t belowScore = 0;
+    stList *belowPath = getBlocksFromBestBridgePathBelow(node, prev, &belowScore, scoreFn);
+    if (belowScore > aboveScore) {
         stList_destruct(abovePath);
+        *bestScore = belowScore;
         return belowPath;
+    } else {
+        stList_destruct(belowPath);
+        *bestScore = aboveScore;
+        return abovePath;
     }
 }
 
@@ -1629,8 +1634,10 @@ stList *naivelyGetMaximalChainOrBridgePath(stOnlineCactus *cactus, void *block) 
         // Bridge edge. Return the best scoring path of bridge edges,
         // according to the sum of the scoring function on the path.
         stCactusTree *node = edge->child;
-        stList *below = getBlocksFromBestBridgePathBelow(node, NULL, cactus->getEdgeWeight);
-        stList *above = getBlocksFromBestBridgePathAbove(node->parent, node, cactus->getEdgeWeight);
+        uint64_t belowScore;
+        stList *below = getBlocksFromBestBridgePathBelow(node, NULL, &belowScore, cactus->getEdgeWeight);
+        uint64_t aboveScore;
+        stList *above = getBlocksFromBestBridgePathAbove(node->parent, node, &aboveScore, cactus->getEdgeWeight);
         stList *blocks = stList_construct();
         stList_append(blocks, edge->block);
         stList_appendAll(blocks, below);
@@ -1652,14 +1659,17 @@ void updateMaximalChainOrBridgePath_R(stOnlineCactus *cactus, void *block, bool 
             void *otherBlock = stList_get(newBlocks, i);
             cactusPath *oldPath = stHash_search(cactus->blockToMaximalPath, otherBlock);
             if (oldPath != NULL && stSortedSet_search(cactus->maximalPaths, oldPath)) {
-                stSortedSet_remove(cactus->maximalPaths, oldPath);
+                for (int64_t j = 0; j < stList_length(oldPath->blocks); j++) {
+                    stHash_remove(cactus->blockToMaximalPath, oldPath->blocks);
+                }
+                cactusPath_destruct(stSortedSet_remove(cactus->maximalPaths, oldPath));
             }
             stHash_insert(cactus->blockToMaximalPath, otherBlock, newPath);
         }
     }
     cactusPath *oldPath = stHash_remove(cactus->blockToMaximalPath, block);
     if (oldPath != NULL) {
-        stSortedSet_remove(cactus->maximalPaths, oldPath);
+        cactusPath_destruct(stSortedSet_remove(cactus->maximalPaths, oldPath));
     }
     stHash_insert(cactus->blockToMaximalPath, block, newPath);
     stSortedSet_insert(cactus->maximalPaths, newPath);
