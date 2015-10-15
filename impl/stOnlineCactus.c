@@ -426,7 +426,6 @@ static void reassignParentEdge(stCactusTreeEdge *edge, stCactusTree *node) {
 // Unravel a chain by deleting a given edge. The edge *must* be part of a chain.
 static void unravelChain(stOnlineCactus *cactus, stCactusTreeEdge *edge) {
     stCactusTree *tree = edge->child;
-    cactusPath_destruct(stSortedSet_remove(cactus->maximalPaths, stHash_remove(cactus->blockToMaximalPath, edge->block)));
     if (stCactusTree_type(tree) == CHAIN) {
         // This is the "parent edge" of the chain.
         stHash_remove(cactus->blockToEdge, edge->block);
@@ -1660,7 +1659,9 @@ void updateMaximalChainOrBridgePath_R(stOnlineCactus *cactus, void *block, bool 
             cactusPath *oldPath = stHash_search(cactus->blockToMaximalPath, otherBlock);
             if (oldPath != NULL && stSortedSet_search(cactus->maximalPaths, oldPath)) {
                 for (int64_t j = 0; j < stList_length(oldPath->blocks); j++) {
-                    stHash_remove(cactus->blockToMaximalPath, oldPath->blocks);
+                    if (stHash_search(cactus->blockToMaximalPath, stList_get(oldPath->blocks, j)) == oldPath) {
+                        stHash_remove(cactus->blockToMaximalPath, stList_get(oldPath->blocks, j));
+                    }
                 }
                 cactusPath_destruct(stSortedSet_remove(cactus->maximalPaths, oldPath));
             }
@@ -1668,7 +1669,12 @@ void updateMaximalChainOrBridgePath_R(stOnlineCactus *cactus, void *block, bool 
         }
     }
     cactusPath *oldPath = stHash_remove(cactus->blockToMaximalPath, block);
-    if (oldPath != NULL) {
+    if (oldPath != NULL && oldPath != newPath) {
+        for (int64_t i = 0; i < stList_length(oldPath->blocks); i++) {
+            if (stHash_search(cactus->blockToMaximalPath, stList_get(oldPath->blocks, i)) == oldPath) {
+                stHash_remove(cactus->blockToMaximalPath, stList_get(oldPath->blocks, i));
+            }
+        }
         cactusPath_destruct(stSortedSet_remove(cactus->maximalPaths, oldPath));
     }
     stHash_insert(cactus->blockToMaximalPath, block, newPath);
@@ -1907,11 +1913,11 @@ void stOnlineCactus_check(stOnlineCactus *cactus) {
         // Check that there is a stored maximal path involving this
         // edge, and compare it against the naive traversal.
         cactusPath *path = stHash_search(cactus->blockToMaximalPath, block);
-        if (path->weight < minimalPathWeight) {
-            minimalPathWeight = path->weight;
-        }
         if (path == NULL) {
             st_errAbort("no path stored for block");
+        }
+        if (path->weight < minimalPathWeight) {
+            minimalPathWeight = path->weight;
         }
         stList *naivePath = naivelyGetMaximalChainOrBridgePath(cactus, block);
         if (scoreBlocks(path->blocks, cactus->getEdgeWeight) != scoreBlocks(naivePath, cactus->getEdgeWeight)) {
