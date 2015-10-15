@@ -2042,14 +2042,16 @@ static bool stPinchUndo_findOffsetForBlockP(stList *blocks, stPinchBlock *block,
                                             int64_t *undoOffset, int64_t *undoLength) {
     stPinchSegment *segment = stPinchBlock_getFirst(block);
     while (segment != NULL) {
-        int64_t i = 0;
-        stPinchUndoBlock *undoBlock = stList_get(blocks, i);
+        stPinchUndoBlock *undoBlock = NULL;
         // Fast-forward to the proper undo block.
-        while (i != stList_length(blocks) && !stPinchInterval_containsSegment(undoBlock->refInterval, segment)) {
-            i++;
+        for (int64_t i = 0; i < stList_length(blocks); i++) {
             undoBlock = stList_get(blocks, i);
+            if (stPinchInterval_containsSegment(undoBlock->refInterval, segment)) {
+                break;
+            }
+            undoBlock = NULL;
         }
-        if (i != stList_length(blocks)) {
+        if (undoBlock != NULL) {
             if (stPinchBlock_getDegree(block) != undoBlock->degree) {
                 if (stPinchSegment_getName(segment) == pinch->name1 && stPinchSegment_getStart(segment) >= pinch->start1 && stPinchSegment_getStart(segment) < pinch->start1 + pinch->length) {
                     *undoOffset = stPinchSegment_getStart(segment) - pinch->start1;
