@@ -1738,7 +1738,11 @@ static void stPinchThread_prepareUndoP(stPinchThread *thread, int64_t start, int
         } else {
             undoBlock = stPinchUndoBlock_construct(block, segment);
         }
-        stSortedSet_insert(blocks, undoBlock);
+        if (stSortedSet_search(blocks, undoBlock) == NULL) {
+            stSortedSet_insert(blocks, undoBlock);
+        } else {
+            stPinchUndoBlock_destruct(undoBlock);
+        }
         segment = stPinchSegment_get3Prime(segment);
     }
 }
