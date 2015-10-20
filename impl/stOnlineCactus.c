@@ -1493,6 +1493,13 @@ void stOnlineCactus_deleteEdge(stOnlineCactus *cactus, void *end1, void *end2, v
         child->parentEdge = NULL;
         stCactusTree_removeChild(parent, child);
 
+        cactusPath *oldPath = stHash_remove(cactus->blockToMaximalPath, block);
+        for (int64_t i = 0; i < stList_length(oldPath->blocks); i++) {
+            if (stHash_search(cactus->blockToMaximalPath, stList_get(oldPath->blocks, i)) == oldPath) {
+                stHash_remove(cactus->blockToMaximalPath, stList_get(oldPath->blocks, i));
+            }
+        }
+        cactusPath_destruct(stSortedSet_remove(cactus->maximalPaths, oldPath));
         updateMaximalBridgePathForTree(cactus, parent);
         updateMaximalBridgePathForTree(cactus, child);
     } else if (net1 == net2) {

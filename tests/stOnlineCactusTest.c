@@ -480,34 +480,36 @@ static void deleteEdge(int64_t node1, int64_t node2, int64_t i) {
 // Do random tests of adding and deleting random edges and check that
 // the 3-edge-connectivity relationships still make sense.
 static void testStOnlineCactus_random_edge_add_and_delete(CuTest *testCase) {
-    setup();
-    int64_t numNodes = 200;
-    getRandomNodeSet(numNodes);
-    int64_t numEdges = numNodes * 1.5;
-    stList *edges = stList_construct3(0, (void (*)(void *)) stIntTuple_destruct);
-    for (int64_t i = 0; i < numEdges; i++) {
-        int64_t node1 = st_randomInt64(0, numNodes);
-        int64_t node2 = st_randomInt64(0, numNodes);
-        addEdge(node1, node2, i);
-        stList_append(edges, stIntTuple_construct3(node1, node2, i));
-    }
-    int64_t numDeletions = st_randomInt64(0, stList_length(edges));
-    for (int64_t i = 0; i < numDeletions; i++) {
-        int64_t randomIndex = st_randomInt64(0, stList_length(edges));
-        stIntTuple *edge = stList_get(edges, randomIndex);
-        int64_t edgeNum = stIntTuple_get(edge, 2);
-        int64_t node1 = stIntTuple_get(edge, 0);
-        int64_t node2 = stIntTuple_get(edge, 1);
-        deleteEdge(node1, node2, edgeNum);
-        stIntTuple_destruct(stList_remove(edges, randomIndex));
+    for (int64_t testNum = 0; testNum < 1000; testNum++) {
+        setup();
+        int64_t numNodes = 200;
+        getRandomNodeSet(numNodes);
+        int64_t numEdges = numNodes * 1.5;
+        stList *edges = stList_construct3(0, (void (*)(void *)) stIntTuple_destruct);
+        for (int64_t i = 0; i < numEdges; i++) {
+            int64_t node1 = st_randomInt64(0, numNodes);
+            int64_t node2 = st_randomInt64(0, numNodes);
+            addEdge(node1, node2, i);
+            stList_append(edges, stIntTuple_construct3(node1, node2, i));
+        }
+        int64_t numDeletions = st_randomInt64(0, stList_length(edges));
+        for (int64_t i = 0; i < numDeletions; i++) {
+            int64_t randomIndex = st_randomInt64(0, stList_length(edges));
+            stIntTuple *edge = stList_get(edges, randomIndex);
+            int64_t edgeNum = stIntTuple_get(edge, 2);
+            int64_t node1 = stIntTuple_get(edge, 0);
+            int64_t node2 = stIntTuple_get(edge, 1);
+            deleteEdge(node1, node2, edgeNum);
+            stIntTuple_destruct(stList_remove(edges, randomIndex));
+            stOnlineCactus_check(cactus);
+        }
         stOnlineCactus_check(cactus);
+        printNiceCactus();
+        checkAgainstStatic3ECAlgorithm(testCase, NULL);
+        stList_destruct(edges);
+        stList_destruct(adjacencyList);
+        teardown();
     }
-    stOnlineCactus_check(cactus);
-    printNiceCactus();
-    checkAgainstStatic3ECAlgorithm(testCase, NULL);
-    stList_destruct(edges);
-    stList_destruct(adjacencyList);
-    teardown();
 }
 
 // Returns true if the merge was valid and could be completed, false otherwise.
