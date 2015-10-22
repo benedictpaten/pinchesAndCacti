@@ -716,7 +716,7 @@ static void testStOnlineCactus_scoringChainOrBridgePaths(CuTest *testCase) {
     stList_destruct(longestPath);
 
     longestPath = naivelyGetMaximalChainOrBridgePath(cactus, stHash_search(nameToBlock, "H"));
-    CuAssertIntEquals(testCase, 5, stList_length(longestPath));
+    CuAssertIntEquals(testCase, 2, stList_length(longestPath));
     stList_destruct(longestPath);
 
     longestPath = naivelyGetMaximalChainOrBridgePath(cactus, stHash_search(nameToBlock, "E"));
@@ -728,7 +728,11 @@ static void testStOnlineCactus_scoringChainOrBridgePaths(CuTest *testCase) {
     stList_destruct(longestPath);
 
     longestPath = naivelyGetMaximalChainOrBridgePath(cactus, stHash_search(nameToBlock, "F"));
-    CuAssertIntEquals(testCase, 4, stList_length(longestPath));
+    CuAssertIntEquals(testCase, 1, stList_length(longestPath));
+    stList_destruct(longestPath);
+
+    longestPath = naivelyGetMaximalChainOrBridgePath(cactus, stHash_search(nameToBlock, "G"));
+    CuAssertIntEquals(testCase, 2, stList_length(longestPath));
     stList_destruct(longestPath);
 
     teardown();

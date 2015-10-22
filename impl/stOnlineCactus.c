@@ -1563,52 +1563,47 @@ void stOnlineCactus_printR(const stCactusTree *tree, stHash *nodeToEnd) {
     }
 }
 
-stList *getBlocksFromBestBridgePathBelow(stCactusTree *node, stCactusTree *except,
-                                         uint64_t *bestScore, uint64_t scoreFn(const void *)) {
+void getBlocksFromBridgePathBelow(stCactusTree *node, stCactusTree *except, stList *listToAddTo) {
+    uint64_t numValidBridgeChildren = 0;
     stCactusTree *child = node->firstChild;
-    stList *bestPath = stList_construct();
-    *bestScore = 0;
+    stCactusTree *validBridgeChild = NULL;
     while (child != NULL) {
         if (stCactusTree_type(child) == NET && child != except) {
-            uint64_t score;
-            stList *bestSubPath = getBlocksFromBestBridgePathBelow(child, NULL, &score, scoreFn);
-            score += scoreFn(child->parentEdge->block);
-            if (score > *bestScore) {
-                stList_destruct(bestPath);
-                bestPath = bestSubPath;
-                stList_append(bestPath, child->parentEdge->block);
-                *bestScore = score;
-            } else {
-                stList_destruct(bestSubPath);
-            }
+            numValidBridgeChildren++;
+            validBridgeChild = child;
         }
         child = child->next;
     }
-    return bestPath;
+
+    if (numValidBridgeChildren == 1) {
+        stList_append(listToAddTo, validBridgeChild->parentEdge->block);
+        getBlocksFromBridgePathBelow(validBridgeChild, node, listToAddTo);
+    }
 }
 
-stList *getBlocksFromBestBridgePathAbove(stCactusTree *node, stCactusTree *prev,
-                                         uint64_t *bestScore,
-                                         uint64_t scoreFn(const void *)) {
-    stList *abovePath;
-    uint64_t aboveScore = 0;
-    if (node->parent != NULL && stCactusTree_type(node->parent) != CHAIN) {
-        abovePath = getBlocksFromBestBridgePathAbove(node->parent, node, &aboveScore, scoreFn);
-        stList_append(abovePath, node->parentEdge->block);
-        aboveScore += scoreFn(node->parentEdge->block);
-    } else {
-        abovePath = stList_construct();
+void getBlocksFromBridgePathAbove(stCactusTree *node, stCactusTree *prev, stList *listToAddTo) {
+    assert(stCactusTree_type(node) == NET);
+    uint64_t numValidBridgeChildren = 0;
+    stCactusTree *child = node->firstChild;
+    stCactusTree *validBridgeChild = NULL;
+    while (child != NULL) {
+        if (stCactusTree_type(child) == NET && child != prev) {
+            numValidBridgeChildren++;
+            validBridgeChild = child;
+        }
+        child = child->next;
     }
-    uint64_t belowScore = 0;
-    stList *belowPath = getBlocksFromBestBridgePathBelow(node, prev, &belowScore, scoreFn);
-    if (belowScore > aboveScore) {
-        stList_destruct(abovePath);
-        *bestScore = belowScore;
-        return belowPath;
+
+    if (node->parent == NULL || stCactusTree_type(node->parent) == CHAIN) {
+        if (numValidBridgeChildren == 1) {
+            stList_append(listToAddTo, validBridgeChild->parentEdge->block);
+            getBlocksFromBridgePathBelow(validBridgeChild, node, listToAddTo);
+        }
     } else {
-        stList_destruct(belowPath);
-        *bestScore = aboveScore;
-        return abovePath;
+        if (stCactusTree_type(node->parent) == NET && numValidBridgeChildren == 0) {
+            stList_append(listToAddTo, node->parentEdge->block);
+            getBlocksFromBridgePathAbove(node->parent, node, listToAddTo);
+        }
     }
 }
 
@@ -1639,16 +1634,10 @@ stList *naivelyGetMaximalChainOrBridgePath(stOnlineCactus *cactus, void *block) 
         // Bridge edge. Return the best scoring path of bridge edges,
         // according to the sum of the scoring function on the path.
         stCactusTree *node = edge->child;
-        uint64_t belowScore;
-        stList *below = getBlocksFromBestBridgePathBelow(node, NULL, &belowScore, cactus->getEdgeWeight);
-        uint64_t aboveScore;
-        stList *above = getBlocksFromBestBridgePathAbove(node->parent, node, &aboveScore, cactus->getEdgeWeight);
         stList *blocks = stList_construct();
+        getBlocksFromBridgePathBelow(node, NULL, blocks);
+        getBlocksFromBridgePathAbove(node->parent, node, blocks);
         stList_append(blocks, edge->block);
-        stList_appendAll(blocks, below);
-        stList_appendAll(blocks, above);
-        stList_destruct(below);
-        stList_destruct(above);
         return blocks;
     }
 }
