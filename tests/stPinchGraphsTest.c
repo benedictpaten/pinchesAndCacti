@@ -1365,7 +1365,6 @@ static void testStPinchUndo_random(CuTest *testCase) {
                     stPinchThreadSet_getThread(threadSet, pinch.name2), pinch.start1, pinch.start2, pinch.length,
                     pinch.strand);
 
-            printf("pinch: %p %" PRIi64 " %" PRIi64 " %p %" PRIi64 "\n", (void *) stPinchThreadSet_getThread(threadSet, pinch.name1), pinch.start1, pinch.length, (void *) stPinchThreadSet_getThread(threadSet, pinch.name2), pinch.start2);
 
             if (st_random() > 0.5) {
                 //now do all the pushing together of the equivalence classes
@@ -1420,7 +1419,7 @@ static void testStPinchUndo_chains(CuTest *testCase) {
 // would be better to have a test that takes into account the
 // transitive undo effects.
 static void testStPinchPartialUndo_random(CuTest *testCase) {
-    for (int64_t testNum = 0; testNum < 100; testNum++) {
+    for (int64_t testNum = 0; testNum < 1000; testNum++) {
         stPinchThreadSet *threadSet = stPinchThreadSet_getRandomEmptyGraph();
         stHash *columns = getUnalignedColumns(threadSet);
 
@@ -1432,7 +1431,6 @@ static void testStPinchPartialUndo_random(CuTest *testCase) {
         }
         while (st_random() > threshold) {
             stPinch pinch = stPinchThreadSet_getRandomPinch(threadSet);
-
             stPinchUndo *undo = stPinchThread_prepareUndo(stPinchThreadSet_getThread(threadSet, pinch.name1),
                     stPinchThreadSet_getThread(threadSet, pinch.name2), pinch.start1, pinch.start2, pinch.length,
                     pinch.strand);
@@ -1448,14 +1446,19 @@ static void testStPinchPartialUndo_random(CuTest *testCase) {
                 }
             } else {
                 int64_t offset = 0;
-                while (offset < pinch.length) {
-                    int64_t undoLength = st_randomInt64(0, pinch.length - offset + 1);
+                int64_t regionLength = pinch.length;
+                if (pinch.name1 == pinch.name2) {
+                    int64_t minStart = pinch.start1 > pinch.start2 ? pinch.start2 : pinch.start1;
+                    int64_t maxEnd = pinch.start1 > pinch.start2 ? pinch.start1 + pinch.length : pinch.start2 + pinch.length;
+                    regionLength = maxEnd - minStart;
+                }
+                while (offset < regionLength) {
+                    int64_t undoLength = st_randomInt64(0, regionLength - offset + 1);
                     stPinchThreadSet_partiallyUndoPinch(threadSet, undo, stPinchThreadSet_getThread(threadSet, pinch.name1), offset, undoLength);
                     stPinchThreadSet_partiallyUndoPinch(threadSet, undo, stPinchThreadSet_getThread(threadSet, pinch.name2), offset, undoLength);
                     offset += undoLength;
                 }
             }
-
             stPinchUndo_destruct(undo);
         }
         if (st_random() > 0.5) {
