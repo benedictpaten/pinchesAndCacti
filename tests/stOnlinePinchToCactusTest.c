@@ -150,7 +150,8 @@ static void testStOnlinePinchToCactus_random(CuTest *testCase) {
                 int64_t offset = 0;
                 while (offset < pinch.length) {
                     int64_t undoLength = st_randomInt64(0, pinch.length - offset + 1);
-                    stPinchThreadSet_partiallyUndoPinch(threadSet, undo, offset, undoLength);
+                    stPinchThreadSet_partiallyUndoPinch(threadSet, undo, stPinchThreadSet_getThread(threadSet, pinch.name1), offset, undoLength);
+                    stPinchThreadSet_partiallyUndoPinch(threadSet, undo, stPinchThreadSet_getThread(threadSet, pinch.name2), offset, undoLength);
                     offset += undoLength;
                     stOnlineCactus_check(cactus);
                     simpleSanityChecks(testCase);
