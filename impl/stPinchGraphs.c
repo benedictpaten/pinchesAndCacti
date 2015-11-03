@@ -634,6 +634,15 @@ void stPinchThread_pinchPositiveP(stPinchSegment *segment1, stPinchSegment *segm
 void stPinchThread_pinchPositive(stPinchThread *thread1, stPinchThread *thread2, int64_t start1, int64_t start2, int64_t length) {
     stPinchSegment *segment1 = stPinchThread_pinchP(stPinchThread_getSegment(thread1, start1), start1);
     stPinchSegment *segment2 = stPinchThread_pinchP(stPinchThread_getSegment(thread2, start2), start2);
+    if (stPinchSegment_getStart(segment1) != start1) {
+        // When start1 and start2 are in the same segment prior to
+        // split, segment1 may no longer point to the segment starting
+        // at start1, since the pointers are sometimes juggled around
+        // to avoid connectivity graph operations.
+        segment1 = stPinchThread_getSegment(thread1, start1);
+    }
+    assert(stPinchSegment_getStart(segment1) == start1);
+    assert(stPinchSegment_getStart(segment2) == start2);
     stPinchThread_pinchPositiveP(segment1, segment2, start1, start2, length);
 }
 

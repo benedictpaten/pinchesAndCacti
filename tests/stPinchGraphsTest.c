@@ -606,17 +606,17 @@ static void checkPinchSetsAreEquivalentAndCleanup(CuTest *testCase, stPinchThrea
     }
     stHash_destructIterator(hashIt);
     //cleanup
-    /* stPinchThreadSet_destruct(threadSet); */
-    /* stList *columnList = stHash_getValues(columns); */
-    /* stSortedSet *columnSet = stList_getSortedSet(columnList, NULL); */
-    /* stSortedSet_setDestructor(columnSet, (void(*)(void *)) stSortedSet_destruct); */
-    /* stList_destruct(columnList); */
-    /* stHash_destruct(columns); */
-    /* stSortedSet_destruct(columnSet); */
+    stPinchThreadSet_destruct(threadSet);
+    stList *columnList = stHash_getValues(columns);
+    stSortedSet *columnSet = stList_getSortedSet(columnList, NULL);
+    stSortedSet_setDestructor(columnSet, (void(*)(void *)) stSortedSet_destruct);
+    stList_destruct(columnList);
+    stHash_destruct(columns);
+    stSortedSet_destruct(columnSet);
 }
 
 static void testStPinchThread_pinch_randomTests(CuTest *testCase) {
-    for (int64_t test = 0; test < 100; test++) {
+    for (int64_t test = 0; test < 1000; test++) {
         st_logInfo("Starting random pinch test %" PRIi64 "\n", test);
         stPinchThreadSet *threadSet = stPinchThreadSet_getRandomEmptyGraph();
         stHash *columns = getUnalignedColumns(threadSet);
@@ -1345,7 +1345,7 @@ static void testStPinchUndo(CuTest *testCase) {
 }
 
 static void testStPinchUndo_random(CuTest *testCase) {
-    for (int64_t testNum = 0; testNum < 100000; testNum++) {
+    for (int64_t testNum = 0; testNum < 1000; testNum++) {
         stPinchThreadSet *threadSet = stPinchThreadSet_getRandomEmptyGraph();
         stHash *columns = getUnalignedColumns(threadSet);
 
@@ -1355,7 +1355,6 @@ static void testStPinchUndo_random(CuTest *testCase) {
             threshold = 0.01; // Just to prevent the test from
                               // exploding every so often.
         }
-        printf("new pinch set\n");
         while (st_random() > threshold) {
             stPinch pinch = stPinchThreadSet_getRandomPinch(threadSet);
 
@@ -1370,19 +1369,15 @@ static void testStPinchUndo_random(CuTest *testCase) {
 
             if (st_random() > 0.5) {
                 //now do all the pushing together of the equivalence classes
-                printf("merging\n");
                 for (int64_t i = 0; i < pinch.length; i++) {
                     mergePositionsSymmetric(columns, pinch.name1, pinch.start1 + i, 1, pinch.name2,
                                             pinch.strand ? pinch.start2 + i : pinch.start2 + pinch.length - 1 - i, pinch.strand);
                 }
             } else {
-                printf("undoing\n");
                 stPinchThreadSet_undoPinch(threadSet, undo);
             }
-            checkPinchSetsAreEquivalentAndCleanup(testCase, threadSet, columns);
             stPinchUndo_destruct(undo);
         }
-        printf("done\n");
         if (st_random() > 0.5) {
             stPinchThreadSet_joinTrivialBoundaries(threadSet); //Checks this function does not affect result
         }
@@ -1630,29 +1625,29 @@ CuSuite* stPinchGraphsTestSuite(void) {
     (void )testStPinchPartialUndo_random;
     (void )testStPinchUndo_gapped;
 
-    /* SUITE_ADD_TEST(suite, testStPinchThreadSet); */
-    /* SUITE_ADD_TEST(suite, testStPinchThreadAndSegment); */
-    /* SUITE_ADD_TEST(suite, testStPinchBlock_NoSplits); */
-    /* SUITE_ADD_TEST(suite, testStPinchBlock_Splits); */
-    /* SUITE_ADD_TEST(suite, testStPinchThread_pinch); */
-    /* SUITE_ADD_TEST(suite, testStPinchThread_pinch_randomTests); */
-    /* SUITE_ADD_TEST(suite, testStPinchThread_filterPinch_randomTests); */
-    /* SUITE_ADD_TEST(suite, testStPinchThreadSet_getAdjacencyComponents); */
-    /* SUITE_ADD_TEST(suite, testStPinchThreadSet_getAdjacencyComponents_randomTests); */
-    /* SUITE_ADD_TEST(suite, testStPinchThreadSet_joinTrivialBoundaries_randomTests); */
-    /* SUITE_ADD_TEST(suite, testStPinchThreadSet_getThreadComponents); */
-    /* SUITE_ADD_TEST(suite, testStPinchThreadSet_trimAlignments_randomTests); */
-    /* SUITE_ADD_TEST(suite, testStPinchInterval); */
-    /* SUITE_ADD_TEST(suite, testStPinchThreadSet_getLabelIntervals); */
-    /* SUITE_ADD_TEST(suite, testStPinchThreadSet_getLabelIntervals_randomTests); */
-    /* SUITE_ADD_TEST(suite, testStPinchEnd_hasSelfLoopWithRespectToOtherBlock_randomTests); */
-    /* SUITE_ADD_TEST(suite, testStPinchEnd_getSubSequenceLengthsConnectingEnds_randomTests); */
-    /* SUITE_ADD_TEST(suite, testStPinchBlock_getNumSupportingHomologies); */
-    /* SUITE_ADD_TEST(suite, testStPinchUndo); */
+    SUITE_ADD_TEST(suite, testStPinchThreadSet);
+    SUITE_ADD_TEST(suite, testStPinchThreadAndSegment);
+    SUITE_ADD_TEST(suite, testStPinchBlock_NoSplits);
+    SUITE_ADD_TEST(suite, testStPinchBlock_Splits);
+    SUITE_ADD_TEST(suite, testStPinchThread_pinch);
+    SUITE_ADD_TEST(suite, testStPinchThread_pinch_randomTests);
+    SUITE_ADD_TEST(suite, testStPinchThread_filterPinch_randomTests);
+    SUITE_ADD_TEST(suite, testStPinchThreadSet_getAdjacencyComponents);
+    SUITE_ADD_TEST(suite, testStPinchThreadSet_getAdjacencyComponents_randomTests);
+    SUITE_ADD_TEST(suite, testStPinchThreadSet_joinTrivialBoundaries_randomTests);
+    SUITE_ADD_TEST(suite, testStPinchThreadSet_getThreadComponents);
+    SUITE_ADD_TEST(suite, testStPinchThreadSet_trimAlignments_randomTests);
+    SUITE_ADD_TEST(suite, testStPinchInterval);
+    SUITE_ADD_TEST(suite, testStPinchThreadSet_getLabelIntervals);
+    SUITE_ADD_TEST(suite, testStPinchThreadSet_getLabelIntervals_randomTests);
+    SUITE_ADD_TEST(suite, testStPinchEnd_hasSelfLoopWithRespectToOtherBlock_randomTests);
+    SUITE_ADD_TEST(suite, testStPinchEnd_getSubSequenceLengthsConnectingEnds_randomTests);
+    SUITE_ADD_TEST(suite, testStPinchBlock_getNumSupportingHomologies);
+    SUITE_ADD_TEST(suite, testStPinchUndo);
     SUITE_ADD_TEST(suite, testStPinchUndo_random);
-    /* SUITE_ADD_TEST(suite, testStPinchUndo_chains); */
-    /* SUITE_ADD_TEST(suite, testStPinchPartialUndo_random); */
-    /* SUITE_ADD_TEST(suite, testStPinchUndo_gapped); */
+    SUITE_ADD_TEST(suite, testStPinchUndo_chains);
+    SUITE_ADD_TEST(suite, testStPinchPartialUndo_random);
+    SUITE_ADD_TEST(suite, testStPinchUndo_gapped);
 
     return suite;
 }
