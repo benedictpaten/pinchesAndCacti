@@ -9,8 +9,15 @@
  * Released under the MIT license, see LICENSE.txt
  */
 
+#define _POSIX_C_SOURCE 1
+
+#include <stdlib.h>
+#include <stdio.h>
+#include <unistd.h>
+
 #include "CuTest.h"
 #include "sonLib.h"
+#include "pairwiseAlignment.h"
 #include "stPinchGraphs.h"
 
 static stPinchThreadSet *threadSet = NULL;
@@ -1601,6 +1608,171 @@ static void testStPinchUndo_gapped(CuTest *testCase) {
     }
 }
 
+typedef struct {
+    int64_t alignmentTrim;
+    void *alignmentArg;
+    stPinch *(*getNextAlignment)(void *);
+    void *(*startAlignmentStack)(void *);
+    void (*destructAlignmentArg)(void *);
+} stPinchIterator;
+
+stPinch *stPinchIterator_getNext(stPinchIterator *pinchIterator) {
+    stPinch *pinch = NULL;
+    while (1) {
+        pinch = pinchIterator->getNextAlignment(pinchIterator->alignmentArg);
+        if (pinch == NULL || pinchIterator->alignmentTrim <= 0) {
+            break;
+        }
+        pinch->start1 += pinchIterator->alignmentTrim;
+        pinch->start2 += pinchIterator->alignmentTrim;
+        pinch->length -= 2 * pinchIterator->alignmentTrim;
+        if (pinch->length > 0) {
+            break;
+        }
+    }
+    return pinch;
+}
+
+void stPinchIterator_reset(stPinchIterator *pinchIterator) {
+    pinchIterator->alignmentArg = pinchIterator->startAlignmentStack(pinchIterator->alignmentArg);
+}
+
+void stPinchIterator_destruct(stPinchIterator *pinchIterator) {
+    pinchIterator->destructAlignmentArg(pinchIterator->alignmentArg);
+    free(pinchIterator);
+}
+
+typedef struct _pairwiseAlignmentToPinch {
+    void *alignmentArg;
+    struct PairwiseAlignment *(*getPairwiseAlignment)(void *);
+    struct PairwiseAlignment *pairwiseAlignment;
+    int64_t alignmentIndex, xCoordinate, yCoordinate, xName, yName;
+    bool freeAlignments;
+} PairwiseAlignmentToPinch;
+
+static PairwiseAlignmentToPinch *pairwiseAlignmentToPinch_construct(void *alignmentArg,
+        struct PairwiseAlignment *(*getPairwiseAlignment)(void *), bool freeAlignments) {
+    PairwiseAlignmentToPinch *pairwiseAlignmentToPinch = st_calloc(1, sizeof(PairwiseAlignmentToPinch));
+    pairwiseAlignmentToPinch->alignmentArg = alignmentArg;
+    pairwiseAlignmentToPinch->getPairwiseAlignment = getPairwiseAlignment;
+    pairwiseAlignmentToPinch->freeAlignments = freeAlignments;
+    return pairwiseAlignmentToPinch;
+}
+
+static stPinch *pairwiseAlignmentToPinch_getNext(PairwiseAlignmentToPinch *pA) {
+    static stPinch pinch;
+    while (1) {
+        if (pA->pairwiseAlignment == NULL) {
+            pA->pairwiseAlignment = pA->getPairwiseAlignment(pA->alignmentArg);
+            if (pA->pairwiseAlignment == NULL) {
+                return NULL;
+            }
+            pA->alignmentIndex = 0;
+            pA->xCoordinate = pA->pairwiseAlignment->start1;
+            pA->yCoordinate = pA->pairwiseAlignment->start2;
+            sscanf(pA->pairwiseAlignment->contig1, "%" PRIi64, &pA->xName);
+            sscanf(pA->pairwiseAlignment->contig2, "%" PRIi64, &pA->yName);
+        }
+        while (pA->alignmentIndex < pA->pairwiseAlignment->operationList->length) {
+            struct AlignmentOperation *op = pA->pairwiseAlignment->operationList->list[pA->alignmentIndex++];
+            if (op->opType == PAIRWISE_MATCH && op->length >= 1) { //deal with the possibility of a zero length match (strange, but not illegal)
+                if (pA->pairwiseAlignment->strand1) {
+                    if (pA->pairwiseAlignment->strand2) {
+                        stPinch_fillOut(&pinch, pA->xName, pA->yName, pA->xCoordinate, pA->yCoordinate, op->length, 1);
+                        pA->yCoordinate += op->length;
+                    } else {
+                        pA->yCoordinate -= op->length;
+                        stPinch_fillOut(&pinch, pA->xName, pA->yName, pA->xCoordinate, pA->yCoordinate, op->length, 0);
+                    }
+                    pA->xCoordinate += op->length;
+                } else {
+                    pA->xCoordinate -= op->length;
+                    if (pA->pairwiseAlignment->strand2) {
+                        stPinch_fillOut(&pinch, pA->xName, pA->yName, pA->xCoordinate, pA->yCoordinate, op->length, 0);
+                        pA->yCoordinate += op->length;
+                    } else {
+                        pA->yCoordinate -= op->length;
+                        stPinch_fillOut(&pinch, pA->xName, pA->yName, pA->xCoordinate, pA->yCoordinate, op->length, 1);
+                    }
+                }
+                return &pinch;
+            }
+            if (op->opType != PAIRWISE_INDEL_Y) {
+                pA->xCoordinate += pA->pairwiseAlignment->strand1 ? op->length : -op->length;
+            }
+            if (op->opType != PAIRWISE_INDEL_X) {
+                pA->yCoordinate += pA->pairwiseAlignment->strand2 ? op->length : -op->length;
+            }
+        }
+        assert(pA->xCoordinate == pA->pairwiseAlignment->end1);
+        assert(pA->yCoordinate == pA->pairwiseAlignment->end2);
+        if (pA->freeAlignments) {
+            destructPairwiseAlignment(pA->pairwiseAlignment);
+        }
+        pA->pairwiseAlignment = NULL;
+    }
+    return NULL;
+}
+
+static PairwiseAlignmentToPinch *pairwiseAlignmentToPinch_resetForList(PairwiseAlignmentToPinch *pA) {
+    while (stList_getPrevious(pA->alignmentArg) != NULL)
+        ;
+    pA->pairwiseAlignment = NULL;
+    return pA;
+}
+
+void pairwiseAlignmentToPinch_destructForList(PairwiseAlignmentToPinch *pA) {
+    stList_destructIterator(pA->alignmentArg);
+    free(pA);
+}
+
+stPinchIterator *stPinchIterator_constructFromList(stList *alignmentsList) {
+    stPinchIterator *pinchIterator = st_calloc(1, sizeof(stPinchIterator));
+    pinchIterator->alignmentArg = pairwiseAlignmentToPinch_construct(stList_getIterator(alignmentsList),
+            (struct PairwiseAlignment *(*)(void *)) stList_getNext, 0);
+    pinchIterator->getNextAlignment = (stPinch *(*)(void *)) pairwiseAlignmentToPinch_getNext;
+    pinchIterator->destructAlignmentArg = (void(*)(void *)) pairwiseAlignmentToPinch_destructForList;
+    pinchIterator->startAlignmentStack = (void *(*)(void *)) pairwiseAlignmentToPinch_resetForList;
+    return pinchIterator;
+}
+
+static void testStPinchThread_messedUpPinch(CuTest *testCase) {
+    const char *cigarStr = "cigar: 8340525772401744044 140568 140156 - 8340525772401744044 140156 140568 + 9399.000000 M 60 D 21 I 3 M 13 D 12 I 9 M 14 D 12 I 6 M 14 D 8 I 5 M 7 D 23 I 24 M 10 D 5 I 9 M 39 D 9 I 5 M 10 D 24 I 23 M 7 D 5 I 8 M 12 D 3 I 9 M 19 D 9 I 12 M 13 D 3 I 21 M 60\n";
+    int fds[2];
+    pipe(fds);
+    FILE *write = fdopen(fds[1], "w");
+    FILE *read = fdopen(fds[0], "r");
+    fwrite(cigarStr, strlen(cigarStr), 1, write);
+    fflush(write);
+    struct PairwiseAlignment *alignment = cigarRead(read);
+
+    stPinchThreadSet *threadSet = stPinchThreadSet_construct();
+    stPinchThreadSet_addThread(threadSet, 8340525772401744044, 2, 300000);
+    stHash *columns = getUnalignedColumns(threadSet);
+    stList *pairwiseAlignments = stList_construct();
+    stList_append(pairwiseAlignments, alignment);
+    stPinchIterator *pinchIterator = stPinchIterator_constructFromList(pairwiseAlignments);
+    stPinch *pinch;
+    while ((pinch = stPinchIterator_getNext(pinchIterator)) != NULL) {
+        printf("pinch start1 %" PRIi64 " start2 %" PRIi64 " length %" PRIi64 " strand %d\n",
+               pinch->start1, pinch->start2, pinch->length, pinch->strand);
+        stPinchThread_pinch(stPinchThreadSet_getThread(threadSet, pinch->name1), stPinchThreadSet_getThread(threadSet, pinch->name2), pinch->start1, pinch->start2, pinch->length, pinch->strand);
+
+        for (int64_t i = 0; i < pinch->length; i++) {
+            mergePositionsSymmetric(columns, pinch->name1, pinch->start1 + i, 1, pinch->name2,
+                                    pinch->strand ? pinch->start2 + i : pinch->start2 + pinch->length - 1 - i, pinch->strand);
+        }
+
+        // Ensure that no single-degree blocks have been added
+        stPinchThreadSetBlockIt it = stPinchThreadSet_getBlockIt(threadSet);
+        stPinchBlock *block;
+        while ((block = stPinchThreadSetBlockIt_getNext(&it)) != NULL) {
+            CuAssertTrue(testCase, stPinchBlock_getDegree(block) > 1);
+        }
+    }
+    checkPinchSetsAreEquivalentAndCleanup(testCase, threadSet, columns);
+}
+
 CuSuite* stPinchGraphsTestSuite(void) {
     CuSuite* suite = CuSuiteNew();
 
@@ -1651,6 +1823,7 @@ CuSuite* stPinchGraphsTestSuite(void) {
     SUITE_ADD_TEST(suite, testStPinchUndo_chains);
     SUITE_ADD_TEST(suite, testStPinchPartialUndo_random);
     SUITE_ADD_TEST(suite, testStPinchUndo_gapped);
+    SUITE_ADD_TEST(suite, testStPinchThread_messedUpPinch);
 
     return suite;
 }

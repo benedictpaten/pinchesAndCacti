@@ -709,6 +709,9 @@ void stPinchThread_pinchNegativeP(stPinchSegment *segment1, stPinchSegment *segm
         }
         assert(stPinchSegment_getLength(segment1) == stPinchSegment_getLength(segment2));
         block1 = stPinchBlock_pinch(block1, block2, alignmentOrientation);
+        if (segment1 == segment2 && stPinchBlock_getDegree(block1) == 1) {
+            stPinchBlock_destruct(block1);
+        }
         length -= stPinchSegment_getLength(segment1);
         start1 += stPinchSegment_getLength(segment1);
         if (stPinchSegment_get5Prime(segment2) != NULL) {
