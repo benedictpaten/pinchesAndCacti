@@ -102,9 +102,19 @@ stList *stOnlineCactus_getMaximalChainOrBridgePath(stOnlineCactus *cactus, void 
 // Do not free the returned list.
 stList *stOnlineCactus_getGloballyWorstMaximalChainOrBridgePath(stOnlineCactus *cactus);
 
-// Print an online cactus forest, for debugging purposes. Uses pointer
-// values to name the nodes, so the output will be inscrutable.
 void stOnlineCactus_print(const stOnlineCactus *cactus);
+
+// Get the newick strings for an online cactus tree, for debugging
+// purposes. Uses pointer values to name the nodes, so the output will
+// be inscrutable.
+char *stCactusTree_getNewickString(const stCactusTree *cactus);
+
+// Get the trees in the cactus forest (as a list of stCactusTree *).
+//
+// Caller is forbidden from freeing the list; any cactus graph
+// operations may invalidate the list and/or any trees contained in
+// it.
+stList *stOnlineCactus_getTrees(const stOnlineCactus *cactus);
 
 // Check to make sure Joel hasn't fucked anything up. Exits the
 // program with an error message on finding a flaw in the cactus

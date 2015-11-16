@@ -1532,37 +1532,6 @@ void stOnlineCactus_deleteEdge(stOnlineCactus *cactus, void *end1, void *end2, v
     }
 }
 
-void stOnlineCactus_printR(const stCactusTree *tree, stHash *nodeToEnd) {
-    if (tree->firstChild) {
-        printf("(");
-        stCactusTree *child = tree->firstChild;
-        while (child != NULL) {
-            printf("(");
-            stOnlineCactus_printR(child, nodeToEnd);
-            if (child->parentEdge != NULL) {
-                printf(")BLOCK%p", child->parentEdge->block);
-            } else {
-                printf(")BLOCK_INVALID");
-            }
-            child = child->next;
-            if (child != NULL) {
-                printf(",");
-            }
-        }
-        printf(")");
-    }
-    switch (stCactusTree_type(tree)) {
-    case NET:
-        printf("NET%p", (void *) tree);
-        break;
-    case CHAIN:
-        printf("CHAIN%p", (void *) tree);
-        break;
-    default:
-        st_errAbort("dangling pointer");
-    }
-}
-
 void getBlocksFromBridgePathBelow(stCactusTree *node, stCactusTree *except, stList *listToAddTo) {
     uint64_t numValidBridgeChildren = 0;
     stCactusTree *child = node->firstChild;
@@ -1767,8 +1736,9 @@ stList *stOnlineCactus_getGloballyWorstMaximalChainOrBridgePath(stOnlineCactus *
 void stOnlineCactus_print(const stOnlineCactus *cactus) {
     stHash *nodeToEnd = stHash_invert(cactus->endToNode, stHash_pointer, stHash_getEqualityFunction(cactus->endToNode), NULL, NULL);
     for (int64_t i = 0; i < stList_length(cactus->trees); i++) {
-        stOnlineCactus_printR(stList_get(cactus->trees, i), nodeToEnd);
-        printf(";\n");
+        char *newick = stCactusTree_getNewickString(stList_get(cactus->trees, i));
+        printf("%s\n", newick);
+        free(newick);
     }
     stHash_destruct(nodeToEnd);
 }
@@ -1980,4 +1950,48 @@ void stOnlineCactus_check(stOnlineCactus *cactus) {
     for (int64_t i = 0; i < stList_length(cactus->trees); i++) {
         stCactusTree_check(stList_get(cactus->trees, i), cactus);
     }
+}
+
+static void stCactusTree_getNewickString_R(const stCactusTree *tree, stList *stringFrags) {
+    if (tree->firstChild) {
+        stList_append(stringFrags, stString_print("("));
+        stCactusTree *child = tree->firstChild;
+        while (child != NULL) {
+            stList_append(stringFrags, stString_print("("));
+            stCactusTree_getNewickString_R(child, stringFrags);
+            if (child->parentEdge != NULL) {
+                stList_append(stringFrags, stString_print(")BLOCK%p", child->parentEdge->block));
+            } else {
+                stList_append(stringFrags, stString_print(")BLOCK_INVALID"));
+            }
+            child = child->next;
+            if (child != NULL) {
+                stList_append(stringFrags, stString_print(","));
+            }
+        }
+        stList_append(stringFrags, stString_print(")"));
+    }
+    switch (stCactusTree_type(tree)) {
+    case NET:
+        stList_append(stringFrags, stString_print("NET%p", (void *) tree));
+        break;
+    case CHAIN:
+        stList_append(stringFrags, stString_print("CHAIN%p", (void *) tree));
+        break;
+    default:
+        st_errAbort("dangling pointer");
+    }
+}
+
+char *stCactusTree_getNewickString(const stCactusTree *tree) {
+    stList *stringFrags = stList_construct3(0, free);
+    stCactusTree_getNewickString_R(tree, stringFrags);
+    stList_append(stringFrags, stString_print(";"));
+    char *ret = stString_join2("", stringFrags);
+    stList_destruct(stringFrags);
+    return ret;
+}
+
+stList *stOnlineCactus_getTrees(const stOnlineCactus *cactus) {
+    return cactus->trees;
 }
