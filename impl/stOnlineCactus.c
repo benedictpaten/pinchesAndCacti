@@ -388,6 +388,8 @@ static void unmapEndToNode(stOnlineCactus *cactus, void *end, void *node) {
 }
 
 void stOnlineCactus_createNode(stOnlineCactus *cactus, void *node) {
+    cactus->numNodeAddOps++;
+
     assert(stHash_search(cactus->nodeToNet, node) == NULL);
 
     stCactusTree *new = stCactusTree_construct(NULL, NULL, NET, NULL);
@@ -398,6 +400,8 @@ void stOnlineCactus_createNode(stOnlineCactus *cactus, void *node) {
 }
 
 void stOnlineCactus_deleteNode(stOnlineCactus *cactus, void *node) {
+    cactus->numNodeDeleteOps++;
+
     stCactusTree *net = stHash_search(cactus->nodeToNet, node);
     assert(net != NULL);
 
@@ -850,6 +854,8 @@ static void netCleave(stOnlineCactus *cactus, stCactusTree *tree, stSet *nodesTo
 }
 
 void stOnlineCactus_nodeCleave(stOnlineCactus *cactus, void *node, void *newNode, stSet *endsToRemove) {
+    cactus->numSplitOps++;
+
     stCactusTree *tree = stHash_search(cactus->nodeToNet, node);
 
     // First things first, partition the ends belonging to the base graph node.
@@ -1295,6 +1301,7 @@ static bool stCactusTree_isAncestralTo(stCactusTree *a, stCactusTree *b) {
 }
 
 void stOnlineCactus_nodeMerge(stOnlineCactus *cactus, void *node1, void *node2) {
+    cactus->numMergeOps++;
     stCactusTree *net1 = stHash_search(cactus->nodeToNet, node1);
     assert(net1 != NULL);
     stCactusTree *net2 = stHash_search(cactus->nodeToNet, node2);
@@ -1377,6 +1384,8 @@ void stOnlineCactus_addEdge(stOnlineCactus *cactus,
                             void *node1, void *node2,
                             void *end1, void *end2,
                             void *edge) {
+    cactus->numEdgeAddOps++;
+
     stCactusTree *net1 = stHash_search(cactus->nodeToNet, node1);
     assert(net1 != NULL);
     stCactusTree *net2 = stHash_search(cactus->nodeToNet, node2);
@@ -1461,6 +1470,8 @@ void fix3EC(stOnlineCactus *cactus, stCactusTree *tree) {
 }
 
 void stOnlineCactus_deleteEdge(stOnlineCactus *cactus, void *end1, void *end2, void *block) {
+    cactus->numEdgeDeleteOps++;
+
     void *node1 = stHash_search(cactus->endToNode, end1);
     void *node2 = stHash_search(cactus->endToNode, end2);
 
@@ -1994,4 +2005,37 @@ char *stCactusTree_getNewickString(const stCactusTree *tree) {
 
 stList *stOnlineCactus_getTrees(const stOnlineCactus *cactus) {
     return cactus->trees;
+}
+
+int64_t stOnlineCactus_getTotalNumOps(const stOnlineCactus *cactus) {
+    return stOnlineCactus_getNumMergeOps(cactus)
+         + stOnlineCactus_getNumSplitOps(cactus)
+         + stOnlineCactus_getNumEdgeAddOps(cactus)
+         + stOnlineCactus_getNumEdgeDeleteOps(cactus)
+         + stOnlineCactus_getNumNodeAddOps(cactus)
+         + stOnlineCactus_getNumNodeDeleteOps(cactus);
+}
+
+int64_t stOnlineCactus_getNumMergeOps(const stOnlineCactus *cactus) {
+    return cactus->numMergeOps;
+}
+
+int64_t stOnlineCactus_getNumSplitOps(const stOnlineCactus *cactus) {
+    return cactus->numSplitOps;
+}
+
+int64_t stOnlineCactus_getNumEdgeAddOps(const stOnlineCactus *cactus) {
+    return cactus->numEdgeAddOps;
+}
+
+int64_t stOnlineCactus_getNumEdgeDeleteOps(const stOnlineCactus *cactus) {
+    return cactus->numEdgeDeleteOps;
+}
+
+int64_t stOnlineCactus_getNumNodeAddOps(const stOnlineCactus *cactus) {
+    return cactus->numNodeAddOps;
+}
+
+int64_t stOnlineCactus_getNumNodeDeleteOps(const stOnlineCactus *cactus) {
+    return cactus->numNodeDeleteOps;
 }

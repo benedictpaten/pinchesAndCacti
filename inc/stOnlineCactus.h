@@ -102,6 +102,7 @@ stList *stOnlineCactus_getMaximalChainOrBridgePath(stOnlineCactus *cactus, void 
 // Do not free the returned list.
 stList *stOnlineCactus_getGloballyWorstMaximalChainOrBridgePath(stOnlineCactus *cactus);
 
+// Print the cactus forest to stdout.
 void stOnlineCactus_print(const stOnlineCactus *cactus);
 
 // Get the newick strings for an online cactus tree, for debugging
@@ -123,5 +124,26 @@ void stOnlineCactus_check(stOnlineCactus *cactus);
 
 // Get a particular edge in the cactus forest, given an edge in the base graph.
 stCactusTreeEdge *stOnlineCactus_getEdge(stOnlineCactus *cactus, void *block);
+
+// Get the total number of operations performed on the cactus graph so far.
+int64_t stOnlineCactus_getTotalNumOps(const stOnlineCactus *cactus);
+
+// Get the number of node-merge operations performed on the cactus graph so far.
+int64_t stOnlineCactus_getNumMergeOps(const stOnlineCactus *cactus);
+
+// Get the number of node-split operations performed on the cactus graph so far.
+int64_t stOnlineCactus_getNumSplitOps(const stOnlineCactus *cactus);
+
+// Get the number of edge-addition operations performed on the cactus graph so far.
+int64_t stOnlineCactus_getNumEdgeAddOps(const stOnlineCactus *cactus);
+
+// Get the number of edge-deletion operations performed on the cactus graph so far.
+int64_t stOnlineCactus_getNumEdgeDeleteOps(const stOnlineCactus *cactus);
+
+// Get the number of node-addition operations performed on the cactus graph so far.
+int64_t stOnlineCactus_getNumNodeAddOps(const stOnlineCactus *cactus);
+
+// Get the number of node-deletion operations performed on the cactus graph so far.
+int64_t stOnlineCactus_getNumNodeDeleteOps(const stOnlineCactus *cactus);
 
 #endif

@@ -32,6 +32,12 @@ struct _stOnlineCactus {
     uint64_t (*getEdgeWeight)(const void *);
     stHash *blockToMaximalPath;
     stSortedSet *maximalPaths;
+    int64_t numMergeOps;
+    int64_t numSplitOps;
+    int64_t numEdgeAddOps;
+    int64_t numEdgeDeleteOps;
+    int64_t numNodeAddOps;
+    int64_t numNodeDeleteOps;
 };
 
 struct _stCactusTreeIt {
