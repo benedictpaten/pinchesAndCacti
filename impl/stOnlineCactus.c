@@ -123,6 +123,10 @@ void stCactusTreeIt_destruct(stCactusTreeIt *it) {
     free(it);
 }
 
+stSet *stCactusTree_getContainedNodes(stCactusTree *tree) {
+    return tree->nodes;
+}
+
 static void stCactusTree_removeChild(stCactusTree *parent, stCactusTree *child) {
     child->parent = NULL;
     if (child == parent->firstChild) {

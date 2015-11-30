@@ -62,6 +62,12 @@ stCactusTree *stCactusTreeIt_getNext(stCactusTreeIt *it);
 // Free a cactus-tree-node iterator properly.
 void stCactusTreeIt_destruct(stCactusTreeIt *it);
 
+// Get the base graph nodes contained in this cactus node.
+// Returns NULL if the node is a chain node.
+// The caller must not free this set, and it may be invalidated with
+// any subsequent cactus graph operations.
+stSet *stCactusTree_getContainedNodes(stCactusTree *tree);
+
 // Create a new node in the base graph.
 void stOnlineCactus_createNode(stOnlineCactus *cactus, void *node);
 
