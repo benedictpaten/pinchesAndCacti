@@ -114,7 +114,7 @@ void stOnlineCactus_print(const stOnlineCactus *cactus);
 // Get the newick strings for an online cactus tree, for debugging
 // purposes. Uses pointer values to name the nodes, so the output will
 // be inscrutable.
-char *stCactusTree_getNewickString(const stCactusTree *cactus);
+char *stCactusTree_getNewickString(const stOnlineCactus *cactus, const stCactusTree *cactusTree);
 
 // Get the trees in the cactus forest (as a list of stCactusTree *).
 //

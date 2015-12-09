@@ -1774,7 +1774,7 @@ stList *stOnlineCactus_getGloballyWorstMaximalChainOrBridgePath(stOnlineCactus *
 void stOnlineCactus_print(const stOnlineCactus *cactus) {
     stHash *nodeToEnd = stHash_invert(cactus->endToNode, stHash_pointer, stHash_getEqualityFunction(cactus->endToNode), NULL, NULL);
     for (int64_t i = 0; i < stList_length(cactus->trees); i++) {
-        char *newick = stCactusTree_getNewickString(stList_get(cactus->trees, i));
+        char *newick = stCactusTree_getNewickString(cactus, stList_get(cactus->trees, i));
         printf("%s\n", newick);
         free(newick);
     }
@@ -1990,17 +1990,17 @@ void stOnlineCactus_check(stOnlineCactus *cactus) {
     }
 }
 
-static void stCactusTree_getNewickString_R(const stCactusTree *tree, stList *stringFrags) {
+static void stCactusTree_getNewickString_R(const stOnlineCactus *cactus, const stCactusTree *tree, stList *stringFrags) {
     if (tree->firstChild) {
         stList_append(stringFrags, stString_print("("));
         stCactusTree *child = tree->firstChild;
         while (child != NULL) {
             stList_append(stringFrags, stString_print("("));
-            stCactusTree_getNewickString_R(child, stringFrags);
+            stCactusTree_getNewickString_R(cactus, child, stringFrags);
             if (child->parentEdge != NULL) {
-                stList_append(stringFrags, stString_print(")BLOCK%p", child->parentEdge->block));
+                stList_append(stringFrags, stString_print(")BLOCK%p_%" PRIi64, child->parentEdge->block, cactus->getEdgeWeight(child->parentEdge->block)));
             } else {
-                stList_append(stringFrags, stString_print(")BLOCK_INVALID"));
+                stList_append(stringFrags, stString_print(")BLOCKINVALID"));
             }
             child = child->next;
             if (child != NULL) {
@@ -2021,9 +2021,9 @@ static void stCactusTree_getNewickString_R(const stCactusTree *tree, stList *str
     }
 }
 
-char *stCactusTree_getNewickString(const stCactusTree *tree) {
+char *stCactusTree_getNewickString(const stOnlineCactus *cactus, const stCactusTree *tree) {
     stList *stringFrags = stList_construct3(0, free);
-    stCactusTree_getNewickString_R(tree, stringFrags);
+    stCactusTree_getNewickString_R(cactus, tree, stringFrags);
     stList_append(stringFrags, stString_print(";"));
     char *ret = stString_join2("", stringFrags);
     stList_destruct(stringFrags);
