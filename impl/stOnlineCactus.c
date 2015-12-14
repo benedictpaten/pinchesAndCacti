@@ -1743,31 +1743,8 @@ stList *stOnlineCactus_getMaximalChainOrBridgePath(stOnlineCactus *cactus, void 
     return path->blocks;
 }
 
-static stCactusTree *getChainNode(stOnlineCactus *cactus, void *block) {
-    stCactusTreeEdge *edge = stHash_search(cactus->blockToEdge, block);
-    assert(edge != NULL);
-    if (stCactusTree_type(edge->child) == CHAIN) {
-        return edge->child;
-    }
-    if (stCactusTree_type(edge->child->parent) == CHAIN) {
-        return edge->child->parent;
-    }
-    return NULL;
-}
-
 stList *stOnlineCactus_getGloballyWorstMaximalChainOrBridgePath(stOnlineCactus *cactus) {
-    stSortedSetIterator *it = stSortedSet_getIterator(cactus->maximalPaths);
-    cactusPath *worstPath = stSortedSet_getNext(it);
-    stCactusTree *chain = getChainNode(cactus, stList_get(worstPath->blocks, 0));
-    while (chain != NULL && chain->next == NULL && chain->prev == NULL) {
-        worstPath = stSortedSet_getNext(it);
-        if (worstPath == NULL) {
-            stSortedSet_destructIterator(it);
-            return NULL;
-        }
-        chain = getChainNode(cactus, stList_get(worstPath->blocks, 0));
-    }
-    stSortedSet_destructIterator(it);
+    cactusPath *worstPath = stSortedSet_getFirst(cactus->maximalPaths);
     return worstPath->blocks;
 }
 
