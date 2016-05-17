@@ -160,6 +160,27 @@ static stPinchSegment *get5PrimeMostSegment(stPinchSegment *segment, int64_t *ba
 }
 
 /*
+ * Finds the 3' most segment in the thread that contains bases within maxBaseDistance of the mid point of the segment, and within
+ * maxBlockDistance.
+ */
+static stPinchSegment *get3PrimeMostSegment(stPinchSegment *segment, int64_t *baseDistance, int64_t *blockDistance,
+        int64_t maxBaseDistance, int64_t maxBlockDistance,
+        bool ignoreUnalignedBases) {
+    *baseDistance = stPinchSegment_getLength(segment) / 2;
+    *blockDistance = 0;
+    while (stPinchSegment_get3Prime(segment) != NULL && *baseDistance < maxBaseDistance
+            && *blockDistance < maxBlockDistance) {
+        segment = stPinchSegment_get5Prime(segment);
+        if (stPinchSegment_getBlock(segment) != NULL || !ignoreUnalignedBases) {
+            *baseDistance += stPinchSegment_getLength(segment);
+            (*blockDistance)++;
+        }
+    }
+    assert(segment != NULL);
+    return segment;
+}
+
+/*
  * Gets the number of distinct segment indices the featureBlock contains. Relies on the indices of segments being sorted
  * (as they are by stFeatureBlock_getContextualFeatureBlocks)
  */
@@ -182,68 +203,191 @@ static void stFeatureBlock_appendSegment(stFeatureBlock *featureBlock, stFeature
     featureBlock->tail = fSegment;
 }
 
-stList *stFeatureBlock_getContextualFeatureBlocks(stPinchBlock *block, int64_t maxBaseDistance,
-        int64_t maxBlockDistance,
-        bool ignoreUnalignedBases, bool onlyIncludeCompleteFeatureBlocks, stHash *strings) {
+// Gets a hash mapping from the segments within the list of chained
+// blocks to the segment index within the reference (first) block.
+static stHash *getSegmentToReferenceBlockIndex(stList *blocks) {
+    stHash *segmentToReferenceBlockIndex = stHash_construct2(NULL, (void (*)(void *)) stIntTuple_destruct);
+    stPinchBlock *referenceBlock = stList_get(blocks, 0);
+    stPinchBlock *lastBlock = stList_get(blocks, stList_length(blocks) - 1);
+    stPinchBlockIt it = stPinchBlock_getSegmentIterator(referenceBlock);
+    stPinchSegment *segment;
+    int64_t i = 0;
+    while ((segment = stPinchBlockIt_getNext(&it)) != NULL) {
+        bool orientation = stPinchSegment_getBlockOrientation(segment);
+        while (stPinchSegment_getBlock(segment) != lastBlock) {
+            stHash_insert(segmentToReferenceBlockIndex, segment, stIntTuple_construct1(i));
+            segment = orientation ? stPinchSegment_get3Prime(segment) : stPinchSegment_get5Prime(segment);
+        }
+        i++;
+    }
+    return segmentToReferenceBlockIndex;
+}
+
+// Construct feature blocks from a list of chained blocks.
+static void addFeatureBlocksFromBlocks(stList *blocks,
+                                       stHash *segmentToReferenceBlockIndex,
+                                       stHash *blocksToFeatureBlocks,
+                                       stHash *segmentsToFeatureSegments,
+                                       stHash *strings) {
+    for (int64_t i = 0; i < stList_length(blocks); i++) {
+        stPinchBlock *block = stList_get(blocks, i);
+        stPinchBlockIt it = stPinchBlock_getSegmentIterator(block);
+        stPinchSegment *segment;
+        while ((segment = stPinchBlockIt_getNext(&it)) != NULL) {
+            stIntTuple *segmentIndex = stHash_search(segmentToReferenceBlockIndex, segment);
+            assert(segmentIndex != NULL);
+            stFeatureSegment *fSegment = stHash_search(segmentsToFeatureSegments, segment);
+            if (fSegment == NULL) {
+                //Make a new feature segment
+                fSegment = stFeatureSegment_construct(segment, strings, stIntTuple_get(segmentIndex, 0), 0);
+                //Attach it to the related block.
+                stFeatureBlock *featureBlock = stHash_search(blocksToFeatureBlocks, block);
+                if (featureBlock == NULL) { //Create a new feature block
+                    featureBlock = stFeatureBlock_construct(fSegment, block, stPinchBlock_getDegree(block));
+                    stHash_insert(blocksToFeatureBlocks, block, featureBlock);
+                } else { //Link it to the existing feature block
+                    stFeatureBlock_appendSegment(featureBlock, fSegment);
+                }
+                stHash_insert(segmentsToFeatureSegments, segment, fSegment);
+            } else {
+                assert(segment == fSegment->segment);
+                assert(stPinchSegment_getLength(segment) == fSegment->length);
+                assert(fSegment->distance != 0); //It is not possible for these two distances to be equal.
+                //If the midpoint of segment is closer to the mid point of segment than the midpoint of featureSegment->segment, then switch
+                if (llabs(fSegment->distance + fSegment->length / 2)
+                    > llabs(fSegment->length / 2)) {
+                    fSegment->segmentIndex = stIntTuple_get(segmentIndex, 0);
+                    fSegment->distance = 0;
+                }
+            }
+        }
+    }
+}
+
+// Construct feature blocks from the blocks near this block, in the
+// "left" direction if orientation is false and in the "right"
+// direction if orientation is true.
+static void addFeatureBlocksExtendingFromBlock(
+    stPinchBlock *block,
+    stHash *segmentToReferenceBlockIndex,
+    stHash *blocksToFeatureBlocks,
+    stHash *segmentsToFeatureSegments,
+    int64_t maxBaseDistance,
+    int64_t maxBlockDistance,
+    bool ignoreUnalignedBases,
+    stHash *strings,
+    bool orientation) {
+    stPinchBlockIt it = stPinchBlock_getSegmentIterator(block);
+    stPinchSegment *segment;
+
+    while ((segment = stPinchBlockIt_getNext(&it)) != NULL) { //For each segment build the feature segment.
+        int64_t blockDistance, baseDistance; //Distances from curSegment to segment
+        //Base distance is the difference from the start coordinate of curSegment to the mid point of the segment.
+
+        // Find the limiting segment, which is at the maximal allowed
+        // distance from the original segment, and work back toward
+        // the original segment from there.
+        stPinchSegment *curSegment;
+        if (stPinchSegment_getBlockOrientation(segment) && orientation) {
+            curSegment = get5PrimeMostSegment(segment, &baseDistance,
+                                              &blockDistance, maxBaseDistance,
+                                              maxBlockDistance,
+                                              ignoreUnalignedBases);
+        } else {
+            curSegment = get3PrimeMostSegment(segment, &baseDistance,
+                                              &blockDistance, maxBaseDistance,
+                                              maxBlockDistance,
+                                              ignoreUnalignedBases);
+        }
+        do {
+            stPinchBlock *curBlock;
+            if ((curBlock = stPinchSegment_getBlock(curSegment)) != NULL) {
+                //The following checks that if baseDistance + stPinchSegment_getLength(curSegment) / 2 == 0 then the segment has to be the mid segment
+                if (baseDistance + stPinchSegment_getLength(curSegment) / 2 == 0) {
+                    assert(curSegment == segment);
+                } else {
+                    assert(curSegment != segment);
+                }
+
+                stIntTuple *segmentIndex = stHash_search(segmentToReferenceBlockIndex, curSegment);
+                assert(segmentIndex != NULL);
+                stFeatureSegment *fSegment = stHash_search(segmentsToFeatureSegments, curSegment);
+                if (fSegment == NULL) {
+                    //Make a new feature segment
+                    fSegment = stFeatureSegment_construct(curSegment, strings, stIntTuple_get(segmentIndex, 0), baseDistance);
+                    //Attach it to the related block.
+                    stFeatureBlock *featureBlock = stHash_search(blocksToFeatureBlocks, curBlock);
+                    if (featureBlock == NULL) { //Create a new feature block
+                        featureBlock = stFeatureBlock_construct(fSegment, curBlock, stPinchBlock_getDegree(block));
+                        stHash_insert(blocksToFeatureBlocks, curBlock, featureBlock);
+                    } else { //Link it to the existing feature block
+                        stFeatureBlock_appendSegment(featureBlock, fSegment);
+                    }
+                    stHash_insert(segmentsToFeatureSegments, curSegment, fSegment);
+                } else {
+                    assert(curSegment == fSegment->segment);
+                    assert(stPinchSegment_getLength(curSegment) == fSegment->length);
+                    assert(fSegment->distance != baseDistance); //It is not possible for these two distances to be equal.
+                    //If the midpoint of curSegment is closer to the mid point of segment than the midpoint of featureSegment->segment, then switch
+                    if (llabs(fSegment->distance + fSegment->length / 2)
+                            > llabs(baseDistance + fSegment->length / 2)) {
+                        fSegment->segmentIndex = stIntTuple_get(segmentIndex, 0);
+                        fSegment->distance = baseDistance;
+                    }
+                }
+                baseDistance += stPinchSegment_getLength(curSegment);
+                blockDistance++;
+            } else if (!ignoreUnalignedBases) { //Only add the unaligned segment if not ignoring such segments.
+                baseDistance += stPinchSegment_getLength(curSegment);
+                blockDistance++;
+            }
+            if (stPinchSegment_getBlockOrientation(segment) && orientation) {
+                curSegment = stPinchSegment_get3Prime(curSegment);
+            } else {
+                curSegment = stPinchSegment_get5Prime(curSegment);
+            }
+        } while (curSegment != NULL && baseDistance <= maxBaseDistance && blockDistance <= maxBlockDistance);
+    }
+}
+
+stList *stFeatureBlock_getContextualFeatureBlocksForChainedBlocks(
+    stList *blocks, int64_t maxBaseDistance,
+    int64_t maxBlockDistance, bool ignoreUnalignedBases,
+    bool onlyIncludeCompleteFeatureBlocks, stHash *strings) {
     /*
      * First build the set of feature blocks, not caring if this produces trivial blocks.
      */
     stHash *blocksToFeatureBlocks = stHash_construct(); //Hash to map blocks to featureBlocks.
     stHash *segmentsToFeatureSegments = stHash_construct(); //Hash to map segments to featureSegments, to remove overlaps.
-    int64_t i = 0; //Index of segments in block.
-    stPinchBlockIt it = stPinchBlock_getSegmentIterator(block);
-    stPinchSegment *segment;
-    while ((segment = stPinchBlockIt_getNext(&it)) != NULL) { //For each segment build the feature segment.
-        int64_t blockDistance, baseDistance; //Distances from segment2 to segment
-        //Base distance is the difference from the start coordinate of segment2 to the mid point of the segment.
-        stPinchSegment *segment2 = get5PrimeMostSegment(segment, &baseDistance, &blockDistance, maxBaseDistance,
-                maxBlockDistance, ignoreUnalignedBases);
-
-        do {
-            stPinchBlock *block2;
-            if ((block2 = stPinchSegment_getBlock(segment2)) != NULL) {
-                //The following checks that if baseDistance + stPinchSegment_getLength(segment2) / 2 == 0 then the segment has to be the mid segment
-                if (baseDistance + stPinchSegment_getLength(segment2) / 2 == 0) {
-                    assert(segment2 == segment);
-                } else {
-                    assert(segment2 != segment);
-                }
-
-                stFeatureSegment *fSegment = stHash_search(segmentsToFeatureSegments, segment2);
-                if (fSegment == NULL) {
-                    //Make a new feature segment
-                    fSegment = stFeatureSegment_construct(segment2, strings, i, baseDistance);
-                    //Attach it to the related block.
-                    stFeatureBlock *featureBlock = stHash_search(blocksToFeatureBlocks, block2);
-                    if (featureBlock == NULL) { //Create a new feature block
-                        featureBlock = stFeatureBlock_construct(fSegment, block2, stPinchBlock_getDegree(block));
-                        stHash_insert(blocksToFeatureBlocks, block2, featureBlock);
-                    } else { //Link it to the existing feature block
-                        stFeatureBlock_appendSegment(featureBlock, fSegment);
-                    }
-                    stHash_insert(segmentsToFeatureSegments, segment2, fSegment);
-                } else {
-                    assert(segment2 == fSegment->segment);
-                    assert(stPinchSegment_getLength(segment2) == fSegment->length);
-                    assert(fSegment->distance != baseDistance); //It is not possible for these two distances to be equal.
-                    //If the midpoint of segment2 is closer to the mid point of segment than the midpoint of featureSegment->segment, then switch
-                    if (llabs(fSegment->distance + fSegment->length / 2)
-                            > llabs(baseDistance + fSegment->length / 2)) {
-                        fSegment->segmentIndex = i;
-                        fSegment->distance = baseDistance;
-                    }
-                }
-                baseDistance += stPinchSegment_getLength(segment2);
-                blockDistance++;
-            } else if (!ignoreUnalignedBases) { //Only add the unaligned segment if not ignoring such segments.
-                baseDistance += stPinchSegment_getLength(segment2);
-                blockDistance++;
-            }
-            segment2 = stPinchSegment_get3Prime(segment2);
-        } while (segment2 != NULL && baseDistance <= maxBaseDistance && blockDistance <= maxBlockDistance);
-        i++; //Increase segment block index.
-    }
+    stHash *segmentToReferenceBlockIndex = getSegmentToReferenceBlockIndex(stList_get(blocks, 0));
+    // Get the feature blocks to the left of the first block in the chain.
+    addFeatureBlocksExtendingFromBlock(stList_get(blocks, 0),
+                                       segmentToReferenceBlockIndex,
+                                       blocksToFeatureBlocks,
+                                       segmentsToFeatureSegments,
+                                       maxBaseDistance,
+                                       maxBlockDistance,
+                                       ignoreUnalignedBases,
+                                       strings,
+                                       false);
+    // Get the feature blocks within the chain.
+    addFeatureBlocksFromBlocks(blocks,
+                               segmentToReferenceBlockIndex,
+                               blocksToFeatureBlocks,
+                               segmentsToFeatureSegments,
+                               strings);
+    // Get the feature blocks to the right of the last block in the chain.
+    addFeatureBlocksExtendingFromBlock(stList_get(blocks, stList_length(blocks) - 1),
+                                       segmentToReferenceBlockIndex,
+                                       blocksToFeatureBlocks,
+                                       segmentsToFeatureSegments,
+                                       maxBaseDistance,
+                                       maxBlockDistance,
+                                       ignoreUnalignedBases,
+                                       strings,
+                                       true);
     stHash_destruct(segmentsToFeatureSegments);
+    stHash_destruct(segmentToReferenceBlockIndex);
     /*
      * Now filter the set of blocks so that only desired blocks are present.
      */
@@ -253,7 +397,7 @@ stList *stFeatureBlock_getContextualFeatureBlocks(stPinchBlock *block, int64_t m
     for (int64_t i = 0; i < stList_length(unfilteredFeatureBlocks); i++) {
         stFeatureBlock *featureBlock = stList_get(unfilteredFeatureBlocks, i);
         assert(featureBlock != NULL);
-        if (!onlyIncludeCompleteFeatureBlocks || countDistinctIndices(featureBlock) == stPinchBlock_getDegree(block)) {
+        if (!onlyIncludeCompleteFeatureBlocks || countDistinctIndices(featureBlock) == stPinchBlock_getDegree(stList_get(blocks, 0))) {
             stList_append(featureBlocks, featureBlock);
         } else {
             stFeatureBlock_destruct(featureBlock); //This is a trivial/unneeded feature block, so remove.
@@ -261,6 +405,16 @@ stList *stFeatureBlock_getContextualFeatureBlocks(stPinchBlock *block, int64_t m
     }
     stList_destruct(unfilteredFeatureBlocks);
 
+    return featureBlocks;
+}
+
+stList *stFeatureBlock_getContextualFeatureBlocks(stPinchBlock *block, int64_t maxBaseDistance,
+        int64_t maxBlockDistance,
+        bool ignoreUnalignedBases, bool onlyIncludeCompleteFeatureBlocks, stHash *strings) {
+    stList *blocks = stList_construct();
+    stList_append(blocks, block);
+    stList *featureBlocks = stFeatureBlock_getContextualFeatureBlocksForChainedBlocks(blocks, maxBaseDistance, maxBlockDistance, ignoreUnalignedBases, onlyIncludeCompleteFeatureBlocks, strings);
+    stList_destruct(blocks);
     return featureBlocks;
 }
 
@@ -275,7 +429,7 @@ void stFeatureColumn_destruct(stFeatureColumn *featureColumn) {
     free(featureColumn); //Does not own the block.
 }
 
-stList *stFeatureColumn_getFeatureColumns(stList *featureBlocks, stPinchBlock *block) {
+stList *stFeatureColumn_getFeatureColumns(stList *featureBlocks) {
     stList *featureColumns = stList_construct3(0, (void (*)(void *)) stFeatureColumn_destruct);
     for (int64_t i = 0; i < stList_length(featureBlocks); i++) {
         stFeatureBlock *featureBlock = stList_get(featureBlocks, i);

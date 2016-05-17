@@ -83,7 +83,7 @@ typedef struct _stFeatureColumn {
  * to allow sampling with replacement for bootstrapping. The ordering of the columns
  * follows the ordering of the feature blocks.
  */
-stList *stFeatureColumn_getFeatureColumns(stList *featureBlocks, stPinchBlock *block);
+stList *stFeatureColumn_getFeatureColumns(stList *featureBlocks);
 
 /*
  * Constructs a feature matrix from a list of diffs.

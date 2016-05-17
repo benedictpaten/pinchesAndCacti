@@ -295,7 +295,7 @@ static void testStFeatureBlock_getContextualFeatureBlocks(CuTest *testCase) {
 
 static void featureColumnTestFn(stPinchBlock *block, stList *featureBlocks, CuTest *testCase) {
     //Make feature columns
-    stList *featureColumns = stFeatureColumn_getFeatureColumns(featureBlocks, block);
+    stList *featureColumns = stFeatureColumn_getFeatureColumns(featureBlocks);
 
     //Check every feature block is covered by a sequence of feature columns
     int64_t j = 0;
@@ -364,7 +364,7 @@ stMatrix *getSubstitutionMatrixSimply(stList *featureColumns, int64_t n) {
 
 static void substitutionMatrixTestFn(stPinchBlock *block, stList *featureBlocks, CuTest *testCase) {
     //Make feature columns
-    stList *featureColumns = stFeatureColumn_getFeatureColumns(featureBlocks, block);
+    stList *featureColumns = stFeatureColumn_getFeatureColumns(featureBlocks);
 
     //Make substitution matrix
     stMatrix *matrix = stPinchPhylogeny_getMatrixFromSubstitutions(featureColumns, block, NULL, 0);
@@ -416,7 +416,7 @@ stMatrix *getBreakpointMatrixSimply(stList *featureColumns, int64_t n) {
 
 static void breakpointMatrixTestFn(stPinchBlock *block, stList *featureBlocks, CuTest *testCase) {
     //Make feature columns
-    stList *featureColumns = stFeatureColumn_getFeatureColumns(featureBlocks, block);
+    stList *featureColumns = stFeatureColumn_getFeatureColumns(featureBlocks);
 
     //Make substitution matrix
     stMatrix *matrix = stPinchPhylogeny_getMatrixFromBreakpoints(featureColumns, block, NULL, 0);
@@ -786,7 +786,7 @@ static void testRandomSplitTreeOnOutgroups(CuTest *testCase) {
 
 static void getLeafSetsFromPinchTestFn(stPinchBlock *block, stList *featureBlocks, CuTest *testCase) {
     // Make feature columns
-    stList *featureColumns = stFeatureColumn_getFeatureColumns(featureBlocks, block);
+    stList *featureColumns = stFeatureColumn_getFeatureColumns(featureBlocks);
     int64_t numBootstraps = st_randomInt64(1, 100);
     double confidenceThreshold = st_random();
     int64_t numLeaves = stPinchBlock_getDegree(block);
@@ -873,20 +873,20 @@ static void likelihoodTestFn(stPinchBlock *block, stList *featureBlocks, CuTest 
     }
 
     // Make feature columns
-    stList *featureColumns = stFeatureColumn_getFeatureColumns(featureBlocks, block);
+    stList *featureColumns = stFeatureColumn_getFeatureColumns(featureBlocks);
     stTree *tree = stPinchPhylogeny_buildTreeFromFeatureColumns(featureColumns, block, 0);
 
     double likelihood = stPinchPhylogeny_likelihood(tree, featureColumns);
 
     // Find the likelihood when all characters are Ns (should be ~0.25)
     stList *ambiguousBlocks = replaceBlockStringsWithChar(featureBlocks, 'N', block);
-    stList *ambiguousColumns = stFeatureColumn_getFeatureColumns(ambiguousBlocks, block);
+    stList *ambiguousColumns = stFeatureColumn_getFeatureColumns(ambiguousBlocks);
     double ambiguousLikelihood = stPinchPhylogeny_likelihood(tree, ambiguousColumns);
 
     // Find the likelihood when all characters are As (should be the
     // highest possible, or close to it, depending on the model used)
     stList *maxBlocks = replaceBlockStringsWithChar(featureBlocks, 'A', block);
-    stList *maxColumns = stFeatureColumn_getFeatureColumns(maxBlocks, block);
+    stList *maxColumns = stFeatureColumn_getFeatureColumns(maxBlocks);
     double maxLikelihood = stPinchPhylogeny_likelihood(tree, maxColumns);
 
     if(likelihood != -INFINITY) { // Make sure the branch lengths are
@@ -913,7 +913,7 @@ static void reconciliationLikelihoodTestFn(stPinchBlock *block, stList *featureB
     }
 
     // Make feature columns
-    stList *featureColumns = stFeatureColumn_getFeatureColumns(featureBlocks, block);
+    stList *featureColumns = stFeatureColumn_getFeatureColumns(featureBlocks);
     stTree *tree = stPinchPhylogeny_buildTreeFromFeatureColumns(featureColumns, block, 0);
 
     // Get a random assignment to a random species tree roughly the same size as the block tree.
