@@ -111,6 +111,19 @@ int64_t indexOfSegment(stPinchSegment *segment) {
     return INT64_MAX;
 }
 
+stHash *getPinchSegmentsToFeatureSegments(stList *featureBlocks) {
+    stHash *pinchSegmentsToFeatureSegments = stHash_construct();
+    for (int64_t i = 0; i < stList_length(featureBlocks); i++) {
+        stFeatureBlock *featureBlock = stList_get(featureBlocks, i);
+        stFeatureSegment *featureSegment = featureBlock->head;
+        while (featureSegment != NULL) {
+            stHash_insert(pinchSegmentsToFeatureSegments, featureSegment->segment, featureSegment);
+            featureSegment = featureSegment->nFeatureSegment;
+        }
+    }
+    return pinchSegmentsToFeatureSegments;
+}
+
 /*
  * Tests that from random pinch graphs we get reliable set of contextual feature blocks,
  * and applies the assessFeatureBlocksFn to the block.
@@ -127,7 +140,6 @@ static void makeAndTestRandomFeatureBlocks(CuTest *testCase,
         stPinchBlock *block;
 
         while ((block = stPinchThreadSetBlockIt_getNext(&blockIt)) != NULL) {
-            //assert(stPinchBlock_getDegree(block) > 1);
             /*
              * Choose random parameters.
              */
@@ -148,7 +160,7 @@ static void makeAndTestRandomFeatureBlocks(CuTest *testCase,
             CuAssertTrue(testCase, stList_length(featureBlocks) >= 1);
 
             //Make hash of pinch segments to feature segments, so we can validate we get the correct list.
-            stHash *pinchSegmentsToFeatureSegments = stHash_construct();
+            stHash *pinchSegmentsToFeatureSegments = getPinchSegmentsToFeatureSegments(featureBlocks);
 
             //Get the feature block corresponding to block
             stFeatureBlock *midFeatureBlock = NULL;
@@ -174,9 +186,6 @@ static void makeAndTestRandomFeatureBlocks(CuTest *testCase,
                 stFeatureSegment *featureSegment = featureBlock->head;
                 stPinchBlock *block2 = stPinchSegment_getBlock(featureBlock->head->segment);
                 while (featureSegment != NULL) {
-                    //Add to the hash which we'll use to check for presence
-                    stHash_insert(pinchSegmentsToFeatureSegments, featureSegment->segment, featureSegment);
-
                     //Check pointer to pinch segment and is from the correct block.
                     CuAssertPtrEquals(testCase, block2, stPinchSegment_getBlock(featureSegment->segment));
 
@@ -290,6 +299,62 @@ static void testStFeatureBlock_getContextualFeatureBlocks(CuTest *testCase) {
 }
 
 /*
+ * A non-random test for the chained version of the
+ * feature-block-generating function. The two functions share the same
+ * underlying code, so this is just a light test to check that the
+ * code handles differences in the order of segments in the chain's
+ * blocks.
+ */
+static void testStFeatureBlock_getContextualFeatureBlocksForChainedBlocks(CuTest *testCase) {
+    // Set up a pinch graph that looks like this (='s representing blocks):
+    // 1: -=====-
+    // 2: =======
+    // 3: =-===-=
+    stPinchThreadSet *threadSet = stPinchThreadSet_construct();
+    stPinchThread *thread1 = stPinchThreadSet_addThread(threadSet, 1, 0, 100);
+    stPinchThread *thread2 = stPinchThreadSet_addThread(threadSet, 2, 0, 100);
+    stPinchThread *thread3 = stPinchThreadSet_addThread(threadSet, 3, 0, 100);
+    stPinchThread_pinch(thread2, thread3, 0, 0, 10, true);
+
+    stPinchThread_pinch(thread1, thread2, 10, 10, 10, true);
+
+    stPinchThread_pinch(thread1, thread2, 20, 20, 10, true);
+    stPinchThread_pinch(thread1, thread3, 20, 20, 10, true);
+
+    stPinchThread_pinch(thread2, thread1, 40, 40, 10, true);
+    stPinchThread_pinch(thread2, thread3, 40, 40, 10, true);
+
+    stPinchThread_pinch(thread3, thread2, 60, 60, 10, true);
+    stPinchThread_pinch(thread3, thread1, 60, 60, 10, true);
+
+    stPinchThread_pinch(thread1, thread2, 70, 70, 10, true);
+
+    stPinchThread_pinch(thread1, thread3, 80, 80, 10, true);
+
+    stHash *strings = getRandomStringsForGraph(threadSet);
+
+    stList *blocks = stList_construct();
+    stList_append(blocks, stPinchSegment_getBlock(stPinchThread_getSegment(thread1, 20)));
+    stList_append(blocks, stPinchSegment_getBlock(stPinchThread_getSegment(thread1, 40)));
+    stList_append(blocks, stPinchSegment_getBlock(stPinchThread_getSegment(thread1, 60)));
+
+    stList *featureBlocks = stFeatureBlock_getContextualFeatureBlocksForChainedBlocks(
+        blocks, 100, 2, true, false, strings);
+    CuAssertIntEquals(testCase, 7, stList_length(featureBlocks));
+
+    // Check that all feature segments are indexed by their
+    // corresponding position in the *first* block of the chain,
+    // regardless of their position in their block.
+    // stHash *pinchSegmentsToFeatureSegments = getPinchSegmentsToFeatureSegments(featureBlocks);
+    // stFeatureSegment *featureSegment = stHash_search(pinchSegmentsToFeatureSegments, stPinchThread_getSegment(thread1, 10));
+
+    stList_destruct(featureBlocks);
+    stList_destruct(blocks);
+    stHash_destruct(strings);
+    stPinchThreadSet_destruct(threadSet);
+}
+
+/*
  * Tests that for a random set of feature blocks we get set of correct feature columns.
  */
 
@@ -367,7 +432,7 @@ static void substitutionMatrixTestFn(stPinchBlock *block, stList *featureBlocks,
     stList *featureColumns = stFeatureColumn_getFeatureColumns(featureBlocks);
 
     //Make substitution matrix
-    stMatrix *matrix = stPinchPhylogeny_getMatrixFromSubstitutions(featureColumns, block, NULL, 0);
+    stMatrix *matrix = stPinchPhylogeny_getMatrixFromSubstitutions(featureColumns, stPinchBlock_getDegree(block), NULL, 0);
 
     //Build substitution matrix independently from feature columns
     stMatrix *matrix2 = getSubstitutionMatrixSimply(featureColumns, stPinchBlock_getDegree(block));
@@ -419,7 +484,7 @@ static void breakpointMatrixTestFn(stPinchBlock *block, stList *featureBlocks, C
     stList *featureColumns = stFeatureColumn_getFeatureColumns(featureBlocks);
 
     //Make substitution matrix
-    stMatrix *matrix = stPinchPhylogeny_getMatrixFromBreakpoints(featureColumns, block, NULL, 0);
+    stMatrix *matrix = stPinchPhylogeny_getMatrixFromBreakpoints(featureColumns, stPinchBlock_getDegree(block), NULL, 0);
 
     //Build substitution matrix independently from feature columns
     stMatrix *matrix2 = getBreakpointMatrixSimply(featureColumns, stPinchBlock_getDegree(block));
@@ -950,6 +1015,7 @@ CuSuite* stPinchPhylogenyTestSuite(void) {
     SUITE_ADD_TEST(suite, testSimpleRemovePoorlySupportedPartitions);
     SUITE_ADD_TEST(suite, testSimpleSplitTreeOnOutgroups);
     SUITE_ADD_TEST(suite, testStFeatureBlock_getContextualFeatureBlocks);
+    SUITE_ADD_TEST(suite, testStFeatureBlock_getContextualFeatureBlocksForChainedBlocks);
     SUITE_ADD_TEST(suite, testStFeatureColumn_getFeatureColumns);
     SUITE_ADD_TEST(suite, testStPinchPhylogeny_getMatrixFromSubstitutions);
     SUITE_ADD_TEST(suite, testStPinchPhylogeny_getMatrixFromBreakPoints);

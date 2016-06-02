@@ -590,37 +590,36 @@ void stMatrixDiffs_destruct(stMatrixDiffs *diffs) {
     free(diffs);
 }
 
-stMatrix *stPinchPhylogeny_getMatrixFromSubstitutions(stList *featureColumns, stPinchBlock *block,
+stMatrix *stPinchPhylogeny_getMatrixFromSubstitutions(stList *featureColumns, int64_t degree,
                                                       double distanceWeightFn(int64_t, int64_t), bool sampleColumns) {
     unsigned int mySeed = rand();
-    stMatrixDiffs *diffs = stPinchPhylogeny_getMatrixDiffsFromSubstitutions(featureColumns, block, distanceWeightFn);
+    stMatrixDiffs *diffs = stPinchPhylogeny_getMatrixDiffsFromSubstitutions(featureColumns, degree, distanceWeightFn);
     stMatrix *matrix = stPinchPhylogeny_constructMatrixFromDiffs(diffs, sampleColumns, &mySeed);
     stMatrixDiffs_destruct(diffs);
     return matrix;
 }
 
-stMatrixDiffs *stPinchPhylogeny_getMatrixDiffsFromSubstitutions(stList *featureColumns, stPinchBlock *block,
+stMatrixDiffs *stPinchPhylogeny_getMatrixDiffsFromSubstitutions(stList *featureColumns, int64_t degree,
         double distanceWeightFn(int64_t, int64_t)) {
-    stMatrixDiffs *diffs = stMatrixDiffs_construct(stPinchBlock_getDegree(block),
-                                                   stPinchBlock_getDegree(block));
+    stMatrixDiffs *diffs = stMatrixDiffs_construct(degree, degree);
     addMatrixDiffs(diffs, featureColumns, distanceWeightFn == NULL ? stPinchPhylogeny_constantDistanceWeightFn : distanceWeightFn, stFeatureSegment_basesEqual,
             stFeatureSegment_baseIsWildCard);
     return diffs;
 }
 
-stMatrix *stPinchPhylogeny_getMatrixFromBreakpoints(stList *featureColumns, stPinchBlock *block,
+stMatrix *stPinchPhylogeny_getMatrixFromBreakpoints(stList *featureColumns, int64_t degree,
                                                     double distanceWeightFn(int64_t, int64_t), bool sampleColumns) {
     unsigned int mySeed = rand();
-    stMatrixDiffs *diffs = stPinchPhylogeny_getMatrixDiffsFromBreakpoints(featureColumns, block, distanceWeightFn);
+    stMatrixDiffs *diffs = stPinchPhylogeny_getMatrixDiffsFromBreakpoints(featureColumns, degree, distanceWeightFn);
     stMatrix *matrix = stPinchPhylogeny_constructMatrixFromDiffs(diffs, sampleColumns, &mySeed);
     stMatrixDiffs_destruct(diffs);
     return matrix;
 }
 
-stMatrixDiffs *stPinchPhylogeny_getMatrixDiffsFromBreakpoints(stList *featureColumns, stPinchBlock *block,
+stMatrixDiffs *stPinchPhylogeny_getMatrixDiffsFromBreakpoints(stList *featureColumns, int64_t degree,
         double distanceWeightFn(int64_t, int64_t)) {
-    stMatrixDiffs *diffs = stMatrixDiffs_construct(stPinchBlock_getDegree(block),
-                                                   stPinchBlock_getDegree(block));
+    stMatrixDiffs *diffs = stMatrixDiffs_construct(degree,
+                                                   degree);
     addMatrixDiffs(diffs, featureColumns, distanceWeightFn == NULL ? stPinchPhylogeny_constantDistanceWeightFn : distanceWeightFn, stFeatureSegment_leftAdjacenciesEqual,
             stFeatureSegment_leftAdjacencyIsWildCard);
     addMatrixDiffs(diffs, featureColumns, distanceWeightFn == NULL ? stPinchPhylogeny_constantDistanceWeightFn : distanceWeightFn, stFeatureSegment_rightAdjacenciesEqual,
@@ -790,8 +789,8 @@ stList *stPinchPhylogeny_splitTreeOnOutgroups(stTree *tree, stList *outgroups) {
 stTree *stPinchPhylogeny_buildTreeFromFeatureColumns(stList *featureColumns,
                                                      stPinchBlock *block,
                                                      bool bootstrap) {
-    stMatrix *snpMatrix = stPinchPhylogeny_getMatrixFromSubstitutions(featureColumns, block, NULL, bootstrap);
-    stMatrix *breakpointMatrix = stPinchPhylogeny_getMatrixFromBreakpoints(featureColumns, block, NULL, bootstrap);
+    stMatrix *snpMatrix = stPinchPhylogeny_getMatrixFromSubstitutions(featureColumns, stPinchBlock_getDegree(block), NULL, bootstrap);
+    stMatrix *breakpointMatrix = stPinchPhylogeny_getMatrixFromBreakpoints(featureColumns, stPinchBlock_getDegree(block), NULL, bootstrap);
 
     // Build distance matrix from the two matrices
     stMatrix *mergedMatrix = stMatrix_add(snpMatrix, breakpointMatrix);

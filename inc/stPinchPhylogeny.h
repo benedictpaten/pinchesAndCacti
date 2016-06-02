@@ -52,13 +52,24 @@ typedef struct _stMatrixDiffs {
 } stMatrixDiffs;
 
 /*
- * The returned list is the set of greater than degree 1 blocks that are within baseDistance and blockDistance of the segments in the given block.
+ * The returned list is the set of blocks that are within baseDistance and blockDistance of the segments in the given block.
  * Each block is represented as a FeatureBlock.
  * Strings is a hash of pinchThreads to actual DNA strings.
+ * If ignoreUnalignedBases is true, only blocks with degree greater than 1 are added as features.
  */
 stList *stFeatureBlock_getContextualFeatureBlocks(stPinchBlock *block, int64_t maxBaseDistance,
         int64_t maxBlockDistance,
         bool ignoreUnalignedBases, bool onlyIncludeCompleteFeatureBlocks, stHash *strings);
+
+/*
+ * As above, but given a "chain" of blocks: a list of equal degree,
+ * sequentially adjacent blocks running from 5' to 3' along the block
+ * orientation.
+ */
+stList *stFeatureBlock_getContextualFeatureBlocksForChainedBlocks(
+    stList *blocks, int64_t maxBaseDistance,
+    int64_t maxBlockDistance, bool ignoreUnalignedBases,
+    bool onlyIncludeCompleteFeatureBlocks, stHash *strings);
 
 /*
  * Free the given feature block
@@ -95,30 +106,31 @@ void stMatrixDiffs_destruct(stMatrixDiffs *diffs);
 
 /*
  * Gets a feature matrix representing SNPs.
+ * The degree is the eventual degree of the returned matrix.
  * The distance weight function is the amount of pairwise weight to place on a given feature, where its inputs
  * are, for each thread involved in the pair,  the distance between the midpoint of the thread and the location of the feature.
  * If distanceWeightFn = null then stPinchPhylogeny_constantDistanceWeightFn is used.
  */
-stMatrix *stPinchPhylogeny_getMatrixFromSubstitutions(stList *featureColumns, stPinchBlock *block,
+stMatrix *stPinchPhylogeny_getMatrixFromSubstitutions(stList *featureColumns, int64_t degree,
                                                       double distanceWeightFn(int64_t, int64_t), bool sampleColumns);
 
 /*
  * Same as above, but saves as a diff list for more efficient bootstraps.
  */
-stMatrixDiffs *stPinchPhylogeny_getMatrixDiffsFromSubstitutions(stList *featureColumns, stPinchBlock *block,
+stMatrixDiffs *stPinchPhylogeny_getMatrixDiffsFromSubstitutions(stList *featureColumns, int64_t degree,
         double distanceWeightFn(int64_t, int64_t));
 
 /*
  * Gets a matrix representing breakpoints.
  * If distanceWeightFn = null then stPinchPhylogeny_constantDistanceWeightFn is used.
  */
-stMatrix *stPinchPhylogeny_getMatrixFromBreakpoints(stList *featureColumns, stPinchBlock *block,
+stMatrix *stPinchPhylogeny_getMatrixFromBreakpoints(stList *featureColumns, int64_t degree,
                                                     double distanceWeightFn(int64_t, int64_t), bool sampleColumns);
 
 /*
  * Same as above, but saves as a diff list for more efficient bootstraps.
  */
-stMatrixDiffs *stPinchPhylogeny_getMatrixDiffsFromBreakpoints(stList *featureColumns, stPinchBlock *block,
+stMatrixDiffs *stPinchPhylogeny_getMatrixDiffsFromBreakpoints(stList *featureColumns, int64_t degree,
         double distanceWeightFn(int64_t, int64_t));
 
 // Do a pseudo-bootstrapping of a list of matrix diffs using the binomial
