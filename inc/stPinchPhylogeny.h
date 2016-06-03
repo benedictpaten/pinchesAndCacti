@@ -161,28 +161,9 @@ stTree *stPinchPhylogeny_removePoorlySupportedPartitions(stTree *tree,
 // Outgroups should be a list of length-1 stIntTuples representing matrix indices
 stList *stPinchPhylogeny_splitTreeOnOutgroups(stTree *tree, stList *outgroups);
 
-// Gets a list of disjoint leaf sets (ingroup clades separated by
-// outgroups) from a set of feature columns. The leaves are stIntTuples
-// corresponding to the index of their respective feature column
-//
-// NB: "leaf set" is somewhat a misnomer since this just returns an
-// stList of stLists of stIntTuples
-//
-// TODO: add distance weight function and matrix-merge function as
-// parameters if necessary
-stList *stPinchPhylogeny_getLeafSetsFromFeatureColumns(stList *featureColumns,
-                                                       stPinchBlock *block,
-                                                       int64_t numBootstraps,
-                                                       double confidenceThreshold,
-                                                       stList *outgroups);
-
 
 // Gives the likelihood of the tree given the feature columns.
 double stPinchPhylogeny_likelihood(stTree *tree, stList *featureColumns);
-
-stTree *stPinchPhylogeny_buildTreeFromFeatureColumns(stList *featureColumns,
-                                                     stPinchBlock *block,
-                                                     bool bootstrap);
 
 // For a tree with stReconciliationInfo on the internal nodes, assigns
 // a log-likelihood to the events in the tree. Uses an approximation that

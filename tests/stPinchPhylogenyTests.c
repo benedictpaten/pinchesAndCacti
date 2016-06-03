@@ -5,6 +5,25 @@
 #include "sonLib.h"
 #include "stPinchPhylogeny.h"
 
+static stTree *buildTreeFromFeatureColumns(stList *featureColumns,
+                                           stPinchBlock *block,
+                                           bool bootstrap) {
+    stMatrix *snpMatrix = stPinchPhylogeny_getMatrixFromSubstitutions(featureColumns, stPinchBlock_getDegree(block), NULL, bootstrap);
+    stMatrix *breakpointMatrix = stPinchPhylogeny_getMatrixFromBreakpoints(featureColumns, stPinchBlock_getDegree(block), NULL, bootstrap);
+
+    // Build distance matrix from the two matrices
+    stMatrix *mergedMatrix = stMatrix_add(snpMatrix, breakpointMatrix);
+    stMatrix *matrix = stPinchPhylogeny_getSymmetricDistanceMatrix(mergedMatrix);
+    stTree *tree = stPhylogeny_neighborJoin(matrix, NULL);
+
+    // Clean up
+    stMatrix_destruct(snpMatrix);
+    stMatrix_destruct(breakpointMatrix);
+    stMatrix_destruct(mergedMatrix);
+    stMatrix_destruct(matrix);
+    return tree;
+}
+
 static char getRandomNucleotide() {
     double d = st_random();
     return d >= 0.8 ? 'A' : (d >= 0.6 ? 'T' : (d >= 0.4 ? 'G' : (d >= 0.2 ? 'C' : 'N')));
@@ -849,45 +868,6 @@ static void testRandomSplitTreeOnOutgroups(CuTest *testCase) {
     }
 }
 
-static void getLeafSetsFromPinchTestFn(stPinchBlock *block, stList *featureBlocks, CuTest *testCase) {
-    // Make feature columns
-    stList *featureColumns = stFeatureColumn_getFeatureColumns(featureBlocks);
-    int64_t numBootstraps = st_randomInt64(1, 100);
-    double confidenceThreshold = st_random();
-    int64_t numLeaves = stPinchBlock_getDegree(block);
-
-    // Get a random subset of leaves to call outgroups
-    stList *outgroups = stList_construct3(0, free);
-    for(int64_t i = 0; i < numLeaves; i++) {
-        if(st_random() < 0.1) {
-            stIntTuple *iTuple = stIntTuple_construct1(i);
-            stList_append(outgroups, iTuple);
-        }
-    }
-
-    stList *leafSets = stPinchPhylogeny_getLeafSetsFromFeatureColumns(
-        featureColumns, block, numBootstraps, confidenceThreshold, outgroups);
-    checkSplitLeafSets(testCase, leafSets, numLeaves);
-
-    // Check that every leaf is present in one of the leaf sets
-    int64_t numLeavesInSets = 0;
-    for(int64_t i = 0; i < stList_length(leafSets); i++) {
-        stList *leafSet = stList_get(leafSets, i);
-        numLeavesInSets += stList_length(leafSet);
-    }
-    assert(numLeavesInSets == numLeaves);
-    CuAssertTrue(testCase, numLeavesInSets == numLeaves);
-
-    // Clean up
-    stList_destruct(leafSets);
-    stList_destruct(outgroups);
-    stList_destruct(featureColumns);
-}
-
-static void testStPinchPhylogeny_getLeafSetsFromFeatureColumns(CuTest *testCase) {
-    makeAndTestRandomFeatureBlocks(testCase, getLeafSetsFromPinchTestFn);
-}
-
 // Replaces all DNA in the given columns with the given character
 // (destructively).
 static stList *replaceBlockStringsWithChar(stList *featureBlocks, char repl, stPinchBlock *pinchBlock) {
@@ -939,7 +919,7 @@ static void likelihoodTestFn(stPinchBlock *block, stList *featureBlocks, CuTest 
 
     // Make feature columns
     stList *featureColumns = stFeatureColumn_getFeatureColumns(featureBlocks);
-    stTree *tree = stPinchPhylogeny_buildTreeFromFeatureColumns(featureColumns, block, 0);
+    stTree *tree = buildTreeFromFeatureColumns(featureColumns, block, 0);
 
     double likelihood = stPinchPhylogeny_likelihood(tree, featureColumns);
 
@@ -979,7 +959,7 @@ static void reconciliationLikelihoodTestFn(stPinchBlock *block, stList *featureB
 
     // Make feature columns
     stList *featureColumns = stFeatureColumn_getFeatureColumns(featureBlocks);
-    stTree *tree = stPinchPhylogeny_buildTreeFromFeatureColumns(featureColumns, block, 0);
+    stTree *tree = buildTreeFromFeatureColumns(featureColumns, block, 0);
 
     // Get a random assignment to a random species tree roughly the same size as the block tree.
     stPhylogenyInfo *info = stTree_getClientData(tree);
@@ -1022,6 +1002,5 @@ CuSuite* stPinchPhylogenyTestSuite(void) {
     SUITE_ADD_TEST(suite, testStPinchPhylogeny_getSymmetricDistanceMatrix);
     SUITE_ADD_TEST(suite, testRandomRemovePoorlySupportedPartitions);
     SUITE_ADD_TEST(suite, testRandomSplitTreeOnOutgroups);
-    SUITE_ADD_TEST(suite, testStPinchPhylogeny_getLeafSetsFromFeatureColumns);
     return suite;
 }
