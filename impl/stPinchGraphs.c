@@ -887,7 +887,7 @@ bool stPinchEnd_boundaryIsTrivial(stPinchEnd end) {
 }
 
 stSet *stPinchEnd_getConnectedPinchEnds(stPinchEnd *end) {
-    stSet *l = stSet_construct2((void (*)(void *))stPinchEnd_destruct);
+    stSet *l = stSet_construct3(stPinchEnd_hashFn, stPinchEnd_equalsFn, (void (*)(void *))stPinchEnd_destruct);
     stPinchBlockIt blockIt = stPinchBlock_getSegmentIterator(end->block);
     stPinchSegment *segment;
     while ((segment = stPinchBlockIt_getNext(&blockIt)) != NULL) {
