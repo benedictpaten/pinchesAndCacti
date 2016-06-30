@@ -355,14 +355,14 @@ static void addFeatureBlocksExtendingFromBlock(
     }
 }
 
-stList *stFeatureBlock_getContextualFeatureBlocksForChainedBlocks(
+static stList *stFeatureBlock_getContextualFeatureBlocksForChainedBlocks_private(
     stList *blocks, int64_t maxBaseDistance,
     int64_t maxBlockDistance, bool ignoreUnalignedBases,
-    bool onlyIncludeCompleteFeatureBlocks, stHash *strings) {
+    bool onlyIncludeCompleteFeatureBlocks, stHash *strings,
+    stHash *blocksToFeatureBlocks) {
     /*
      * First build the set of feature blocks, not caring if this produces trivial blocks.
      */
-    stHash *blocksToFeatureBlocks = stHash_construct(); //Hash to map blocks to featureBlocks.
     stHash *segmentsToFeatureSegments = stHash_construct(); //Hash to map segments to featureSegments, to remove overlaps.
     stHash *segmentToReferenceBlockIndex = getSegmentToReferenceBlockIndex(blocks);
     // Get the feature blocks to the left of the first block in the chain.
@@ -398,7 +398,6 @@ stList *stFeatureBlock_getContextualFeatureBlocksForChainedBlocks(
      */
     stList *unfilteredFeatureBlocks = stHash_getValues(blocksToFeatureBlocks);
     stList *featureBlocks = stList_construct3(0, (void (*)(void *)) stFeatureBlock_destruct);
-    stHash_destruct(blocksToFeatureBlocks); //Cleanup now, as no longer needed, and values freed.
     for (int64_t i = 0; i < stList_length(unfilteredFeatureBlocks); i++) {
         stFeatureBlock *featureBlock = stList_get(unfilteredFeatureBlocks, i);
         assert(featureBlock != NULL);
@@ -413,6 +412,32 @@ stList *stFeatureBlock_getContextualFeatureBlocksForChainedBlocks(
     return featureBlocks;
 }
 
+stList *stFeatureBlock_getContextualBlocksForChainedBlocks(
+    stList *blocks, int64_t maxBaseDistance,
+    int64_t maxBlockDistance, bool ignoreUnalignedBases,
+    bool onlyIncludeCompleteFeatureBlocks, stHash *strings) {
+    stHash *blocksToFeatureBlocks = stHash_construct();
+    stList *featureBlocks = stFeatureBlock_getContextualFeatureBlocksForChainedBlocks_private(
+        blocks, maxBaseDistance, maxBlockDistance, ignoreUnalignedBases,
+        onlyIncludeCompleteFeatureBlocks, strings, blocksToFeatureBlocks);
+    stList_destruct(featureBlocks);
+    stList *contextualBlocks = stHash_getKeys(blocksToFeatureBlocks);
+    stHash_destruct(blocksToFeatureBlocks);
+    return contextualBlocks;
+}
+
+stList *stFeatureBlock_getContextualFeatureBlocksForChainedBlocks(
+    stList *blocks, int64_t maxBaseDistance,
+    int64_t maxBlockDistance, bool ignoreUnalignedBases,
+    bool onlyIncludeCompleteFeatureBlocks, stHash *strings) {
+    stHash *blocksToFeatureBlocks = stHash_construct();
+    stList *ret = stFeatureBlock_getContextualFeatureBlocksForChainedBlocks_private(
+        blocks, maxBaseDistance, maxBlockDistance, ignoreUnalignedBases,
+        onlyIncludeCompleteFeatureBlocks, strings, blocksToFeatureBlocks);
+    stHash_destruct(blocksToFeatureBlocks);
+    return ret;
+}
+
 stList *stFeatureBlock_getContextualFeatureBlocks(stPinchBlock *block, int64_t maxBaseDistance,
         int64_t maxBlockDistance,
         bool ignoreUnalignedBases, bool onlyIncludeCompleteFeatureBlocks, stHash *strings) {
@@ -421,6 +446,16 @@ stList *stFeatureBlock_getContextualFeatureBlocks(stPinchBlock *block, int64_t m
     stList *featureBlocks = stFeatureBlock_getContextualFeatureBlocksForChainedBlocks(blocks, maxBaseDistance, maxBlockDistance, ignoreUnalignedBases, onlyIncludeCompleteFeatureBlocks, strings);
     stList_destruct(blocks);
     return featureBlocks;
+}
+
+stList *stFeatureBlock_getContextualBlocks(stPinchBlock *block, int64_t maxBaseDistance,
+        int64_t maxBlockDistance,
+        bool ignoreUnalignedBases, bool onlyIncludeCompleteFeatureBlocks, stHash *strings) {
+    stList *blocks = stList_construct();
+    stList_append(blocks, block);
+    stList *contextualBlocks = stFeatureBlock_getContextualBlocksForChainedBlocks(blocks, maxBaseDistance, maxBlockDistance, ignoreUnalignedBases, onlyIncludeCompleteFeatureBlocks, strings);
+    stList_destruct(blocks);
+    return contextualBlocks;
 }
 
 stFeatureColumn *stFeatureColumn_construct(stFeatureBlock *featureBlock, int64_t columnIndex) {

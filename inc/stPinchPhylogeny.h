@@ -72,6 +72,26 @@ stList *stFeatureBlock_getContextualFeatureBlocksForChainedBlocks(
     bool onlyIncludeCompleteFeatureBlocks, stHash *strings);
 
 /*
+ * Like stFeatureBlock_getContextualFeatureBlocks, but rather than
+ * feature blocks, returns a list of the blocks that would have been
+ * used to create the feature blocks.
+ */
+stList *stFeatureBlock_getContextualBlocks(
+    stPinchBlock *block, int64_t maxBaseDistance,
+    int64_t maxBlockDistance, bool ignoreUnalignedBases,
+    bool onlyIncludeCompleteFeatureBlocks, stHash *strings);
+
+/*
+ * Like stFeatureBlock_getContextualFeatureBlocksForChainedBlocks, but
+ * rather than feature blocks, returns a list of the blocks that would
+ * have been used to create the feature blocks.
+ */
+stList *stFeatureBlock_getContextualBlocksForChainedBlocks(
+    stList *blocks, int64_t maxBaseDistance,
+    int64_t maxBlockDistance, bool ignoreUnalignedBases,
+    bool onlyIncludeCompleteFeatureBlocks, stHash *strings);
+
+/*
  * Free the given feature block
  */
 void stFeatureBlock_destruct(stFeatureBlock *featureBlock);
