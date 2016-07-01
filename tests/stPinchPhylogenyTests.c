@@ -326,48 +326,71 @@ static void testStFeatureBlock_getContextualFeatureBlocks(CuTest *testCase) {
  */
 static void testStFeatureBlock_getContextualFeatureBlocksForChainedBlocks(CuTest *testCase) {
     // Set up a pinch graph that looks like this (='s representing blocks):
-    // 1: -=====-
-    // 2: =======
-    // 3: =-===-=
+    // 1: --==-=-=-=-=-=--
+    // 2: =-==---=-=-=-=-=
+    // 3: =--=-=-=---=---=
     stPinchThreadSet *threadSet = stPinchThreadSet_construct();
-    stPinchThread *thread1 = stPinchThreadSet_addThread(threadSet, 1, 0, 100);
-    stPinchThread *thread2 = stPinchThreadSet_addThread(threadSet, 2, 0, 100);
-    stPinchThread *thread3 = stPinchThreadSet_addThread(threadSet, 3, 0, 100);
+    stPinchThread *thread1 = stPinchThreadSet_addThread(threadSet, 1, 0, 200);
+    stPinchThread *thread2 = stPinchThreadSet_addThread(threadSet, 2, 0, 200);
+    stPinchThread *thread3 = stPinchThreadSet_addThread(threadSet, 3, 0, 200);
     stPinchThread_pinch(thread2, thread3, 0, 0, 10, true);
 
-    stPinchThread_pinch(thread1, thread2, 10, 10, 10, true);
-
     stPinchThread_pinch(thread1, thread2, 20, 20, 10, true);
-    stPinchThread_pinch(thread1, thread3, 20, 20, 10, true);
 
-    stPinchThread_pinch(thread2, thread1, 40, 40, 10, true);
-    stPinchThread_pinch(thread2, thread3, 40, 40, 10, true);
+    stPinchThread_pinch(thread1, thread2, 30, 30, 10, true);
+    stPinchThread_pinch(thread1, thread3, 30, 30, 10, true);
 
-    stPinchThread_pinch(thread3, thread2, 60, 60, 10, true);
-    stPinchThread_pinch(thread3, thread1, 60, 60, 10, true);
+    stPinchThread_pinch(thread1, thread3, 50, 50, 10, true);
 
-    stPinchThread_pinch(thread1, thread2, 70, 70, 10, true);
+    stPinchThread_pinch(thread2, thread1, 70, 70, 10, true);
+    stPinchThread_pinch(thread2, thread3, 70, 70, 10, true);
 
-    stPinchThread_pinch(thread1, thread3, 80, 80, 10, true);
+    stPinchThread_pinch(thread1, thread2, 90, 90, 10, true);
+
+    stPinchThread_pinch(thread3, thread2, 110, 110, 10, true);
+    stPinchThread_pinch(thread3, thread1, 110, 110, 10, true);
+
+    stPinchThread_pinch(thread1, thread2, 130, 130, 10, true);
+
+    stPinchThread_pinch(thread1, thread3, 150, 150, 10, true);
 
     stHash *strings = getRandomStringsForGraph(threadSet);
 
     stList *blocks = stList_construct();
-    stList_append(blocks, stPinchSegment_getBlock(stPinchThread_getSegment(thread1, 20)));
-    stList_append(blocks, stPinchSegment_getBlock(stPinchThread_getSegment(thread1, 40)));
-    stList_append(blocks, stPinchSegment_getBlock(stPinchThread_getSegment(thread1, 60)));
+    stList_append(blocks, stPinchSegment_getBlock(stPinchThread_getSegment(thread1, 30)));
+    stList_append(blocks, stPinchSegment_getBlock(stPinchThread_getSegment(thread1, 70)));
+    stList_append(blocks, stPinchSegment_getBlock(stPinchThread_getSegment(thread1, 110)));
+
+    // First check the function gets every block when base distance
+    // and block distance is set high enough.
 
     stList *featureBlocks = stFeatureBlock_getContextualFeatureBlocksForChainedBlocks(
         blocks, 100, 2, true, false, strings);
-    CuAssertIntEquals(testCase, 7, stList_length(featureBlocks));
+    CuAssertIntEquals(testCase, 9, stList_length(featureBlocks));
 
-    // Check that all feature segments are indexed by their
-    // corresponding position in the *first* block of the chain,
-    // regardless of their position in their block.
-    // stHash *pinchSegmentsToFeatureSegments = getPinchSegmentsToFeatureSegments(featureBlocks);
-    // stFeatureSegment *featureSegment = stHash_search(pinchSegmentsToFeatureSegments, stPinchThread_getSegment(thread1, 10));
+    printf("----\n");
+
+    stList *contextualBlocks = stFeatureBlock_getContextualBlocksForChainedBlocks(
+        blocks, 100, 2, true, false, strings);
+    CuAssertIntEquals(testCase, 9, stList_length(contextualBlocks));
+
+    // Now check it only gets the chain and 1 very close block if the base
+    // distance is small enough.
+
+    printf("====\n");
+
+    featureBlocks = stFeatureBlock_getContextualFeatureBlocksForChainedBlocks(
+        blocks, 9, 2, false, false, strings);
+    CuAssertIntEquals(testCase, 4, stList_length(featureBlocks));
+
+    contextualBlocks = stFeatureBlock_getContextualBlocksForChainedBlocks(
+        blocks, 9, 2, false, false, strings);
+    CuAssertIntEquals(testCase, 4, stList_length(contextualBlocks));
 
     stList_destruct(featureBlocks);
+    stList_destruct(contextualBlocks);
+
+
     stList_destruct(blocks);
     stHash_destruct(strings);
     stPinchThreadSet_destruct(threadSet);
@@ -995,12 +1018,12 @@ CuSuite* stPinchPhylogenyTestSuite(void) {
     SUITE_ADD_TEST(suite, testSimpleRemovePoorlySupportedPartitions);
     SUITE_ADD_TEST(suite, testSimpleSplitTreeOnOutgroups);
     SUITE_ADD_TEST(suite, testStFeatureBlock_getContextualFeatureBlocks);
-    SUITE_ADD_TEST(suite, testStFeatureBlock_getContextualFeatureBlocksForChainedBlocks);
     SUITE_ADD_TEST(suite, testStFeatureColumn_getFeatureColumns);
     SUITE_ADD_TEST(suite, testStPinchPhylogeny_getMatrixFromSubstitutions);
     SUITE_ADD_TEST(suite, testStPinchPhylogeny_getMatrixFromBreakPoints);
     SUITE_ADD_TEST(suite, testStPinchPhylogeny_getSymmetricDistanceMatrix);
     SUITE_ADD_TEST(suite, testRandomRemovePoorlySupportedPartitions);
     SUITE_ADD_TEST(suite, testRandomSplitTreeOnOutgroups);
+    SUITE_ADD_TEST(suite, testStFeatureBlock_getContextualFeatureBlocksForChainedBlocks);
     return suite;
 }

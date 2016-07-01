@@ -144,11 +144,12 @@ void stFeatureBlock_destruct(stFeatureBlock *featureBlock) {
  */
 static stPinchSegment *get5PrimeMostSegment(stPinchSegment *segment, int64_t *baseDistance, int64_t *blockDistance,
         int64_t maxBaseDistance, int64_t maxBlockDistance,
-        bool ignoreUnalignedBases) {
+        bool ignoreUnalignedBases, stPinchBlock *endBlock) {
     *baseDistance = -stPinchSegment_getLength(segment) / 2;
     *blockDistance = 0;
     while (stPinchSegment_get5Prime(segment) != NULL && -*baseDistance < maxBaseDistance
-            && -*blockDistance < maxBlockDistance) {
+           && -*blockDistance < maxBlockDistance
+           && (endBlock == NULL || stPinchSegment_getBlock(segment) != endBlock)) {
         segment = stPinchSegment_get5Prime(segment);
         if (stPinchSegment_getBlock(segment) != NULL || !ignoreUnalignedBases) {
             *baseDistance -= stPinchSegment_getLength(segment);
@@ -165,11 +166,13 @@ static stPinchSegment *get5PrimeMostSegment(stPinchSegment *segment, int64_t *ba
  */
 static stPinchSegment *get3PrimeMostSegment(stPinchSegment *segment, int64_t *baseDistance, int64_t *blockDistance,
         int64_t maxBaseDistance, int64_t maxBlockDistance,
-        bool ignoreUnalignedBases) {
+        bool ignoreUnalignedBases,
+        stPinchBlock *endBlock) {
     *baseDistance = stPinchSegment_getLength(segment) / 2;
     *blockDistance = 0;
     while (stPinchSegment_get3Prime(segment) != NULL && *baseDistance < maxBaseDistance
-            && *blockDistance < maxBlockDistance) {
+           && *blockDistance < maxBlockDistance
+           && (endBlock == NULL || stPinchSegment_getBlock(segment) != endBlock)) {
         segment = stPinchSegment_get3Prime(segment);
         if (stPinchSegment_getBlock(segment) != NULL || !ignoreUnalignedBases) {
             *baseDistance += stPinchSegment_getLength(segment);
@@ -284,6 +287,7 @@ static void addFeatureBlocksExtendingFromBlock(
     int64_t maxBlockDistance,
     bool ignoreUnalignedBases,
     stHash *strings,
+    stPinchBlock *endBlock,
     bool orientation) {
     stPinchBlockIt it = stPinchBlock_getSegmentIterator(block);
     stPinchSegment *segment;
@@ -300,16 +304,16 @@ static void addFeatureBlocksExtendingFromBlock(
             curSegment = get5PrimeMostSegment(segment, &baseDistance,
                                               &blockDistance, maxBaseDistance,
                                               maxBlockDistance,
-                                              ignoreUnalignedBases);
+                                              ignoreUnalignedBases, endBlock);
         } else {
             curSegment = get3PrimeMostSegment(segment, &baseDistance,
                                               &blockDistance, maxBaseDistance,
                                               maxBlockDistance,
-                                              ignoreUnalignedBases);
+                                              ignoreUnalignedBases, endBlock);
         }
         while (curSegment != segment) {
-            stPinchBlock *curBlock;
-            if ((curBlock = stPinchSegment_getBlock(curSegment)) != NULL) {
+            stPinchBlock *curBlock = stPinchSegment_getBlock(curSegment);
+            if (curBlock != NULL) {
                 stIntTuple *segmentIndex = stHash_search(segmentToReferenceBlockIndex, segment);
                 assert(segmentIndex != NULL);
                 stFeatureSegment *fSegment = stHash_search(segmentsToFeatureSegments, curSegment);
@@ -365,32 +369,41 @@ static stList *stFeatureBlock_getContextualFeatureBlocksForChainedBlocks_private
      */
     stHash *segmentsToFeatureSegments = stHash_construct(); //Hash to map segments to featureSegments, to remove overlaps.
     stHash *segmentToReferenceBlockIndex = getSegmentToReferenceBlockIndex(blocks);
-    // Get the feature blocks to the left of the first block in the chain.
-    addFeatureBlocksExtendingFromBlock(stList_get(blocks, 0),
-                                       segmentToReferenceBlockIndex,
-                                       blocksToFeatureBlocks,
-                                       segmentsToFeatureSegments,
-                                       maxBaseDistance,
-                                       maxBlockDistance,
-                                       ignoreUnalignedBases,
-                                       strings,
-                                       false);
     // Get the feature blocks within the chain.
     addFeatureBlocksFromBlocks(blocks,
                                segmentToReferenceBlockIndex,
                                blocksToFeatureBlocks,
                                segmentsToFeatureSegments,
                                strings);
-    // Get the feature blocks to the right of the last block in the chain.
-    addFeatureBlocksExtendingFromBlock(stList_get(blocks, stList_length(blocks) - 1),
-                                       segmentToReferenceBlockIndex,
-                                       blocksToFeatureBlocks,
-                                       segmentsToFeatureSegments,
-                                       maxBaseDistance,
-                                       maxBlockDistance,
-                                       ignoreUnalignedBases,
-                                       strings,
-                                       true);
+
+    // Within the chain, get the feature blocks extending from the end and beginning of each block.
+    for (int64_t i = 0; i < stList_length(blocks); i++) {
+        stPinchBlock *block = stList_get(blocks, i);
+        stPinchBlock *prevBlock = i == 0 ? NULL : stList_get(blocks, i - 1);
+        stPinchBlock *nextBlock = i == stList_length(blocks) - 1 ? NULL : stList_get(blocks, i + 1);
+        // Get the feature blocks to the left of the first block in the chain.
+        addFeatureBlocksExtendingFromBlock(block,
+                                           segmentToReferenceBlockIndex,
+                                           blocksToFeatureBlocks,
+                                           segmentsToFeatureSegments,
+                                           maxBaseDistance,
+                                           maxBlockDistance,
+                                           ignoreUnalignedBases,
+                                           strings,
+                                           prevBlock,
+                                           false);
+        // Get the feature blocks to the right of the last block in the chain.
+        addFeatureBlocksExtendingFromBlock(block,
+                                           segmentToReferenceBlockIndex,
+                                           blocksToFeatureBlocks,
+                                           segmentsToFeatureSegments,
+                                           maxBaseDistance,
+                                           maxBlockDistance,
+                                           ignoreUnalignedBases,
+                                           strings,
+                                           nextBlock,
+                                           true);
+    }
     stHash_destruct(segmentsToFeatureSegments);
     stHash_destruct(segmentToReferenceBlockIndex);
     /*
