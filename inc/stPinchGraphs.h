@@ -319,6 +319,11 @@ stPinchBlock *stPinchSegment_getBlock(stPinchSegment *segment);
 bool stPinchSegment_getBlockOrientation(stPinchSegment *segment);
 
 /*
+ * Set the orientation of this segment relative to its block.
+ */
+void stPinchSegment_setBlockOrientation(stPinchSegment *segment, bool orientation);
+
+/*
  * As with stPinchThread_split, but for a given segment.
  */
 void stPinchSegment_split(stPinchSegment *segment, int64_t leftSideOfSplitPoint);

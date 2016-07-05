@@ -202,6 +202,10 @@ bool stPinchSegment_getBlockOrientation(stPinchSegment *segment) {
     return segment->blockOrientation;
 }
 
+void stPinchSegment_setBlockOrientation(stPinchSegment *segment, bool orientation) {
+    segment->blockOrientation = orientation;
+}
+
 stPinchSegment *stPinchSegment_get5Prime(stPinchSegment *segment) {
     return segment->pSegment;
 }
