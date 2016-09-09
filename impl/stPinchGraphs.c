@@ -745,15 +745,15 @@ stList *stPinchThreadSet_getAdjacencyComponents(stPinchThreadSet *threadSet) {
 }
 
 stSortedSet *stPinchThreadSet_getThreadComponents(stPinchThreadSet *threadSet) {
-    stHash *threadToComponentHash = stHash_construct();
+    stUnionFind *components = stUnionFind_construct();
     stPinchThreadSetIt threadIt = stPinchThreadSet_getIt(threadSet);
     stPinchThread *thread;
+
     //Make a component for each thread.
     while ((thread = stPinchThreadSetIt_getNext(&threadIt)) != NULL) {
-        stList *threadComponent = stList_construct();
-        stList_append(threadComponent, thread);
-        stHash_insert(threadToComponentHash, thread, threadComponent);
+        stUnionFind_add(components, thread);
     }
+
     //Now join components progressively according to blocks
     stPinchThreadSetBlockIt blockIt = stPinchThreadSet_getBlockIt(threadSet);
     stPinchBlock *block;
@@ -761,28 +761,24 @@ stSortedSet *stPinchThreadSet_getThreadComponents(stPinchThreadSet *threadSet) {
         stPinchBlockIt segmentIt = stPinchBlock_getSegmentIterator(block);
         stPinchSegment *segment = stPinchBlockIt_getNext(&segmentIt);
         assert(segment != NULL);
-        stList *threadComponent1 = stHash_search(threadToComponentHash, stPinchSegment_getThread(segment));
-        assert(threadComponent1 != NULL);
+        stPinchThread *firstThread = stPinchSegment_getThread(segment);
         while ((segment = stPinchBlockIt_getNext(&segmentIt)) != NULL) {
-            stList *threadComponent2 = stHash_search(threadToComponentHash, stPinchSegment_getThread(segment));
-            assert(threadComponent2 != NULL);
-            if (threadComponent1 != threadComponent2) {
-                stList_appendAll(threadComponent1, threadComponent2);
-                for (int64_t i = 0; i < stList_length(threadComponent2); i++) {
-                    stPinchThread *thread = stList_get(threadComponent2, i);
-                    stHash_insert(threadToComponentHash, thread, threadComponent1);
-                }
-                stList_destruct(threadComponent2);
-            }
+            stUnionFind_union(components, firstThread, stPinchSegment_getThread(segment));
         }
     }
+
     //Get a list of the components
-    stList *values = stHash_getValues(threadToComponentHash);
-    stSortedSet *threadComponentsSet = stList_getSortedSet(values, NULL);
-    stSortedSet_setDestructor(threadComponentsSet, (void(*)(void *)) stList_destruct);
+    stSortedSet *threadComponentsSet = stSortedSet_construct2((void(*)(void *)) stList_destruct);
+    stUnionFindIt *componentsIt = stUnionFind_getIterator(components);
+    stSet *component;
+    while ((component = stUnionFindIt_getNext(componentsIt)) != NULL) {
+        stList *componentList = stSet_getList(component);
+        stSortedSet_insert(threadComponentsSet, componentList);
+    }
+
     //Cleanup
-    stList_destruct(values);
-    stHash_destruct(threadToComponentHash);
+    stUnionFind_destructIterator(componentsIt);
+    stUnionFind_destruct(components);
     return threadComponentsSet;
 }
 
@@ -863,7 +859,7 @@ bool stPinchEnd_boundaryIsTrivial(stPinchEnd end) {
 }
 
 stSet *stPinchEnd_getConnectedPinchEnds(stPinchEnd *end) {
-    stSet *l = stSet_construct2((void (*)(void *))stPinchEnd_destruct);
+    stSet *l = stSet_construct3(stPinchEnd_hashFn, stPinchEnd_equalsFn, (void (*)(void *))stPinchEnd_destruct);
     stPinchBlockIt blockIt = stPinchBlock_getSegmentIterator(end->block);
     stPinchSegment *segment;
     while ((segment = stPinchBlockIt_getNext(&blockIt)) != NULL) {

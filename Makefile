@@ -11,7 +11,7 @@ all : externalToolsM ${libPath}/stPinchesAndCacti.a ${binPath}/stPinchesAndCacti
 externalToolsM : 
 	cd externalTools && make all
 
-${libPath}/stPinchesAndCacti.a : ${libSources} ${libHeaders} ${basicLibsDependencies}
+${libPath}/stPinchesAndCacti.a : ${libSources} ${libHeaders} ${basicLibsDependencies} externalToolsM
 	${cxx} ${cflags} -I inc -I ${libPath}/ -c ${libSources}
 	ar rc stPinchesAndCacti.a *.o
 	ranlib stPinchesAndCacti.a 
@@ -19,7 +19,7 @@ ${libPath}/stPinchesAndCacti.a : ${libSources} ${libHeaders} ${basicLibsDependen
 	mv stPinchesAndCacti.a ${libPath}/
 	cp ${libHeaders} ${libPath}/
 
-${binPath}/stPinchesAndCactiTests : ${libTests} ${libSources} ${libHeaders} ${basicLibsDependencies} ${libPath}/3EdgeConnected.a
+${binPath}/stPinchesAndCactiTests : ${libTests} ${libSources} ${libHeaders} ${basicLibsDependencies} externalToolsM
 	${cxx} ${cflags} -I inc -I impl -I${libPath} -o ${binPath}/stPinchesAndCactiTests ${libTests} ${libSources} ${basicLibs}  ${libPath}/3EdgeConnected.a
 
 clean : 
