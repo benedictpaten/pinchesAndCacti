@@ -511,65 +511,118 @@ stSet *getRandomSetOfEdgeEnds(stCactusGraph *g, double probabilityOfInclusion) {
     return edgeEnds;
 }
 
+struct RandomCactusGraph {
+    int64_t nodeNumber;
+    int64_t edgeNumber;
+    stCactusGraph *cactusGraph;
+    stCactusNode *startNode;
+    stList *nodeObjects;
+    stSortedSet *edgeEnds;
+};
+
+static struct RandomCactusGraph *getRandomCactusGraph(bool multipleComponents) {
+    struct RandomCactusGraph *rGraph = st_malloc(sizeof(struct RandomCactusGraph));
+
+    // Randomly select the size and cardinality of the graph
+    rGraph->nodeNumber = st_randomInt(0, 100); //1000);
+    rGraph->edgeNumber = rGraph->nodeNumber > 0 ? st_randomInt(0, 200) : 0; //1000) : 0;
+    st_logInfo("We have %" PRIi64 " edges and %" PRIi64 " nodes in random test\n",
+            rGraph->edgeNumber, rGraph->nodeNumber);
+
+    // The graph
+    rGraph->cactusGraph = stCactusGraph_construct();
+
+    // External containers for tracking nodes and edges
+    rGraph->nodeObjects = stList_construct3(0, free);
+    rGraph->edgeEnds = stSortedSet_construct();
+
+    // Create the nodes
+    for (int64_t i = 0; i < rGraph->nodeNumber; i++) {
+        int64_t *j = st_malloc(sizeof(int64_t));
+        j[0] = i;
+        stCactusNode_construct(rGraph->cactusGraph, j);
+        stList_append(rGraph->nodeObjects, j);
+    }
+
+    // Start node
+    rGraph->startNode = rGraph->nodeNumber > 0 ? stCactusGraph_getNode(rGraph->cactusGraph,
+            st_randomChoice(rGraph->nodeObjects)) : NULL;
+
+    // Create the edges
+    if (rGraph->nodeNumber > 0) {
+
+        //If not multipleComponents, edge construction ensures there is just one component containing edges.
+        stList *includedNodeObjects = stList_construct();
+        assert(rGraph->startNode != NULL);
+        stList_append(includedNodeObjects, stCactusNode_getObject(rGraph->startNode));
+
+        for (int64_t i = 0; i < rGraph->edgeNumber; i++) {
+            void *nodeObject1 = st_randomChoice(multipleComponents ? rGraph->nodeObjects : includedNodeObjects);
+            void *nodeObject2 = st_randomChoice(rGraph->nodeObjects);
+            if (!stList_contains(includedNodeObjects, nodeObject2)) {
+                stList_append(includedNodeObjects, nodeObject2);
+            }
+            stCactusNode *node1 = stCactusGraph_getNode(rGraph->cactusGraph, nodeObject1);
+            assert(node1 != NULL);
+            stCactusNode *node2 = stCactusGraph_getNode(rGraph->cactusGraph, nodeObject2);
+            assert(node2 != NULL);
+            stCactusEdgeEnd *edgeEnd = stCactusEdgeEnd_construct(rGraph->cactusGraph, node1, node2, nodeObject1, nodeObject2);
+            stSortedSet_insert(rGraph->edgeEnds, edgeEnd);
+            stSortedSet_insert(rGraph->edgeEnds, stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd));
+        }
+
+        stList_destruct(includedNodeObjects);
+    }
+
+    // Collapse to cactus
+    stCactusGraph_collapseToCactus(rGraph->cactusGraph, mergeNodeObjects, rGraph->startNode);
+
+    return rGraph;
+}
+
+static void destroyRandomCactusGraph(struct RandomCactusGraph *rGraph) {
+    stCactusGraph_destruct(rGraph->cactusGraph);
+    stSortedSet_destruct(rGraph->edgeEnds);
+    stList_destruct(rGraph->nodeObjects);
+    free(rGraph);
+}
+
 static void testStCactusGraph_randomTest(CuTest *testCase) {
-    //return;
-    //Creates a problem instances, then checks graph is okay by checking every edge
-    //is properly connected, with right number of nodes and that everyone is in a chain
-    for (int64_t test = 0; test < 10000; test++) {
-        int64_t nodeNumber = st_randomInt(0, 100); //1000);
-        int64_t edgeNumber = nodeNumber > 0 ? st_randomInt(0, 200) : 0; //1000) : 0;
+    // Creates problem instances, then checks graph is okay by checking every edge
+    // is properly connected, with right number of nodes and that everyone is in a chain
+    for (int64_t test = 0; test < 1000; test++) {
+
+        // Make a random graph
+        struct RandomCactusGraph *rGraph = getRandomCactusGraph(0);
+
+        // Parameters for testing
         int64_t longChain = st_randomInt(2, 10);
         int64_t chainLengthForBigFlower = st_randomInt(0, 20);
-        st_logInfo("We have %" PRIi64 " edges and %" PRIi64 " nodes in random test %" PRIi64 "\n", edgeNumber, nodeNumber, test);
-        stCactusGraph *g2 = stCactusGraph_construct();
-        stList *nodeObjects = stList_construct3(0, free);
-        for (int64_t i = 0; i < nodeNumber; i++) {
-            int64_t *j = st_malloc(sizeof(int64_t));
-            j[0] = i;
-            stCactusNode_construct(g2, j);
-            stList_append(nodeObjects, j);
-        }
-        stSortedSet *edgeEnds = stSortedSet_construct();
+
         stSet *edgeEndsNotInChainSet = NULL;
-        stCactusNode *startNode = NULL;
-        if (nodeNumber > 0) {
-            stList *includedNodeObjects = stList_construct(); //Edge construction ensures there is just one component containing edges.
-            stList_append(includedNodeObjects, st_randomChoice(nodeObjects));
-            for (int64_t i = 0; i < edgeNumber; i++) {
-                void *nodeObject1 = st_randomChoice(includedNodeObjects);
-                void *nodeObject2 = st_randomChoice(nodeObjects);
-                if (!stList_contains(includedNodeObjects, nodeObject2)) {
-                    stList_append(includedNodeObjects, nodeObject2);
-                }
-                stCactusNode *node1 = stCactusGraph_getNode(g2, nodeObject1);
-                stCactusNode *node2 = stCactusGraph_getNode(g2, nodeObject2);
-                stCactusEdgeEnd *edgeEnd = stCactusEdgeEnd_construct(g2, node1, node2, nodeObject1, nodeObject2);
-                stSortedSet_insert(edgeEnds, edgeEnd);
-                stSortedSet_insert(edgeEnds, stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd));
-            }
-            startNode = stCactusGraph_getNode(g2, st_randomChoice(includedNodeObjects));
-            stList_destruct(includedNodeObjects);
-            CuAssertTrue(testCase, startNode != NULL);
-            stCactusGraph_collapseToCactus(g2, mergeNodeObjects, startNode);
-            stCactusGraph_collapseBridges(g2, startNode, mergeNodeObjects);
-            edgeEndsNotInChainSet = getRandomSetOfEdgeEnds(g2, st_random());
-            startNode = stCactusGraph_breakChainsByEndsNotInChains(g2, startNode, mergeNodeObjects, endIsNotInChain, edgeEndsNotInChainSet);
-            stCactusGraph_collapseLongChainsOfBigFlowers(g2, startNode, chainLengthForBigFlower, longChain, mergeNodeObjects, 1);
+
+        // Perform manipulations
+        if(rGraph->nodeNumber > 0) {
+            stCactusGraph_collapseBridges(rGraph->cactusGraph, rGraph->startNode, mergeNodeObjects);
+            edgeEndsNotInChainSet = getRandomSetOfEdgeEnds(rGraph->cactusGraph, st_random());
+            rGraph->startNode = stCactusGraph_breakChainsByEndsNotInChains(rGraph->cactusGraph, rGraph->startNode, mergeNodeObjects, endIsNotInChain, edgeEndsNotInChainSet);
+            stCactusGraph_collapseLongChainsOfBigFlowers(rGraph->cactusGraph, rGraph->startNode, chainLengthForBigFlower, longChain, mergeNodeObjects, 1);
         }
+
         //Now iterate through nodes and check chains
-        stCactusGraphNodeIt *nodeIt = stCactusGraphNodeIterator_construct(g2);
+        stCactusGraphNodeIt *nodeIt = stCactusGraphNodeIterator_construct(rGraph->cactusGraph);
         stCactusNode *node;
         stSortedSet *nodesInFinalGraph = stSortedSet_construct();
         while ((node = stCactusGraphNodeIterator_getNext(nodeIt)) != NULL) {
             //Check node has valid object
-            CuAssertTrue(testCase, stList_contains(nodeObjects, stCactusNode_getObject(node)));
+            CuAssertTrue(testCase, stList_contains(rGraph->nodeObjects, stCactusNode_getObject(node)));
             CuAssertTrue(testCase, stSortedSet_search(nodesInFinalGraph, node) == NULL);
             stSortedSet_insert(nodesInFinalGraph, node);
         }
         stCactusGraphNodeIterator_destruct(nodeIt);
 
         //Check basic connectivity.
-        nodeIt = stCactusGraphNodeIterator_construct(g2);
+        nodeIt = stCactusGraphNodeIterator_construct(rGraph->cactusGraph);
         int64_t edgeEndNumber = 0;
         while ((node = stCactusGraphNodeIterator_getNext(nodeIt)) != NULL) {
             CuAssertPtrEquals(testCase, node, stSortedSet_search(nodesInFinalGraph, node));
@@ -578,11 +631,11 @@ static void testStCactusGraph_randomTest(CuTest *testCase) {
             while ((edgeEnd = stCactusNodeEdgeEndIt_getNext(&edgeEndIt)) != NULL) {
                 edgeEndNumber++;
                 //Check node connectivity
-                CuAssertPtrEquals(testCase, edgeEnd, stSortedSet_search(edgeEnds, edgeEnd));
+                CuAssertPtrEquals(testCase, edgeEnd, stSortedSet_search(rGraph->edgeEnds, edgeEnd));
                 CuAssertPtrEquals(testCase, node, stCactusEdgeEnd_getNode(edgeEnd));
                 //Check other edge end connectivity
                 stCactusEdgeEnd *otherEdgeEnd = stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd);
-                CuAssertPtrEquals(testCase, otherEdgeEnd, stSortedSet_search(edgeEnds, otherEdgeEnd));
+                CuAssertPtrEquals(testCase, otherEdgeEnd, stSortedSet_search(rGraph->edgeEnds, otherEdgeEnd));
                 CuAssertPtrEquals(testCase, edgeEnd, stCactusEdgeEnd_getOtherEdgeEnd(otherEdgeEnd));
                 CuAssertTrue(testCase,
                         stSortedSet_search(nodesInFinalGraph, stCactusEdgeEnd_getNode(otherEdgeEnd)) != NULL);
@@ -592,7 +645,7 @@ static void testStCactusGraph_randomTest(CuTest *testCase) {
                         stCactusEdgeEnd_getNode(otherEdgeEnd));
                 //Check chain connectivity
                 stCactusEdgeEnd *linkedEdgeEnd = stCactusEdgeEnd_getLink(edgeEnd);
-                CuAssertPtrEquals(testCase, linkedEdgeEnd, stSortedSet_search(edgeEnds, linkedEdgeEnd));
+                CuAssertPtrEquals(testCase, linkedEdgeEnd, stSortedSet_search(rGraph->edgeEnds, linkedEdgeEnd));
                 CuAssertPtrEquals(testCase, node, stCactusEdgeEnd_getNode(linkedEdgeEnd));
                 CuAssertPtrEquals(testCase, edgeEnd, stCactusEdgeEnd_getLink(linkedEdgeEnd));
                 CuAssertTrue(testCase, stCactusEdgeEnd_isChainEnd(edgeEnd) == stCactusEdgeEnd_isChainEnd(linkedEdgeEnd));
@@ -606,9 +659,9 @@ static void testStCactusGraph_randomTest(CuTest *testCase) {
             }
         }
         stCactusGraphNodeIterator_destruct(nodeIt);
-        CuAssertIntEquals(testCase, edgeNumber * 2, edgeEndNumber);
+        CuAssertIntEquals(testCase, rGraph->edgeNumber * 2, edgeEndNumber);
         //Check each chain is a simple cycle.
-        nodeIt = stCactusGraphNodeIterator_construct(g2);
+        nodeIt = stCactusGraphNodeIterator_construct(rGraph->cactusGraph);
         while ((node = stCactusGraphNodeIterator_getNext(nodeIt)) != NULL) {
             stCactusNodeEdgeEndIt edgeEndIt = stCactusNode_getEdgeEndIt(node);
             stCactusEdgeEnd *edgeEnd;
@@ -638,7 +691,7 @@ static void testStCactusGraph_randomTest(CuTest *testCase) {
                 stSortedSet_destruct(nodesOnCycle);
             }
             CuAssertTrue(testCase, linkEnds == 0 || linkEnds == 2);
-            if(node == startNode) {
+            if(node == rGraph->startNode) {
                 CuAssertIntEquals(testCase, 0, linkEnds);
             }
             else if(totalEnds > 0) {
@@ -648,7 +701,7 @@ static void testStCactusGraph_randomTest(CuTest *testCase) {
         stCactusGraphNodeIterator_destruct(nodeIt);
 
         //Check no long chains of big flowers
-        nodeIt = stCactusGraphNodeIterator_construct(g2);
+        nodeIt = stCactusGraphNodeIterator_construct(rGraph->cactusGraph);
         while ((node = stCactusGraphNodeIterator_getNext(nodeIt)) != NULL) {
             if (stCactusNode_getTotalEdgeLengthOfFlower(node) > chainLengthForBigFlower && stCactusNode_getChainNumber(node) > 1) {
                 stCactusNodeEdgeEndIt edgeIt = stCactusNode_getEdgeEndIt(node);
@@ -664,7 +717,7 @@ static void testStCactusGraph_randomTest(CuTest *testCase) {
         stCactusGraphNodeIterator_destruct(nodeIt);
 
         //Check no chains contain links including members of edgeEndsNotInChainSet (this does not check that chains are maximal).
-        nodeIt = stCactusGraphNodeIterator_construct(g2);
+        nodeIt = stCactusGraphNodeIterator_construct(rGraph->cactusGraph);
         while ((node = stCactusGraphNodeIterator_getNext(nodeIt)) != NULL) {
             stCactusNodeEdgeEndIt edgeIt = stCactusNode_getEdgeEndIt(node);
             stCactusEdgeEnd *edgeEnd;
@@ -677,15 +730,298 @@ static void testStCactusGraph_randomTest(CuTest *testCase) {
         }
         stCactusGraphNodeIterator_destruct(nodeIt);
 
-
-        stCactusGraph_destruct(g2);
-        stSortedSet_destruct(edgeEnds);
-        stList_destruct(nodeObjects);
+        // Cleanup
+        destroyRandomCactusGraph(rGraph);
         stSortedSet_destruct(nodesInFinalGraph);
         if(edgeEndsNotInChainSet != NULL) {
             stSet_destruct(edgeEndsNotInChainSet);
         }
     }
+}
+
+static void makeComponent(stCactusNode *cactusNode, stSet *component, bool ignoreBridges) {
+    if(stSet_search(component, cactusNode) == NULL) {
+        stSet_insert(component, cactusNode);
+
+        // Recursively add connected nodes
+        stCactusNodeEdgeEndIt edgeIterator = stCactusNode_getEdgeEndIt(cactusNode);
+        stCactusEdgeEnd *edgeEnd;
+        while ((edgeEnd = stCactusNodeEdgeEndIt_getNext(&edgeIterator))) {
+            assert(cactusNode == stCactusEdgeEnd_getNode(edgeEnd));
+            if(!ignoreBridges || stCactusEdgeEnd_getLink(edgeEnd) != NULL) {
+                makeComponent(stCactusEdgeEnd_getNode(stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd)), component, ignoreBridges);
+            }
+        }
+    }
+}
+
+static void testStCactusGraph_getComponents(CuTest *testCase) {
+    // Creates problem instances, then checks resulting component set.
+    for (int64_t test = 0; test < 1000; test++) {
+        // Make a random graph
+        struct RandomCactusGraph *rGraph = getRandomCactusGraph(1);
+
+        // Get components
+        stList *components = stCactusGraph_getComponents(rGraph->cactusGraph, 0);
+
+        // Get map of nodes to components
+        stHash *cactusNodesToComponents = stCactusGraphComponents_getNodesToComponentsMap(components);
+
+        // Check every node in the graph is in a component
+        stCactusGraphNodeIt *nodeIt = stCactusGraphNodeIterator_construct(rGraph->cactusGraph);
+        stCactusNode *cactusNode;
+        while((cactusNode = stCactusGraphNodeIterator_getNext(nodeIt)) != NULL) {
+            stSet *component = stHash_search(cactusNodesToComponents, cactusNode);
+            CuAssertTrue(testCase, component != NULL);
+            CuAssertTrue(testCase, stSet_search(component, cactusNode) == cactusNode);
+        }
+
+        int64_t totalNodeNumber = 0; // Counter to check that each node belongs to just one component
+
+        // For each component, check its connectivity
+        for(int64_t i=0; i<stList_length(components); i++) {
+            stSet *component = stList_get(components, i);
+            totalNodeNumber += stSet_size(component);
+
+            // Must have non-zero size
+            CuAssertTrue(testCase, stSet_size(component) > 0);
+
+            // Make an equivalent component by DFS
+            stSet *component2 = stSet_construct();
+            stSetIterator *componentIt = stSet_getIterator(component);
+            while((cactusNode = stSet_getNext(componentIt)) != NULL) {
+                makeComponent(cactusNode, component2, 0);
+            }
+            stSet_destructIterator(componentIt);
+
+            // Check components are equal
+            CuAssertTrue(testCase, stSet_equals(component, component2));
+
+            // Cleanup
+            stSet_destruct(component2);
+        }
+        CuAssertIntEquals(testCase, totalNodeNumber, stCactusGraph_getNodeNumber(rGraph->cactusGraph));
+
+        // Cleanup
+        stHash_destruct(cactusNodesToComponents);
+        destroyRandomCactusGraph(rGraph);
+        stList_destruct(components);
+    }
+
+}
+
+static stSet *getBridgeEnds(CuTest *testCase, struct RandomCactusGraph *rGraph) {
+    /*
+     * Get set of bridge edge ends in a cactus graph.
+     */
+    stSet *bridgeEdgeEnds = stSet_construct();
+    CuAssertIntEquals(testCase, stSortedSet_size(rGraph->edgeEnds), 2*rGraph->edgeNumber);
+    stSortedSetIterator *edgeEndIt = stSortedSet_getIterator(rGraph->edgeEnds);
+    stCactusEdgeEnd *edgeEnd;
+    while((edgeEnd = stSortedSet_getNext(edgeEndIt)) != NULL) {
+        if(stCactusEdgeEnd_getLink(edgeEnd) == NULL) { // Is a bridge
+            stSet_insert(bridgeEdgeEnds, edgeEnd);
+        }
+    }
+    stSortedSet_destructIterator(edgeEndIt);
+    CuAssertTrue(testCase, stSet_size(bridgeEdgeEnds)%2 == 0); // Must be even
+    return bridgeEdgeEnds;
+}
+
+static stSet *getIncidentBridgeEdgeEnds(stSet *cactusNodes) {
+    /*
+     * Gets set of bridge edge ends incident with nodes in cactusNodes.
+     */
+    stSet *bridgeEdgeEnds = stSet_construct();
+    stSetIterator *nodeIt = stSet_getIterator(cactusNodes);
+    stCactusNode *cactusNode;
+    while((cactusNode = stSet_getNext(nodeIt)) != NULL) {
+        stCactusNodeEdgeEndIt edgeEndIt = stCactusNode_getEdgeEndIt(cactusNode);
+        stCactusEdgeEnd *edgeEnd;
+        while((edgeEnd = stCactusNodeEdgeEndIt_getNext(&edgeEndIt))) {
+            if(stCactusEdgeEnd_getLink(edgeEnd) == NULL) {
+                stSet_insert(bridgeEdgeEnds, edgeEnd);
+            }
+        }
+    }
+    stSet_destructIterator(nodeIt);
+    return bridgeEdgeEnds;
+}
+
+static bool hasBridgeInSubtree(stCactusEdgeEnd *edgeEnd, stSet *seen) {
+    stCactusNode *cactusNode = stCactusEdgeEnd_getNode(edgeEnd);
+    if(stSet_search(seen, cactusNode) != NULL) {
+        return 0;
+    }
+    stSet_insert(seen, cactusNode);
+    stCactusNodeEdgeEndIt edgeEndIt = stCactusNode_getEdgeEndIt(cactusNode);
+    while((edgeEnd = stCactusNodeEdgeEndIt_getNext(&edgeEndIt)) != NULL) {
+        // If is a bridge then return true
+        if(stCactusEdgeEnd_getLink(edgeEnd) == NULL) {
+            return 1;
+        }
+        // Recurse to search for a bridge
+        if(hasBridgeInSubtree(stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd), seen)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static stSet *getNodesOnPathsBetweenBridgeEdgeEnds(stSet *cactusNodes) {
+    /*
+     * Gets set of nodes that project to paths in the cactus tree connecting the given set of bridge edge ends.
+     */
+
+    stSet *connectedCactusNodes = stSet_construct();
+
+    // For each cactus node
+    stSetIterator *setIt = stSet_getIterator(cactusNodes);
+    stCactusNode *cactusNode;
+    while((cactusNode = stSet_getNext(setIt)) != NULL) {
+
+        // Counter of connected chains/bridges
+        int64_t connectedBridges = 0;
+        int64_t connectedChains = 0;
+
+        // For each edge
+        stCactusNodeEdgeEndIt edgeEndIt = stCactusNode_getEdgeEndIt(cactusNode);
+        stCactusEdgeEnd *edgeEnd;
+        while((edgeEnd = stCactusNodeEdgeEndIt_getNext(&edgeEndIt)) != NULL) {
+
+            // If bridge increase the connected bridges count
+            if(stCactusEdgeEnd_getLink(edgeEnd) == NULL) {
+                connectedBridges++;
+            }
+            else if(stCactusEdgeEnd_getLinkOrientation(edgeEnd)) {
+                // Else recurse
+                stSet *seen = stSet_construct();
+                stSet_insert(seen, cactusNode);
+                if(hasBridgeInSubtree(stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd), seen)) {
+                    connectedChains++;
+                }
+                stSet_destruct(seen);
+            }
+        }
+
+        if(connectedBridges > 0 || connectedChains > 1) {
+            stSet_insert(connectedCactusNodes, cactusNode);
+        }
+    }
+
+    // Cleanup
+    stSet_destructIterator(setIt);
+
+    return connectedCactusNodes;
+}
+
+static void testStCactusGraph_getBridgeTrees(CuTest *testCase) {
+    // Creates problem instances, then checks resulting component set.
+    for (int64_t test = 0; test < 1000; test++) {
+        // Make a random graph
+        struct RandomCactusGraph *rGraph = getRandomCactusGraph(1);
+
+        stSet *bridgeEnds = getBridgeEnds(testCase, rGraph);
+        int64_t totalBridgeEndsSeen = 0; // Counter used to check we've seen all the bridges
+        int64_t totalCatusNodesSeen = 0; // Ditto, for cactus nodes
+
+        // Get components
+        stList *components = stCactusGraph_getComponents(rGraph->cactusGraph, 0);
+
+        // For each component, build the bridge tree and check it
+        for(int64_t i=0; i<stList_length(components); i++) {
+            stSet *component = stList_get(components, i);
+            CuAssertTrue(testCase, stSet_size(component) > 0);
+            stCactusNode *cactusNode = stSet_peek(component);
+
+            stBridgeTree *bridgeTree = stBridgeTree_getBridgeTree(cactusNode);
+
+            // Check bridge tree
+
+            // For each node in the bridge tree
+            for(int64_t j=0; j<stList_length(bridgeTree->bridgeNodes); j++) {
+                stBridgeNode *bridgeNode = stList_get(bridgeTree->bridgeNodes, j);
+
+                // Check every incident edge in the bridge tree is a bridge
+                CuAssertTrue(testCase, stSet_isSubset(bridgeEnds, bridgeNode->bridgeEnds));
+
+                // Increment the number of bridges seen
+                totalBridgeEndsSeen += stSet_size(bridgeNode->bridgeEnds);
+
+                // Check set of cactus nodes that project to bridge node are in one bridgeless component
+                stSet *bridgelessComponent = stSet_construct();
+                makeComponent(stSet_peek(bridgeNode->cactusNodes), bridgelessComponent, 1);
+                CuAssertTrue(testCase, stSet_equals(bridgelessComponent, bridgeNode->cactusNodes));
+                stSet_destruct(bridgelessComponent);
+
+                // Increment the number of cactus nodes seen
+                totalCatusNodesSeen += stSet_size(bridgeNode->cactusNodes);
+
+                // Check the bridges incident with cactus nodes in the bridgeless component
+                // are equal to the set of bridges in the component
+                stSet *bridgeEnds = getIncidentBridgeEdgeEnds(bridgeNode->cactusNodes);
+                CuAssertTrue(testCase, stSet_equals(bridgeEnds, bridgeNode->bridgeEnds));
+                stSet_destruct(bridgeEnds);
+
+                // Check "connectedCactusNodes", the set of nodes connecting the bridge edge ends
+                stSet *connectedCactusNodes = getNodesOnPathsBetweenBridgeEdgeEnds(bridgeNode->cactusNodes);
+                //st_uglyf(" Connected nodes: %" PRIi64 " bridge node connected nodes: %" PRIi64 " bridge ends: %" PRIi64 " \n", stSet_size(connectedCactusNodes), stSet_size(bridgeNode->connectedCactusNodes), stSet_size(bridgeNode->bridgeEnds));
+                //stBridgeNode_print(bridgeNode);
+                CuAssertTrue(testCase, stSet_equals(connectedCactusNodes, bridgeNode->connectedCactusNodes));
+                stSet_destruct(connectedCactusNodes);
+
+                // Check the edges of the bridge tree
+                // For each connected bridge node
+                for(int64_t j=0; j<stList_length(bridgeNode->connectedNodes); j++) {
+                    stBridgeNode *connectedBridgeNode = stList_get(bridgeNode->connectedNodes, j);
+
+                    // Check there is a back edge
+                    CuAssertTrue(testCase, stList_contains(connectedBridgeNode->connectedNodes, bridgeNode));
+
+                    // Check for each connected bridge node there is a bridge edge connecting the components
+                    stSetIterator *edgeEndIt = stSet_getIterator(bridgeNode->bridgeEnds);
+                    stCactusEdgeEnd *edgeEnd;
+                    bool gotLink = 0;
+                    while((edgeEnd = stSet_getNext(edgeEndIt)) != NULL) {
+                        if(stSet_search(connectedBridgeNode->bridgeEnds, stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd)) != NULL) {
+                            CuAssertTrue(testCase, !gotLink);
+                            gotLink = 1;
+                        }
+                    }
+                    stSet_destructIterator(edgeEndIt);
+                    CuAssertTrue(testCase, gotLink);
+                }
+            }
+        }
+
+        // Check we've accounted for all the bridges / nodes
+        CuAssertIntEquals(testCase, stSet_size(bridgeEnds), totalBridgeEndsSeen);
+        CuAssertIntEquals(testCase, stCactusGraph_getNodeNumber(rGraph->cactusGraph), totalCatusNodesSeen);
+
+        // Cleanup
+        destroyRandomCactusGraph(rGraph);
+        stList_destruct(components);
+        stSet_destruct(bridgeEnds);
+    }
+}
+
+static void testStCactusGraph_randomUltraBubbleTest(CuTest *testCase) {
+    // Creates problem instances, then checks resulting ultrabubble set.
+    for (int64_t test = 0; test < 1000; test++) {
+        // Make a random graph
+        struct RandomCactusGraph *rGraph = getRandomCactusGraph(0);
+
+        // Make ultrabubbles
+        stUltraBubble *rootBubble = stCactusGraph_getUltraBubbles(rGraph->cactusGraph);
+
+        // Test the ultrabubble decomposition
+        stUltraBubble_print(rootBubble, stdout, "");
+
+        // Cleanup
+        destroyRandomCactusGraph(rGraph);
+        stUltraBubble_destruct(rootBubble);
+    }
+
 }
 
 CuSuite* stCactusGraphsTestSuite(void) {
@@ -697,5 +1033,8 @@ CuSuite* stCactusGraphsTestSuite(void) {
     SUITE_ADD_TEST(suite, testStCactusGraph_collapseBridges);
     SUITE_ADD_TEST(suite, testStCactusGraph_breakChainsByEndsNotInChains);
     SUITE_ADD_TEST(suite, testStCactusGraph_randomTest);
+    SUITE_ADD_TEST(suite, testStCactusGraph_getComponents);
+    SUITE_ADD_TEST(suite, testStCactusGraph_getBridgeTrees);
+    SUITE_ADD_TEST(suite, testStCactusGraph_randomUltraBubbleTest);
     return suite;
 }

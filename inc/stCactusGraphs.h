@@ -29,6 +29,29 @@ typedef struct _stCactusGraphNodeIterator {
     stCactusGraph *graph;
 } stCactusGraphNodeIt;
 
+// Ultra bubbles
+typedef struct _stUltraBubble stUltraBubble;
+struct _stUltraBubble {
+    stList *chains; // Each chain is an stList list of ultrabubbles in a sequence
+    bool isAcyclic;
+    stCactusEdgeEnd *edgeEnd1, *edgeEnd2;
+};
+
+typedef struct _stBridgeNode stBridgeNode;
+struct _stBridgeNode {
+    stList *connectedNodes; // (stBridgNode) Connected bridge nodes
+    stSet *bridgeEnds; // (stCactusEdgeEnd) The ends of the bridges in the cactus graph
+    // that project to the node
+    stSet *cactusNodes; // (stCactusNode) The cactus nodes which project to the node
+    stSet *connectedCactusNodes; // (stCactusNode) The set of cactus nodes on paths
+    // between the bridge ends or incident with the bridge end
+};
+
+typedef struct _stBridgeTree stBridgeTree;
+struct _stBridgeTree {
+    stList *bridgeNodes; // List of bridge nodes in the bridge tree
+};
+
 //Node functions
 
 stCactusNode *stCactusNode_construct(stCactusGraph *graph,
@@ -105,7 +128,37 @@ stSet *stCactusGraph_collapseLongChainsOfBigFlowers(stCactusGraph *graph, stCact
 stCactusNode *stCactusGraph_breakChainsByEndsNotInChains(stCactusGraph *graph,
         stCactusNode *startNode, void *(*mergeNodeObjects)(void *, void *),
         bool (*endIsNotInChain)(stCactusEdgeEnd *, void *), void *extraArg);
-        
+
+// Get the connected components, each represented as a set of nodes.
+stList *stCactusGraph_getComponents(stCactusGraph *cactusGraph, bool ignoreBridgeEdges);
+
+stHash *stCactusGraphComponents_getNodesToComponentsMap(stList *components);
+
+// Used to compute ultrabubbles
+stUltraBubble *stCactusGraph_getUltraBubbles(stCactusGraph *graph);
+
+int64_t stCactusGraph_getNodeNumber(stCactusGraph *graph);
+
+// Bridge trees
+
+void stBridgeNode_destruct(stBridgeNode *bridgeNode);
+
+stBridgeTree *stBridgeTree_getBridgeTree(stCactusNode *cactusNode);
+
+void stBridgeTree_destruct(stBridgeTree *bridgeTree);
+
+void stBridgeNode_print(stBridgeNode *bridgeNode, FILE *fileHandle);
+
+// Ultrabubbles
+
+stUltraBubble *stUltraBubble_construct(stList *parentChain, bool isAcyclic,
+        stCactusEdgeEnd *edgeEnd1, stCactusEdgeEnd *edgeEnd2);
+
+void stUltraBubble_destruct(stUltraBubble *ultraBubble);
+
+void stUltraBubble_print(stUltraBubble *ultraBubble, FILE *fileHandle, const char *prefix);
+
+
 #ifdef __cplusplus
 }
 #endif
