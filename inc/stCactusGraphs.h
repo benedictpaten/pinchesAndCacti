@@ -33,7 +33,8 @@ typedef struct _stCactusGraphNodeIterator {
 typedef struct _stUltraBubble stUltraBubble;
 struct _stUltraBubble {
     stList *chains; // Each chain is an stList list of ultrabubbles in a sequence
-    bool isAcyclic;
+    // such that for i > 0, edgeEnd1 of ultrabubble i in the chain is the opposite end to edgeEnd2 of ultrabubble i-1.
+    bool isAcyclic; // This currently is not properly defined
     stCactusEdgeEnd *edgeEnd1, *edgeEnd2;
 };
 
@@ -47,9 +48,9 @@ struct _stBridgeNode {
     // between the bridge ends or incident with the bridge end
 };
 
-typedef struct _stBridgeTree stBridgeTree;
-struct _stBridgeTree {
-    stList *bridgeNodes; // List of bridge nodes in the bridge tree
+typedef struct _stBridgeGraph stBridgeGraph;
+struct _stBridgeGraph {
+    stList *bridgeNodes; // List of bridge nodes in the bridge graph
 };
 
 //Node functions
@@ -134,18 +135,18 @@ stList *stCactusGraph_getComponents(stCactusGraph *cactusGraph, bool ignoreBridg
 
 stHash *stCactusGraphComponents_getNodesToComponentsMap(stList *components);
 
-// Used to compute ultrabubbles
-stUltraBubble *stCactusGraph_getUltraBubbles(stCactusGraph *graph);
+// Used to compute ultrabubbles, startNode may be NULL.
+stList *stCactusGraph_getUltraBubbles(stCactusGraph *graph, stCactusNode *startNode);
 
 int64_t stCactusGraph_getNodeNumber(stCactusGraph *graph);
 
-// Bridge trees
+// Bridge graphs
 
 void stBridgeNode_destruct(stBridgeNode *bridgeNode);
 
-stBridgeTree *stBridgeTree_getBridgeTree(stCactusNode *cactusNode);
+stBridgeGraph *stBridgeGraph_getBridgeGraph(stCactusNode *cactusNode);
 
-void stBridgeTree_destruct(stBridgeTree *bridgeTree);
+void stBridgeGraph_destruct(stBridgeGraph *bridgeGraph);
 
 void stBridgeNode_print(stBridgeNode *bridgeNode, FILE *fileHandle);
 
@@ -156,7 +157,9 @@ stUltraBubble *stUltraBubble_construct(stList *parentChain, bool isAcyclic,
 
 void stUltraBubble_destruct(stUltraBubble *ultraBubble);
 
-void stUltraBubble_print(stUltraBubble *ultraBubble, FILE *fileHandle, const char *prefix);
+void stUltraBubble_print(stUltraBubble *ultraBubble, FILE *fileHandle);
+
+void stUltraBubble_printChains(stList *ultraBubbleChains, FILE *fileHandle);
 
 
 #ifdef __cplusplus

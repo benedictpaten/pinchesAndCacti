@@ -915,7 +915,7 @@ static stSet *getNodesOnPathsBetweenBridgeEdgeEnds(stSet *cactusNodes) {
     return connectedCactusNodes;
 }
 
-static void testStCactusGraph_getBridgeTrees(CuTest *testCase) {
+static void testStCactusGraph_getBridgeGraphs(CuTest *testCase) {
     // Creates problem instances, then checks resulting component set.
     for (int64_t test = 0; test < 1000; test++) {
         // Make a random graph
@@ -928,21 +928,21 @@ static void testStCactusGraph_getBridgeTrees(CuTest *testCase) {
         // Get components
         stList *components = stCactusGraph_getComponents(rGraph->cactusGraph, 0);
 
-        // For each component, build the bridge tree and check it
+        // For each component, build the bridge graph and check it
         for(int64_t i=0; i<stList_length(components); i++) {
             stSet *component = stList_get(components, i);
             CuAssertTrue(testCase, stSet_size(component) > 0);
             stCactusNode *cactusNode = stSet_peek(component);
 
-            stBridgeTree *bridgeTree = stBridgeTree_getBridgeTree(cactusNode);
+            stBridgeGraph *bridgeGraph = stBridgeGraph_getBridgeGraph(cactusNode);
 
-            // Check bridge tree
+            // Check bridge graph
 
-            // For each node in the bridge tree
-            for(int64_t j=0; j<stList_length(bridgeTree->bridgeNodes); j++) {
-                stBridgeNode *bridgeNode = stList_get(bridgeTree->bridgeNodes, j);
+            // For each node in the bridge graph
+            for(int64_t j=0; j<stList_length(bridgeGraph->bridgeNodes); j++) {
+                stBridgeNode *bridgeNode = stList_get(bridgeGraph->bridgeNodes, j);
 
-                // Check every incident edge in the bridge tree is a bridge
+                // Check every incident edge in the bridge graph is a bridge
                 CuAssertTrue(testCase, stSet_isSubset(bridgeEnds, bridgeNode->bridgeEnds));
 
                 // Increment the number of bridges seen
@@ -970,7 +970,11 @@ static void testStCactusGraph_getBridgeTrees(CuTest *testCase) {
                 CuAssertTrue(testCase, stSet_equals(connectedCactusNodes, bridgeNode->connectedCactusNodes));
                 stSet_destruct(connectedCactusNodes);
 
-                // Check the edges of the bridge tree
+                // Check the edges of the bridge graph
+                // Check equal number of bridge ends and connected nodes
+                CuAssertIntEquals(testCase, stSet_size(bridgeNode->bridgeEnds),
+                        stList_length(bridgeNode->connectedNodes));
+
                 // For each connected bridge node
                 for(int64_t j=0; j<stList_length(bridgeNode->connectedNodes); j++) {
                     stBridgeNode *connectedBridgeNode = stList_get(bridgeNode->connectedNodes, j);
@@ -983,7 +987,8 @@ static void testStCactusGraph_getBridgeTrees(CuTest *testCase) {
                     stCactusEdgeEnd *edgeEnd;
                     bool gotLink = 0;
                     while((edgeEnd = stSet_getNext(edgeEndIt)) != NULL) {
-                        if(stSet_search(connectedBridgeNode->bridgeEnds, stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd)) != NULL) {
+                        if(stSet_search(connectedBridgeNode->bridgeEnds,
+                                stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd)) != NULL) {
                             CuAssertTrue(testCase, !gotLink);
                             gotLink = 1;
                         }
@@ -1005,6 +1010,53 @@ static void testStCactusGraph_getBridgeTrees(CuTest *testCase) {
     }
 }
 
+static void checkUltraBubbleChains(CuTest *testCase, stList *ultraBubbleChains, bool isNested);
+
+static void checkUltraBubble(CuTest *testCase, stUltraBubble *ultraBubble, bool isNested) {
+    // Check that the removal of both edges disconnects the cactus
+
+    if(stCactusEdgeEnd_getLink(ultraBubble->edgeEnd1) == NULL) { // Is a bridge
+        // The other end must also be a bridge for the graph to be disconnected by their removal
+        CuAssertTrue(testCase, stCactusEdgeEnd_getLink(ultraBubble->edgeEnd2) == NULL);
+
+        // Can not be nested
+        CuAssertTrue(testCase, !isNested);
+    }
+    else {
+        // Other end can not be a bridge
+        CuAssertTrue(testCase, stCactusEdgeEnd_getLink(ultraBubble->edgeEnd2) != NULL);
+
+        // As both are in a chain, must be connected
+        CuAssertTrue(testCase, stCactusEdgeEnd_getLink(ultraBubble->edgeEnd1) == ultraBubble->edgeEnd2);
+    }
+
+    checkUltraBubbleChains(testCase, ultraBubble->chains, 1);
+}
+
+static void checkUltraBubbleChains(CuTest *testCase, stList *ultraBubbleChains, bool isNested) {
+    // For each chain
+    for(int64_t i=0; i<stList_length(ultraBubbleChains); i++) {
+        stList *chain = stList_get(ultraBubbleChains, i);
+
+        // Check chain is not empty
+        CuAssertTrue(testCase, stList_length(chain) > 0);
+
+        // For each ultra bubble
+        for(int64_t j=0; j<stList_length(chain); j++) {
+            stUltraBubble *ultraBubble = stList_get(chain, j);
+
+            // If there is a preceding element in the chain, check that the ends match up
+            if(j > 0) {
+                stUltraBubble *pUltraBubble = stList_get(chain, j-1);
+                CuAssertTrue(testCase, stCactusEdgeEnd_getOtherEdgeEnd(pUltraBubble->edgeEnd2) == ultraBubble->edgeEnd1);
+            }
+
+            // Recursively check the nested ultrabubble
+            checkUltraBubble(testCase, ultraBubble, isNested);
+        }
+    }
+}
+
 static void testStCactusGraph_randomUltraBubbleTest(CuTest *testCase) {
     // Creates problem instances, then checks resulting ultrabubble set.
     for (int64_t test = 0; test < 1000; test++) {
@@ -1012,14 +1064,28 @@ static void testStCactusGraph_randomUltraBubbleTest(CuTest *testCase) {
         struct RandomCactusGraph *rGraph = getRandomCactusGraph(0);
 
         // Make ultrabubbles
-        stUltraBubble *rootBubble = stCactusGraph_getUltraBubbles(rGraph->cactusGraph);
+        stList *topLevelUltraBubbleChains = stCactusGraph_getUltraBubbles(rGraph->cactusGraph, rGraph->startNode);
 
-        // Test the ultrabubble decomposition
-        stUltraBubble_print(rootBubble, stdout, "");
+        // Print the bridge graphs
+        /*stList *components = stCactusGraph_getComponents(rGraph->cactusGraph, 0);
+        for(int64_t i=0; i<stList_length(components); i++) {
+            stSet *component = stList_get(components, i);
+            stBridgeGraph *bridgeGraph = stBridgeGraph_getBridgeGraph(stSet_peek(component));
+            for(int64_t j=0; j<stList_length(bridgeGraph->bridgeNodes); j++) {
+                stBridgeNode_print(stList_get(bridgeGraph->bridgeNodes, j), stdout);
+            }
+        }
+        stList_destruct(components);*/
+
+        // Print the ultrabubble decomposition
+        //stUltraBubble_printChains(topLevelUltraBubbleChains, stdout);
+
+        // Test the ultrabubbles
+        checkUltraBubbleChains(testCase, topLevelUltraBubbleChains, 0);
 
         // Cleanup
         destroyRandomCactusGraph(rGraph);
-        stUltraBubble_destruct(rootBubble);
+        stList_destruct(topLevelUltraBubbleChains);
     }
 
 }
@@ -1034,7 +1100,7 @@ CuSuite* stCactusGraphsTestSuite(void) {
     SUITE_ADD_TEST(suite, testStCactusGraph_breakChainsByEndsNotInChains);
     SUITE_ADD_TEST(suite, testStCactusGraph_randomTest);
     SUITE_ADD_TEST(suite, testStCactusGraph_getComponents);
-    SUITE_ADD_TEST(suite, testStCactusGraph_getBridgeTrees);
+    SUITE_ADD_TEST(suite, testStCactusGraph_getBridgeGraphs);
     SUITE_ADD_TEST(suite, testStCactusGraph_randomUltraBubbleTest);
     return suite;
 }

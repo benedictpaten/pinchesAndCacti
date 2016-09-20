@@ -793,7 +793,7 @@ stHash *stCactusGraphComponents_getNodesToComponentsMap(stList *components) {
 }
 
 /*
- * Bridge trees
+ * Bridge graphs
  */
 
 stBridgeNode *stBridgeNode_construct() {
@@ -912,10 +912,10 @@ void stBridgeNode_print(stBridgeNode *bridgeNode, FILE *fileHandle) {
     stSet_destructIterator(nodeIt);
 }
 
-stBridgeTree *stBridgeTree_getBridgeTree(stCactusNode *cactusNode) {
-    // Create the bridge tree container
-    stBridgeTree *bridgeTree = st_malloc(sizeof(stBridgeTree));
-    bridgeTree->bridgeNodes = stList_construct3(0, (void (*)(void *))stBridgeNode_destruct);
+stBridgeGraph *stBridgeGraph_getBridgeGraph(stCactusNode *cactusNode) {
+    // Create the bridge graph container
+    stBridgeGraph *bridgeGraph = st_malloc(sizeof(stBridgeGraph));
+    bridgeGraph->bridgeNodes = stList_construct3(0, (void (*)(void *))stBridgeNode_destruct);
 
     // Get cactus nodes
     stSet *component = stSet_construct();
@@ -930,14 +930,14 @@ stBridgeTree *stBridgeTree_getBridgeTree(stCactusNode *cactusNode) {
     stCactusNode *cactusNode2;
     while((cactusNode2 = stSet_getNext(componentIt)) != NULL) {
 
-        // If not already in a bridge tree node
+        // If not already in a bridge graph node
         if(stSet_search(seen, cactusNode2) == NULL) {
 
             // Make a bridge node
             stBridgeNode *bridgeNode = stBridgeNode_construct();
 
             // Add to bridge nodes
-            stList_append(bridgeTree->bridgeNodes, bridgeNode);
+            stList_append(bridgeGraph->bridgeNodes, bridgeNode);
 
             // Get nodes in the bridge component
             buildComponent(bridgeNode->cactusNodes, cactusNode2, 1);
@@ -966,8 +966,8 @@ stBridgeTree *stBridgeTree_getBridgeTree(stCactusNode *cactusNode) {
     // Link the bridge nodes together
 
     // For each bridge node
-    for(int64_t i=0; i<stList_length(bridgeTree->bridgeNodes); i++) {
-        stBridgeNode *bridgeNode = stList_get(bridgeTree->bridgeNodes, i);
+    for(int64_t i=0; i<stList_length(bridgeGraph->bridgeNodes); i++) {
+        stBridgeNode *bridgeNode = stList_get(bridgeGraph->bridgeNodes, i);
 
         // For each bridge end in the node
         stSetIterator *bridgeEndIt = stSet_getIterator(bridgeNode->bridgeEnds);
@@ -990,12 +990,12 @@ stBridgeTree *stBridgeTree_getBridgeTree(stCactusNode *cactusNode) {
     stSet_destruct(component);
     stHash_destruct(bridgeEndsToBridgeNodes);
 
-    return bridgeTree;
+    return bridgeGraph;
 }
 
-void stBridgeTree_destruct(stBridgeTree *bridgeTree) {
-    stList_destruct(bridgeTree->bridgeNodes);
-    free(bridgeTree);
+void stBridgeGraph_destruct(stBridgeGraph *bridgeGraph) {
+    stList_destruct(bridgeGraph->bridgeNodes);
+    free(bridgeGraph);
 }
 
 /*
@@ -1016,45 +1016,61 @@ stUltraBubble *stUltraBubble_construct(stList *parentChain, bool isAcyclic,
     return ultraBubble;
 }
 
-stList *stUltraBubble_addNewChain(stUltraBubble *ultraBubble) {
-    stList *chain = stList_construct3(0, (void (*)(void *))stUltraBubble_destruct);
-    stList_append(ultraBubble->chains, chain);
-    return chain;
-}
-
-typedef struct _stUltraBubbleStats stUltraBubbleStats;
-struct _stUltraBubbleStats {
-    int64_t totalBubbles;
-    int64_t totalAcyclicBubbles;
-    stList *depths;
-    stList *children;
-};
-
-stUltraBubbleStats *stUltraBubble_getStats(stUltraBubble *ultraBubble) {
-    return NULL;
-}
-
-void stUltraBubble_print(stUltraBubble *ultraBubble, FILE *fileHandle, const char *prefix) {
-    fprintf(fileHandle, "%sBubble, acyclic: %i child-chain-number: %" PRIi64 "\n", prefix, ultraBubble->isAcyclic, stList_length(ultraBubble->chains));
-    for(int64_t i=0; i<stList_length(ultraBubble->chains); i++) {
-        stList *chain = stList_get(ultraBubble->chains, i);
-        fprintf(fileHandle, "%sChain: %" PRIi64 "\n", prefix, i);
-        for(int64_t j=0; j<stList_length(chain); j++) {
-            char *s = stString_print("%s%s", prefix, "\t");
-            stUltraBubble_print(stList_get(chain, j), fileHandle, s);
-            free(s);
-        }
-    }
-}
-
 void stUltraBubble_destruct(stUltraBubble *ultraBubble) {
     stList_destruct(ultraBubble->chains);
     free(ultraBubble);
 }
 
+/*
+ * Functions for printing ultra bubble decomposition.
+ */
+
+void stUltraBubble_print2(stUltraBubble *ultraBubble, FILE *fileHandle, const char *parentPrefix, const char *parentChainPrefix);
+
+void stUltraBubble_printChains2(stList *ultraBubbleChains, FILE *fileHandle, const char *parentPrefix, const char *parentChainPrefix) {
+    for(int64_t i=0; i<stList_length(ultraBubbleChains); i++) {
+        stList *chain = stList_get(ultraBubbleChains, i);
+        char *chainPrefix = stString_print("%s-%" PRIi64 "", parentChainPrefix, i);
+        fprintf(fileHandle, "%s\tChain: %s\tLength: %" PRIi64 "\n", parentPrefix, chainPrefix, stList_length(chain));
+        for(int64_t j=0; j<stList_length(chain); j++) {
+            char *prefix = stString_print("%s%s", parentPrefix, "\t\t");
+            stUltraBubble_print2(stList_get(chain, j), fileHandle, prefix, chainPrefix);
+            free(prefix);
+        }
+        free(chainPrefix);
+    }
+}
+
+void stUltraBubble_print2(stUltraBubble *ultraBubble, FILE *fileHandle, const char *parentPrefix, const char *parentChainPrefix) {
+    fprintf(fileHandle, "%sBubble, acyclic: %i\tchild-chain-number: %" PRIi64 "\tSide1:(%" PRIi64 ",%" PRIi64 ")\tSide2:(%" PRIi64 ",%" PRIi64 ")\n", parentPrefix,
+            ultraBubble->isAcyclic, stList_length(ultraBubble->chains), (int64_t)stCactusEdgeEnd_getOtherEdgeEnd(ultraBubble->edgeEnd1), (int64_t)ultraBubble->edgeEnd1,
+            (int64_t)ultraBubble->edgeEnd2, (int64_t)stCactusEdgeEnd_getOtherEdgeEnd(ultraBubble->edgeEnd2));
+    stUltraBubble_printChains2(ultraBubble->chains, fileHandle, parentPrefix, parentChainPrefix);
+}
+
+void stUltraBubble_print(stUltraBubble *ultraBubble, FILE *fileHandle) {
+    stUltraBubble_print2(ultraBubble, fileHandle, "", "C");
+}
+
+void stUltraBubble_printChains(stList *ultraBubbleChains, FILE *fileHandle) {
+    fprintf(fileHandle, "Top level chains, total: %" PRIi64 "\n", stList_length(ultraBubbleChains));
+    stUltraBubble_printChains2(ultraBubbleChains, fileHandle, "", "C");
+}
+
+/*
+ * Functions for building ultrabubble decomposition
+ */
+
 static bool isAcyclicSubgraph(stCactusEdgeEnd *edgeEnd1, stCactusEdgeEnd *edgeEnd2) {
     // TODO:
     return 0;
+}
+
+static stList *addNewNestedChain(stList *chains) {
+    // Adds an ultrabubble chain to a list of ultrabubble chains.
+    stList *chain = stList_construct3(0, (void (*)(void *))stUltraBubble_destruct);
+    stList_append(chains, chain);
+    return chain;
 }
 
 static void recursiveEnumerateChainBubbles(stList *parentUltraBubbleChain, stCactusNode *parentNode, stCactusEdgeEnd *parentChain) {
@@ -1064,10 +1080,9 @@ static void recursiveEnumerateChainBubbles(stList *parentUltraBubbleChain, stCac
     assert(stCactusEdgeEnd_getLinkOrientation(parentChain));
     assert(!stCactusEdgeEnd_getLinkOrientation(stCactusEdgeEnd_getLink(parentChain)));
 
-    // Create a bubble and attach it to parentBubble,
-    // setting it to be parentBubble
+    // Create a bubble and append it to the parent's ultrabubble chain
     stUltraBubble *ultraBubble = stUltraBubble_construct(parentUltraBubbleChain, 0,
-                                                         parentChain, stCactusEdgeEnd_getLink(parentChain));
+            parentChain, stCactusEdgeEnd_getLink(parentChain));
 
     // For each child chain incident with parentNode and not equal to parentChain
     stCactusNodeEdgeEndIt edgeIterator = stCactusNode_getEdgeEndIt(parentNode);
@@ -1076,17 +1091,23 @@ static void recursiveEnumerateChainBubbles(stList *parentUltraBubbleChain, stCac
         assert(parentNode == stCactusEdgeEnd_getNode(edgeEnd));
         assert(stCactusEdgeEnd_getLink(edgeEnd) != NULL); // Can not be a bridge, by definition
         if (stCactusEdgeEnd_getLinkOrientation(edgeEnd) && edgeEnd != parentChain) {
-            // Make a new ultrabubble chain
-            stList *childUltraBubbleChain = stUltraBubble_addNewChain(ultraBubble);
 
-            // For each node in the chain not equal to parentNode
-            stCactusEdgeEnd *edgeEnd2 = stCactusEdgeEnd_getLink(stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd));
-            while (edgeEnd != edgeEnd2) {
+            stCactusEdgeEnd *edgeEnd2 = stCactusEdgeEnd_getOtherEdgeEnd(stCactusEdgeEnd_getLink(edgeEnd));
 
-                // Call recursivelyEnumerateChainBubbles
-                recursiveEnumerateChainBubbles(childUltraBubbleChain, stCactusEdgeEnd_getNode(edgeEnd2), edgeEnd2);
+            if(edgeEnd != edgeEnd2) {
+                // Make a new ultrabubble chain
+                stList *childUltraBubbleChain = addNewNestedChain(ultraBubble->chains);
 
-                edgeEnd2 = stCactusEdgeEnd_getLink(stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd2));
+                // For each node in the chain not equal to parentNode
+                do {
+
+                    // Call recursivelyEnumerateChainBubbles
+                    recursiveEnumerateChainBubbles(childUltraBubbleChain, stCactusEdgeEnd_getNode(edgeEnd2), edgeEnd2);
+
+                    edgeEnd2 = stCactusEdgeEnd_getOtherEdgeEnd(stCactusEdgeEnd_getLink(edgeEnd2));
+                } while (edgeEnd != edgeEnd2);
+
+                assert(stList_length(childUltraBubbleChain) > 0);
             }
         }
     }
@@ -1103,16 +1124,204 @@ static void recursiveEnumerateChainBubbles(stList *parentUltraBubbleChain, stCac
         }
     }
     ultraBubble->isAcyclic = ultraBubble->isAcyclic && isAcyclicSubgraph(ultraBubble->edgeEnd1,
-                                                                           ultraBubble->edgeEnd2);
+                                                                         ultraBubble->edgeEnd2);
 }
 
-stUltraBubble *stCactusGraph_getUltraBubbles(stCactusGraph *graph) {
+void bridgeGraphToUltraBubbles(stBridgeNode *pBridgeNode, stBridgeNode *bridgeNode, stSet *seen,
+        stList *topLevelChains, stSet *cactusGraphComponent, stCactusNode *startNode) {
+    // This check ensures we do not loop in the case that the bridge graph contains a cycle
+    if(stSet_search(seen, bridgeNode) != NULL) {
+        return;
+    }
+    stSet_insert(seen, bridgeNode);
+
+    // If the bridge node has incident edges
+    if(stSet_size(bridgeNode->bridgeEnds) > 0) {
+        stList *workingLevelChains = topLevelChains;
+
+        // If incident edges equals 2
+        if(stSet_size(bridgeNode->bridgeEnds) == 2) {
+
+            // Continue the existing top level chain if previous node was link in the chain, else start a new one
+            stList *topLevelChain = (pBridgeNode != NULL && stSet_size(pBridgeNode->bridgeEnds) == 2) ?
+                    stList_peek(topLevelChains) : addNewNestedChain(topLevelChains);
+
+            // Create a bubble and add it to the top level chain
+            stList *bridgeEnds = stSet_getList(bridgeNode->bridgeEnds);
+
+            if(stList_length(topLevelChain) > 0) { // If continuing chain orient
+                // the ends correctly in the chain
+                stUltraBubble *pUltraBubble = stList_peek(topLevelChain);
+                stCactusEdgeEnd *oppEnd = stCactusEdgeEnd_getOtherEdgeEnd(pUltraBubble->edgeEnd2);
+
+                // This statement is true if the start of the chain was oriented backwards
+                // with respect to this link
+                if(!stList_contains(bridgeEnds, oppEnd)) {
+                    assert(stList_length(topLevelChain) == 1);
+                    oppEnd = stCactusEdgeEnd_getOtherEdgeEnd(pUltraBubble->edgeEnd1);
+                    assert(stList_contains(bridgeEnds, oppEnd));
+                    stCactusEdgeEnd *edgeEnd = pUltraBubble->edgeEnd1;
+                    pUltraBubble->edgeEnd1 = pUltraBubble->edgeEnd2;
+                    pUltraBubble->edgeEnd2 = edgeEnd;
+                }
+
+                // Reverse the orientation if backwards with respect to the previous
+                // link
+                if(oppEnd == stList_get(bridgeEnds, 1)) {
+                    stList_reverse(bridgeEnds);
+                }
+            }
+
+            stUltraBubble *ultraBubble = stUltraBubble_construct(topLevelChain, 0,
+                        stList_get(bridgeEnds, 0), stList_get(bridgeEnds, 1));
+
+            stList_destruct(bridgeEnds);
+
+
+            // Determine if the bubble is acyclic or not
+            ultraBubble->isAcyclic = isAcyclicSubgraph(ultraBubble->edgeEnd1,
+                    ultraBubble->edgeEnd2);
+
+            // Set working chains to be those nested in the ultraBubble
+            workingLevelChains = ultraBubble->chains;
+        }
+
+        // A set to track which nodes we've constructed ultrabubbles for
+        stSet *visitedCactusNodes = stSet_construct();
+
+        // For each node in cactusNodes
+        stSetIterator *cactusNodesIt = stSet_getIterator(bridgeNode->connectedCactusNodes);
+        stCactusNode *cactusNode;
+        while((cactusNode = stSet_getNext(cactusNodesIt)) != NULL) {
+
+            // For each chain incident with the cactusNode
+            stCactusNodeEdgeEndIt edgeIterator = stCactusNode_getEdgeEndIt(cactusNode);
+            stCactusEdgeEnd *edgeEnd;
+            while ((edgeEnd = stCactusNodeEdgeEndIt_getNext(&edgeIterator))) {
+                assert(cactusNode == stCactusEdgeEnd_getNode(edgeEnd));
+                if (stCactusEdgeEnd_getLink(edgeEnd) != NULL && stCactusEdgeEnd_getLinkOrientation(edgeEnd)) {
+
+                    // Make new chain
+                    stList *ultraBubbleChain = addNewNestedChain(workingLevelChains);
+
+                    // For each node in the chain not in cactusNodes and not yet visited
+                    stCactusEdgeEnd *edgeEnd2 = stCactusEdgeEnd_getOtherEdgeEnd(stCactusEdgeEnd_getLink(edgeEnd));;
+                    while (edgeEnd != edgeEnd2) {
+                        stCactusNode *cactusNode2 = stCactusEdgeEnd_getNode(edgeEnd2);
+                        assert(cactusNode2 != cactusNode);
+                        if(stSet_search(bridgeNode->connectedCactusNodes, cactusNode2) == NULL) {
+                            if(stSet_search(visitedCactusNodes, cactusNode2) == NULL) {
+
+                                // Call recursivelyEnumerateChainBubbles
+                                recursiveEnumerateChainBubbles(ultraBubbleChain, cactusNode2, edgeEnd2);
+
+                                // Add to visited
+                                stSet_insert(visitedCactusNodes, cactusNode2);
+                            }
+                        }
+                        else {
+                            // As we encountered a node in connected nodes we break the chain if it is already started
+                            if(stList_length(ultraBubbleChain) > 0) {
+                                ultraBubbleChain = addNewNestedChain(workingLevelChains);
+                            }
+                        }
+                        edgeEnd2 = stCactusEdgeEnd_getOtherEdgeEnd(stCactusEdgeEnd_getLink(edgeEnd2));
+                    }
+
+                    // If new chain has zero length delete
+                    if(stList_length(ultraBubbleChain) == 0) {
+                        assert(stList_peek(workingLevelChains) == ultraBubbleChain);
+                        stList_pop(workingLevelChains);
+                        stList_destruct(ultraBubbleChain);
+                    }
+                }
+            }
+        }
+        stSet_destructIterator(cactusNodesIt);
+
+        // Recursively walk the remainder of the bridge graph to construct chains for the other nodes
+        for(int64_t i=0; i<stList_length(bridgeNode->connectedNodes); i++) {
+            stBridgeNode *nBridgeNode = stList_get(bridgeNode->connectedNodes, i);
+            if(nBridgeNode != pBridgeNode) {
+                assert(nBridgeNode != bridgeNode);
+                bridgeGraphToUltraBubbles(bridgeNode, nBridgeNode, seen, topLevelChains, cactusGraphComponent, startNode);
+            }
+        }
+    }
+
+    // Else the bridgeNode is in a circular component
+    else {
+        // Pick the start node, otherwise the highest degree node in the cactus component
+        // Mostly this is just to make things deterministic.
+        stSetIterator *componentIt = stSet_getIterator(cactusGraphComponent);
+        stCactusNode *cactusNode = stSet_getNext(componentIt);
+        int64_t chainNumber = stCactusNode_getChainNumber(cactusNode);
+        stCactusNode *cactusNode2;
+        while((cactusNode2 = stSet_getNext(componentIt)) != NULL) {
+            if(cactusNode2 == startNode || (stCactusNode_getChainNumber(cactusNode2) > chainNumber && cactusNode != startNode)) {
+                cactusNode = cactusNode2;
+                chainNumber = stCactusNode_getChainNumber(cactusNode2);
+            }
+        }
+        stSet_destructIterator(componentIt);
+
+        // For each chain incident with the cactusNode
+        stCactusNodeEdgeEndIt edgeIterator = stCactusNode_getEdgeEndIt(cactusNode);
+        stCactusEdgeEnd *edgeEnd;
+        while ((edgeEnd = stCactusNodeEdgeEndIt_getNext(&edgeIterator))) {
+            assert(cactusNode == stCactusEdgeEnd_getNode(edgeEnd));
+            assert(stCactusEdgeEnd_getLink(edgeEnd) != NULL); // Can not be a bridge, by definition
+            if (stCactusEdgeEnd_getLinkOrientation(edgeEnd)) {
+
+                // For each node in the chain not equal to cactusNode
+                stCactusEdgeEnd *edgeEnd2 = stCactusEdgeEnd_getOtherEdgeEnd(stCactusEdgeEnd_getLink(edgeEnd));
+
+                if(edgeEnd != edgeEnd2) { // If not a self loop
+                    // Make new chain
+                    stList *ultraBubbleChain = addNewNestedChain(topLevelChains);
+
+                    do {
+                        assert(stCactusEdgeEnd_getNode(edgeEnd2) != cactusNode);
+
+                        // Call recursivelyEnumerateChainBubbles
+                        recursiveEnumerateChainBubbles(ultraBubbleChain, stCactusEdgeEnd_getNode(edgeEnd2), edgeEnd2);
+
+                        edgeEnd2 = stCactusEdgeEnd_getOtherEdgeEnd(stCactusEdgeEnd_getLink(edgeEnd2));
+                    } while (edgeEnd != edgeEnd2);
+
+                    assert(stList_length(ultraBubbleChain) > 0);
+                }
+            }
+        }
+    }
+}
+
+stBridgeNode *getStartingNode(stBridgeGraph *bridgeGraph) {
     /*
-     * Constructs the set of nested ultrabubbles for a cactus graph.
+     * Picks a non-chain node (if it exists). A chain node is a node with two incident edges.
+     * This ensures that all chains are complete, or if cyclic are broken arbitrarily.
+     */
+    for(int64_t i=0; i<stList_length(bridgeGraph->bridgeNodes); i++) {
+        stBridgeNode *bridgeNode = stList_get(bridgeGraph->bridgeNodes, i);
+        if(stList_length(bridgeNode->connectedNodes) != 2) {
+            return bridgeNode;
+        }
+    }
+    return stList_peek(bridgeGraph->bridgeNodes);
+}
+
+stList *stCactusGraph_getUltraBubbles(stCactusGraph *graph, stCactusNode *startNode) {
+    /*
+     * Constructs the set of nested ultrabubbles for a cactus graph, returning the
+     * set of top level chains as a list. A bubble is top level if it is not
+     * contained in any other. A chain is a sequence of bubbles, such that each successive
+     * bubble in the chain starts with the opposite side of a side in the previous bubble.
+     *
+     * The startNode is used as a tip for the ultra-bubble construction, it may be NULL.
      */
 
-    // Create a root bubble that is empty
-    stUltraBubble *rootBubble = stUltraBubble_construct(NULL, 0, NULL, NULL);
+    // Create the list to contain the top level chains
+    stList *topLevelChains = stList_construct3(0, (void (*)(void *))stList_destruct);
 
     // Get cactus graph components
     stList *cactusGraphComponents = stCactusGraph_getComponents(graph, 0);
@@ -1121,133 +1330,25 @@ stUltraBubble *stCactusGraph_getUltraBubbles(stCactusGraph *graph) {
     for(int64_t i=0; i<stList_length(cactusGraphComponents); i++){
         stSet *cactusGraphComponent = stList_get(cactusGraphComponents, i);
 
-        // Determine the bridge tree for the component
-        stBridgeTree *bridgeTree = stBridgeTree_getBridgeTree(stSet_peek(cactusGraphComponent));
+        // Determine the bridge graph for the component
+        stBridgeGraph *bridgeGraph = stBridgeGraph_getBridgeGraph(stSet_peek(cactusGraphComponent));
+        assert(stList_length(bridgeGraph->bridgeNodes) > 0);
 
-        // For each node in the bridge tree
-        for(int64_t j=0; j<stList_length(bridgeTree->bridgeNodes); j++) {
-            stBridgeNode *bridgeNode = stList_get(bridgeTree->bridgeNodes, j);
+        // Get a starting node for recursion
+        stBridgeNode *bridgeNode = getStartingNode(bridgeGraph);
 
-            // Set the current parent bubble to the root bubble
-            stUltraBubble *parentBubble = rootBubble;
+        // Recursively build the ultra bubble chains for the bridge graph
+        stSet *seen = stSet_construct();
+        bridgeGraphToUltraBubbles(NULL, bridgeNode, seen, topLevelChains, cactusGraphComponent, startNode);
+        assert(stSet_size(seen) == stList_length(bridgeGraph->bridgeNodes));
+        stSet_destruct(seen);
 
-            // If the bridge node has incident edges
-            if(stSet_size(bridgeNode->bridgeEnds) > 0) {
-
-                // If incident edges equals 2
-                if(stSet_size(bridgeNode->bridgeEnds) == 2) {
-
-                    // Create a bubble and attach it to parentBubble as new chain,
-                    // setting it to be parentBubble
-                    stList *bridgeEnds = stSet_getList(bridgeNode->bridgeEnds);
-                    parentBubble = stUltraBubble_construct(stUltraBubble_addNewChain(parentBubble), 0,
-                            stList_get(bridgeEnds, 0), stList_get(bridgeEnds, 1));
-                    stList_destruct(bridgeEnds);
-
-                    // Determine if the bubble is acyclic or not
-                    parentBubble->isAcyclic = isAcyclicSubgraph(parentBubble->edgeEnd1,
-                            parentBubble->edgeEnd2);
-                }
-
-                // A set to track which nodes we've constructed ultrabubbles for
-                stSet *visitedNodes = stSet_construct();
-
-                // For each node in cactusNodes
-                stSetIterator *cactusNodesIt = stSet_getIterator(bridgeNode->connectedCactusNodes);
-                stCactusNode *cactusNode;
-                while((cactusNode = stSet_getNext(cactusNodesIt)) != NULL) {
-
-                    // For each chain incident with the cactusNode
-                    stCactusNodeEdgeEndIt edgeIterator = stCactusNode_getEdgeEndIt(cactusNode);
-                    stCactusEdgeEnd *edgeEnd;
-                    while ((edgeEnd = stCactusNodeEdgeEndIt_getNext(&edgeIterator))) {
-                        assert(cactusNode == stCactusEdgeEnd_getNode(edgeEnd));
-                        if (stCactusEdgeEnd_getLink(edgeEnd) != NULL && stCactusEdgeEnd_getLinkOrientation(edgeEnd)) {
-
-                            // Make new chain
-                            stList *ultraBubbleChain = stUltraBubble_addNewChain(parentBubble);
-
-                            // For each node in the chain not in cactusNodes and not yet visited
-                            stCactusEdgeEnd *edgeEnd2 = stCactusEdgeEnd_getLink(stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd));
-                            while (edgeEnd != edgeEnd2) {
-                                stCactusNode *cactusNode2 = stCactusEdgeEnd_getNode(edgeEnd2);
-                                assert(cactusNode2 != cactusNode);
-                                if(stSet_search(bridgeNode->connectedCactusNodes, cactusNode2) == NULL && stSet_search(visitedNodes, cactusNode2) == NULL) {
-
-                                    // Call recursivelyEnumerateChainBubbles
-                                    recursiveEnumerateChainBubbles(ultraBubbleChain, cactusNode2, edgeEnd2);
-
-                                    // Add to visited
-                                    stSet_insert(visitedNodes, cactusNode2);
-                                }
-                                edgeEnd2 = stCactusEdgeEnd_getLink(stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd2));
-                            }
-
-                            // If new chain has zero length delete
-                            if(stList_length(ultraBubbleChain) == 0) {
-                                assert(stList_peek(parentBubble->chains) == ultraBubbleChain);
-                                stList_pop(parentBubble->chains);
-                                stList_destruct(ultraBubbleChain);
-                            }
-                        }
-                    }
-                }
-                stSet_destructIterator(cactusNodesIt);
-            }
-
-            // Else the bridgeNode is in a circular component
-            else {
-                // Pick the highest degree node in the cactus component
-                // Mostly this is just to make things deterministic.
-                stSetIterator *componentIt = stSet_getIterator(cactusGraphComponent);
-                stCactusNode *cactusNode = stSet_getNext(componentIt);
-                int64_t chainNumber = stCactusNode_getChainNumber(cactusNode);
-                stCactusNode *cactusNode2;
-                while((cactusNode2 = stSet_getNext(componentIt)) != NULL) {
-                    if(stCactusNode_getChainNumber(cactusNode2) > chainNumber) {
-                        cactusNode = cactusNode2;
-                        chainNumber = stCactusNode_getChainNumber(cactusNode2);
-                    }
-                }
-                stSet_destructIterator(componentIt);
-
-                // For each chain incident with the cactusNode
-                stCactusNodeEdgeEndIt edgeIterator = stCactusNode_getEdgeEndIt(cactusNode);
-                stCactusEdgeEnd *edgeEnd;
-                while ((edgeEnd = stCactusNodeEdgeEndIt_getNext(&edgeIterator))) {
-                    assert(cactusNode == stCactusEdgeEnd_getNode(edgeEnd));
-                    assert(stCactusEdgeEnd_getLink(edgeEnd) != NULL); // Can not be a bridge, by definition
-                    if (stCactusEdgeEnd_getLinkOrientation(edgeEnd)) {
-
-                        // For each node in the chain not equal to cactusNode
-                        stCactusEdgeEnd *edgeEnd2 = stCactusEdgeEnd_getLink(stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd));
-
-                        if(edgeEnd != edgeEnd2) { // If not a self loop
-                            // Make new chain
-                            stList *ultraBubbleChain = stUltraBubble_addNewChain(parentBubble);
-
-                            do {
-                                assert(stCactusEdgeEnd_getNode(edgeEnd2) != cactusNode);
-
-                                // Call recursivelyEnumerateChainBubbles
-                                recursiveEnumerateChainBubbles(ultraBubbleChain, stCactusEdgeEnd_getNode(edgeEnd2), edgeEnd2);
-
-                                edgeEnd2 = stCactusEdgeEnd_getLink(stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd2));
-                            } while (edgeEnd != edgeEnd2);
-
-                            assert(stList_length(ultraBubbleChain) > 0);
-                        }
-                    }
-                }
-            }
-        }
-
-        // Cleanup the bridge tree
-        stBridgeTree_destruct(bridgeTree);
+        // Cleanup the bridge graph
+        stBridgeGraph_destruct(bridgeGraph);
     }
 
     // Cleanup the cactus graph components
     stList_destruct(cactusGraphComponents);
 
-    return rootBubble;
+    return topLevelChains;
 }
