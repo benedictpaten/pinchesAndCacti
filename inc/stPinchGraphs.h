@@ -333,6 +333,11 @@ void stPinchSegment_split(stPinchSegment *segment, int64_t leftSideOfSplitPoint)
  */
 void stPinchSegment_putSegmentFirstInBlock(stPinchSegment *segment);
 
+/*
+ * Compare two segments by name and position.
+ */
+int stPinchSegment_compare(const stPinchSegment *segment1, const stPinchSegment *segment2);
+
 //Blocks
 
 /*
