@@ -28,4 +28,4 @@ clean :
 	rm -f ${libPath}/stPinchesAndCacti.a ${binPath}/stPinchesAndCactiTests
 
 test : all
-	python allTests.py
+	${binPath}/stPinchesAndCactiTests

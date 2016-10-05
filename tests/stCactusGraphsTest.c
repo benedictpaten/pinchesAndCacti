@@ -606,7 +606,7 @@ static void testStCactusGraph_randomTest(CuTest *testCase) {
             stCactusGraph_collapseBridges(rGraph->cactusGraph, rGraph->startNode, mergeNodeObjects);
             edgeEndsNotInChainSet = getRandomSetOfEdgeEnds(rGraph->cactusGraph, st_random());
             rGraph->startNode = stCactusGraph_breakChainsByEndsNotInChains(rGraph->cactusGraph, rGraph->startNode, mergeNodeObjects, endIsNotInChain, edgeEndsNotInChainSet);
-            stCactusGraph_collapseLongChainsOfBigFlowers(rGraph->cactusGraph, rGraph->startNode, chainLengthForBigFlower, longChain, mergeNodeObjects, 1);
+            stSet_destruct(stCactusGraph_collapseLongChainsOfBigFlowers(rGraph->cactusGraph, rGraph->startNode, chainLengthForBigFlower, longChain, mergeNodeObjects, 1));
         }
 
         //Now iterate through nodes and check chains
@@ -775,6 +775,7 @@ static void testStCactusGraph_getComponents(CuTest *testCase) {
             CuAssertTrue(testCase, component != NULL);
             CuAssertTrue(testCase, stSet_search(component, cactusNode) == cactusNode);
         }
+        stCactusGraphNodeIterator_destruct(nodeIt);
 
         int64_t totalNodeNumber = 0; // Counter to check that each node belongs to just one component
 
@@ -997,6 +998,7 @@ static void testStCactusGraph_getBridgeGraphs(CuTest *testCase) {
                     CuAssertTrue(testCase, gotLink);
                 }
             }
+            stBridgeGraph_destruct(bridgeGraph);
         }
 
         // Check we've accounted for all the bridges / nodes

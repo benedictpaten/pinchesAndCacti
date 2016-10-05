@@ -1238,6 +1238,7 @@ void bridgeGraphToUltraBubbles(stBridgeNode *pBridgeNode, stBridgeNode *bridgeNo
             }
         }
         stSet_destructIterator(cactusNodesIt);
+        stSet_destruct(visitedCactusNodes);
 
         // Recursively walk the remainder of the bridge graph to construct chains for the other nodes
         for(int64_t i=0; i<stList_length(bridgeNode->connectedNodes); i++) {
