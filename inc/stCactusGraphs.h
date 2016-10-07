@@ -34,7 +34,6 @@ typedef struct _stUltraBubble stUltraBubble;
 struct _stUltraBubble {
     stList *chains; // Each chain is an stList list of ultrabubbles in a sequence
     // such that for i > 0, edgeEnd1 of ultrabubble i in the chain is the opposite end to edgeEnd2 of ultrabubble i-1.
-    bool isAcyclic; // This currently is not properly defined
     stCactusEdgeEnd *edgeEnd1, *edgeEnd2;
 };
 
@@ -152,7 +151,7 @@ void stBridgeNode_print(stBridgeNode *bridgeNode, FILE *fileHandle);
 
 // Ultrabubbles
 
-stUltraBubble *stUltraBubble_construct(stList *parentChain, bool isAcyclic,
+stUltraBubble *stUltraBubble_construct(stList *parentChain,
         stCactusEdgeEnd *edgeEnd1, stCactusEdgeEnd *edgeEnd2);
 
 void stUltraBubble_destruct(stUltraBubble *ultraBubble);
