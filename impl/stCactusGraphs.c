@@ -720,27 +720,39 @@ stCactusNode *stCactusGraph_breakChainsByEndsNotInChains(stCactusGraph *graph,
 }
 
 static void buildComponent(stSet *component, stCactusNode *cactusNode, bool ignoreBridgeEdges) {
-    // If not already in the component
-    if(stSet_search(component, cactusNode) == NULL) {
+    stList *stack = stList_construct(); // List of nodes to be visited
+    stList_append(stack, cactusNode);
 
-        // Add to the component
-        stSet_insert(component, cactusNode);
+    // While there exists nodes to visit
+    while(stList_length(stack) > 0) {
+        stCactusNode *cactusNode2 = stList_pop(stack);
 
-        // Recursively add connected nodes
-        stCactusNodeEdgeEndIt edgeIterator = stCactusNode_getEdgeEndIt(cactusNode);
-        stCactusEdgeEnd *edgeEnd;
-        while ((edgeEnd = stCactusNodeEdgeEndIt_getNext(&edgeIterator))) {
-            assert(cactusNode == stCactusEdgeEnd_getNode(edgeEnd));
+        // If not already in the component
+        if(stSet_search(component, cactusNode2) == NULL) {
 
-            // If not ignoreBridgeEdges or is not a bridge edge
-            if(!ignoreBridgeEdges || stCactusEdgeEnd_getLink(edgeEnd) != NULL) {
-                buildComponent(component, stCactusEdgeEnd_getNode(stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd)), ignoreBridgeEdges);
+            // Add to the component
+            stSet_insert(component, cactusNode2);
+
+            // Recursively add connected nodes
+            stCactusNodeEdgeEndIt edgeIterator = stCactusNode_getEdgeEndIt(cactusNode2);
+            stCactusEdgeEnd *edgeEnd;
+            while ((edgeEnd = stCactusNodeEdgeEndIt_getNext(&edgeIterator))) {
+                assert(cactusNode2 == stCactusEdgeEnd_getNode(edgeEnd));
+
+                // If not ignoreBridgeEdges or is not a bridge edge
+                if(!ignoreBridgeEdges || stCactusEdgeEnd_getLink(edgeEnd) != NULL) {
+                    // Add to nodes to visit
+                    stList_append(stack, stCactusEdgeEnd_getNode(stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd)));
+                }
             }
         }
     }
+
+    stList_destruct(stack);
 }
 
-stList *stCactusGraph_getComponents(stCactusGraph *cactusGraph, bool ignoreBridgeEdges) {
+stList *stCactusGraph_getComponents(stCactusGraph *cactusGraph,
+                                    bool ignoreBridgeEdges) {
     stSet *seen = stSet_construct(); // Set of nodes already visited
     stList *components = stList_construct3(0, (void (*)(void *))stSet_destruct); // Components
 
