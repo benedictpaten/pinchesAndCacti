@@ -1855,7 +1855,7 @@ stSnarlDecomposition *stCactusGraph_getSnarlDecomposition(stCactusGraph *cactusG
 
 	// Make snarl decomposition object
 	stSnarlDecomposition *snarlDecomposition = st_calloc(1, sizeof(stSnarlDecomposition));
-	snarlDecomposition->topLevelChains = stList_construct();
+	snarlDecomposition->topLevelChains = stList_construct3(0, (void (*)(void *))stList_destruct);
 
 	// Make empty snarl cache, used to avoid constructing the same snarl twice
 	stSet *snarlCache = getEmptySnarlCache();
@@ -1870,4 +1870,64 @@ stSnarlDecomposition *stCactusGraph_getSnarlDecomposition(stCactusGraph *cactusG
 	stSet_destruct(snarlCache);
 
 	return snarlDecomposition;
+}
+
+void stSnarlDecomposition_destruct(stSnarlDecomposition *snarls) {
+	stList_destruct(snarls->topLevelChains);
+	free(snarls);
+}
+
+/*
+ * Functions for printing snarl decomposition.
+ */
+
+void stSnarl_print2(stSnarl *snarl, FILE *fileHandle, const char *parentPrefix, const char *parentChainPrefix);
+
+void stSnarl_printUnary(stSnarl *snarl, FILE *fileHandle, const char *parentPrefix, const char *parentChainPrefix);
+
+void stSnarl_printChains2(stList *chains, FILE *fileHandle, const char *parentPrefix, const char *parentChainPrefix) {
+    for(int64_t i=0; i<stList_length(chains); i++) {
+        stList *chain = stList_get(chains, i);
+        char *chainPrefix = stString_print("%s-%" PRIi64 "", parentChainPrefix, i);
+        fprintf(fileHandle, "%s\tChain: %s\tLength: %" PRIi64 "\n", parentPrefix, chainPrefix, stList_length(chain));
+        for(int64_t j=0; j<stList_length(chain); j++) {
+            char *prefix = stString_print("%s%s", parentPrefix, "\t\t");
+            stSnarl_print2(stList_get(chain, j), fileHandle, prefix, chainPrefix);
+            free(prefix);
+        }
+        free(chainPrefix);
+    }
+}
+
+void stSnarl_print2(stSnarl *snarl, FILE *fileHandle, const char *parentPrefix, const char *parentChainPrefix) {
+    fprintf(fileHandle, "%sSnarl,\tchild-chain-number: %" PRIi64 ", \tunary-snarl-child-number: %" PRIi64 ", \tparent-number: %" PRIi64
+    		"\tis_bridge_snarl: %s\tSide1:(%" PRIi64 ",%" PRIi64 ")\tSide2:(%" PRIi64 ",%" PRIi64 ")\n", parentPrefix,
+            stList_length(snarl->chains), stList_length(snarl->unarySnarls), stList_length(snarl->parentSnarls),
+			stCactusEdgeEnd_getLink(snarl->edgeEnd1) == NULL ? "true" : "false",
+			(int64_t)stCactusEdgeEnd_getOtherEdgeEnd(snarl->edgeEnd1), (int64_t)snarl->edgeEnd1,
+            (int64_t)snarl->edgeEnd2, (int64_t)stCactusEdgeEnd_getOtherEdgeEnd(snarl->edgeEnd2));
+    stSnarl_printChains2(snarl->chains, fileHandle, parentPrefix, parentChainPrefix);
+    for(int64_t i=0; i<stList_length(snarl->unarySnarls); i++) {
+    	stSnarl_printUnary(stList_get(snarl->unarySnarls, i), fileHandle, parentPrefix, parentChainPrefix);
+    }
+}
+
+void stSnarl_printUnary(stSnarl *snarl, FILE *fileHandle, const char *parentPrefix, const char *parentChainPrefix) {
+	fprintf(fileHandle, "%sUnary Snarl,\tchild-chain-number: %" PRIi64 ", \tunary-snarl-child-number: %" PRIi64 ", \tparent-number: %" PRIi64
+			"\tSide:(%" PRIi64 ",%" PRIi64 ")\n", parentPrefix,
+			stList_length(snarl->chains), stList_length(snarl->unarySnarls), stList_length(snarl->parentSnarls),
+			(int64_t)stCactusEdgeEnd_getOtherEdgeEnd(snarl->edgeEnd1), (int64_t)snarl->edgeEnd1);
+	stSnarl_printChains2(snarl->chains, fileHandle, parentPrefix, parentChainPrefix);
+	for(int64_t i=0; i<stList_length(snarl->unarySnarls); i++) {
+		stSnarl_printUnary(stList_get(snarl->unarySnarls, i), fileHandle, parentPrefix, parentChainPrefix);
+	}
+}
+
+void stSnarl_print(stSnarl *snarl, FILE *fileHandle) {
+    stSnarl_print2(snarl, fileHandle, "", "C");
+}
+
+void stSnarlDecomposition_print(stSnarlDecomposition *snarls, FILE *fileHandle) {
+    fprintf(fileHandle, "Top level chains, total: %" PRIi64 "\n", stList_length(snarls->topLevelChains));
+    stSnarl_printChains2(snarls->topLevelChains, fileHandle, "", "C");
 }

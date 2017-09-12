@@ -1089,7 +1089,140 @@ static void testStCactusGraph_randomUltraBubbleTest(CuTest *testCase) {
         destroyRandomCactusGraph(rGraph);
         stList_destruct(topLevelUltraBubbleChains);
     }
+}
 
+static void checkSnarlChain(CuTest *testCase, stList *chain, stSnarl *parent);
+
+static void checkSnarl(CuTest *testCase, stSnarl *snarl, stSnarl *parent);
+
+static void checkUnarySnarl(CuTest *testCase, stSnarl *snarl, stSnarl *parent);
+
+static void checkNestedSnarls(CuTest *testCase, stSnarl *snarl) {
+	// Check nested unary snarls
+	for(int64_t i=0; i<stList_length(snarl->unarySnarls); i++) {
+		checkUnarySnarl(testCase, stList_get(snarl->unarySnarls, i), snarl);
+	}
+
+	// Check nested chains
+	for(int64_t i=0; i<stList_length(snarl->chains); i++) {
+		checkSnarlChain(testCase, stList_get(snarl->chains, i), snarl);
+	}
+}
+
+static void checkUnarySnarl(CuTest *testCase, stSnarl *snarl, stSnarl *parent) {
+	// Check has just one boundary
+	CuAssertTrue(testCase, snarl->edgeEnd1 == snarl->edgeEnd2);
+
+	// Check is bridge
+	CuAssertTrue(testCase, stCactusEdgeEnd_getLink(snarl->edgeEnd1) == NULL);
+
+	// Check has reference to parent
+	CuAssertTrue(testCase, stList_contains(snarl->parentSnarls, parent));
+
+	checkNestedSnarls(testCase, snarl); // Recursively check children
+}
+
+static void checkSnarl(CuTest *testCase, stSnarl *snarl, stSnarl *parent) {
+	// Check not a unary snarl
+	CuAssertTrue(testCase, snarl->edgeEnd1 != snarl->edgeEnd2);
+
+    // Check that the removal of both edges disconnects the cactus
+
+    if(stCactusEdgeEnd_getLink(snarl->edgeEnd1) == NULL) { // Is a bridge
+        // The other end must also be a bridge for the graph to be disconnected by their removal
+        CuAssertTrue(testCase, stCactusEdgeEnd_getLink(snarl->edgeEnd2) == NULL);
+
+        // Can not be nested
+        CuAssertTrue(testCase, parent == NULL);
+    }
+    else { // Is in a chain
+        // Other end can not be a bridge
+        CuAssertTrue(testCase, stCactusEdgeEnd_getLink(snarl->edgeEnd2) != NULL);
+
+        // As both are in a chain, must be connected
+        CuAssertTrue(testCase, stCactusEdgeEnd_getLink(snarl->edgeEnd1) == snarl->edgeEnd2);
+        CuAssertTrue(testCase, stCactusEdgeEnd_getLink(snarl->edgeEnd2) == snarl->edgeEnd1);
+        CuAssertTrue(testCase, stCactusEdgeEnd_getNode(snarl->edgeEnd1) == stCactusEdgeEnd_getNode(snarl->edgeEnd2));
+
+        // If parent is not null, check has reference to parent
+        if(parent != NULL) {
+        	CuAssertTrue(testCase, stList_contains(snarl->parentSnarls, parent));
+        }
+    }
+
+    checkNestedSnarls(testCase, snarl); // Recursively check children
+}
+
+static void checkSnarlChain(CuTest *testCase, stList *chain, stSnarl *parent) {
+	// Check chain is not empty
+	CuAssertTrue(testCase, stList_length(chain) > 0);
+
+	// For each snarl in chain
+	for(int64_t j=0; j<stList_length(chain); j++) {
+		stSnarl *snarl = stList_get(chain, j);
+
+		// If there is a preceding element in the chain, check that the ends match up
+		if(j > 0) {
+			stSnarl *pSnarl = stList_get(chain, j-1);
+			CuAssertTrue(testCase, stCactusEdgeEnd_getOtherEdgeEnd(pSnarl->edgeEnd2) == snarl->edgeEnd1);
+		}
+
+		// Recursively check the nested snarl
+		checkSnarl(testCase, snarl, parent);
+	}
+}
+
+static void checkSnarlDecomposition(CuTest *testCase, stSnarlDecomposition *snarls, stList *telomeres) {
+
+	// Check we got the expected number of top level chains
+	CuAssertIntEquals(testCase, stList_length(snarls->topLevelChains), stList_length(telomeres)/2);
+
+	// For each top level chain
+    for(int64_t i=0; i<stList_length(snarls->topLevelChains); i++) {
+        stList *chain = stList_get(snarls->topLevelChains, i);
+
+        // Check chain recursively
+        checkSnarlChain(testCase, chain, NULL);
+
+        // Check boundaries are what we expect
+        CuAssertTrue(testCase, stList_get(telomeres, i*2) == ((stSnarl *)stList_get(chain, 0))->edgeEnd1);
+        CuAssertTrue(testCase, stList_get(telomeres, i*2+1) == ((stSnarl *)stList_peek(chain))->edgeEnd2);
+    }
+}
+
+static void testStCactusGraph_randomSnarlTest(CuTest *testCase) {
+    // Creates problem instances, then checks resulting snarl set.
+    for (int64_t test = 0; test < 1000; test++) {
+        // Make a random graph
+        struct RandomCactusGraph *rGraph = getRandomCactusGraph(0);
+
+        // Get a random set of telomere pairs
+        stList *telomeres = stList_construct();
+
+        // Make ultrabubbles
+        stSnarlDecomposition *snarls = stCactusGraph_getSnarlDecomposition(rGraph->cactusGraph, telomeres);
+
+        // Print the bridge graphs
+        stList *components = stCactusGraph_getComponents(rGraph->cactusGraph, 0);
+        for(int64_t i=0; i<stList_length(components); i++) {
+            stSet *component = stList_get(components, i);
+            stBridgeGraph *bridgeGraph = stBridgeGraph_getBridgeGraph(stSet_peek(component));
+            for(int64_t j=0; j<stList_length(bridgeGraph->bridgeNodes); j++) {
+                stBridgeNode_print(stList_get(bridgeGraph->bridgeNodes, j), stdout);
+            }
+        }
+        stList_destruct(components);
+
+        // Print the snarl decomposition
+        stSnarlDecomposition_print(snarls, stdout);
+
+        // Test the ultrabubbles
+        checkSnarlDecomposition(testCase, snarls, telomeres);
+
+        // Cleanup
+        destroyRandomCactusGraph(rGraph);
+        stSnarlDecomposition_destruct(snarls);
+    }
 }
 
 CuSuite* stCactusGraphsTestSuite(void) {
@@ -1104,5 +1237,6 @@ CuSuite* stCactusGraphsTestSuite(void) {
     SUITE_ADD_TEST(suite, testStCactusGraph_getComponents);
     SUITE_ADD_TEST(suite, testStCactusGraph_getBridgeGraphs);
     SUITE_ADD_TEST(suite, testStCactusGraph_randomUltraBubbleTest);
+    SUITE_ADD_TEST(suite, testStCactusGraph_randomSnarlTest);
     return suite;
 }

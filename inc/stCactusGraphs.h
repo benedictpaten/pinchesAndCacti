@@ -276,6 +276,12 @@ uint64_t stSnarl_hashKey(const void *snarl);
 
 int stSnarl_equals(const void *snarl1, const void *snarl2);
 
+void stSnarl_print(stSnarl *snarl, FILE *fileHandle);
+
+void stSnarlDecomposition_destruct(stSnarlDecomposition *snarls);
+
+void stSnarlDecomposition_print(stSnarlDecomposition *snarls, FILE *fileHandle);
+
 #ifdef __cplusplus
 }
 #endif
