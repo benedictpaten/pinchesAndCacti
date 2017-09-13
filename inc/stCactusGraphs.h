@@ -15,15 +15,6 @@ extern "C"{
 #endif
 
 /*
- * Plan:
- *
- * - Add better comments/docs
- * - Rename ultrabubbles snarls
- * - Add 1-terminal snarls to output
- * - Add ability to define path for top level chain from snarls
- */
-
-/*
  * The basic data structures representing a cactus graph
  */
 
@@ -98,14 +89,6 @@ typedef struct _stCactusGraphNodeIterator {
  * Snarls
  */
 
-// Ultra bubbles
-typedef struct _stUltraBubble stUltraBubble;
-struct _stUltraBubble {
-    stList *chains; // Each chain is an stList list of ultrabubbles in a sequence
-    // such that for i > 0, edgeEnd1 of ultrabubble i in the chain is the opposite end to edgeEnd2 of ultrabubble i-1.
-    stCactusEdgeEnd *edgeEnd1, *edgeEnd2;
-};
-
 typedef struct _stSnarl {
     // The boundaries of the snarl
     stCactusEdgeEnd *edgeEnd1, *edgeEnd2;
@@ -126,6 +109,9 @@ typedef struct _stSnarl {
 typedef struct _stSnarlDecomposition {
 	// List of top level chains. These chains may overlap.
 	stList *topLevelChains;
+
+	// Top level unary snarls
+	stList *topLevelUnarySnarls;
 
 } stSnarlDecomposition;
 
@@ -230,9 +216,6 @@ stList *stCactusGraph_getComponents(stCactusGraph *cactusGraph, bool ignoreBridg
 
 stHash *stCactusGraphComponents_getNodesToComponentsMap(stList *components);
 
-// Used to compute ultrabubbles, startNode may be NULL.
-stList *stCactusGraph_getUltraBubbles(stCactusGraph *graph, stCactusNode *startNode);
-
 int64_t stCactusGraph_getNodeNumber(stCactusGraph *graph);
 
 stSnarlDecomposition *stCactusGraph_getSnarlDecomposition(stCactusGraph *cactusGraph, stList *snarlChainEnds);
@@ -251,17 +234,6 @@ void stBridgeGraph_destruct(stBridgeGraph *bridgeGraph);
 void stBridgeNode_print(stBridgeNode *bridgeNode, FILE *fileHandle);
 
 stHash *stBridgeGraph_getBridgeEdgeEndsToBridgeNodesHash(stBridgeGraph *bridgeGraph);
-
-// Ultrabubbles
-
-stUltraBubble *stUltraBubble_construct(stList *parentChain,
-        stCactusEdgeEnd *edgeEnd1, stCactusEdgeEnd *edgeEnd2);
-
-void stUltraBubble_destruct(stUltraBubble *ultraBubble);
-
-void stUltraBubble_print(stUltraBubble *ultraBubble, FILE *fileHandle);
-
-void stUltraBubble_printChains(stList *ultraBubbleChains, FILE *fileHandle);
 
 // Snarls
 
