@@ -1234,7 +1234,7 @@ static void testStCactusGraph_randomSnarlTest(CuTest *testCase) {
         stList_destruct(components);*/
 
         // Print the snarl decomposition
-        stSnarlDecomposition_print(snarls, stdout);
+        //stSnarlDecomposition_print(snarls, stdout);
 
         // Test the snarls
         checkSnarlDecomposition(testCase, snarls, telomeres);
