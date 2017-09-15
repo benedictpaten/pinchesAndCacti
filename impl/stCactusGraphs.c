@@ -1078,24 +1078,27 @@ stSnarl *stSnarl_constructEmptySnarl(stCactusEdgeEnd *edgeEnd1, stCactusEdgeEnd 
 	snarl->edgeEnd2 = edgeEnd2;
 	snarl->chains = stList_construct3(0, (void (*)(void *))stList_destruct);
 	snarl->unarySnarls = stList_construct3(0, (void (*)(void *))stSnarl_destruct);
-	snarl->parentSnarls = stList_construct();
+	snarl->parentCount = 1; // start off assuming there is one parent referencing the snarl
 
 	return snarl;
 }
 
 void stSnarl_destruct(stSnarl *snarl) {
-	stList_destruct(snarl->chains);
-	stList_destruct(snarl->unarySnarls);
-	stList_destruct(snarl->parentSnarls);
-	free(snarl);
+	// Cleanup only happens once all references to the snarl are released
+	assert(snarl->parentCount > 0);
+	if(--snarl->parentCount <= 0) {
+		stList_destruct(snarl->chains);
+		stList_destruct(snarl->unarySnarls);
+		free(snarl);
+	}
 }
 
 uint64_t stSnarl_hashKey(const void *snarl) {
 	/*
-	 * Hash key for snarls that hashes the two boundary edge end references.
+	 * Hash key for snarls that hashes on boundary edge end references.
 	 */
 	stSnarl *s = (stSnarl *)snarl;
-	return stHash_pointer(s->edgeEnd1) + stHash_pointer(s->edgeEnd2);
+	return stHash_pointer(s->edgeEnd1) ^ stHash_pointer(s->edgeEnd2);
 }
 
 int stSnarl_equals(const void *snarl1, const void *snarl2) {
@@ -1123,7 +1126,7 @@ static stSnarl *getSnarlFromCache(stSet *snarlCache,
 }
 
 stSnarl *stSnarl_makeRecursiveSnarl(stCactusEdgeEnd *edgeEnd1, stCactusEdgeEnd *edgeEnd2,
-									stSet *snarlCache, stSnarl *parentSnarl) {
+									stSet *snarlCache) {
 	/*
 	 * Makes a snarl, recursively constructing all its child snarls. If a unary snarl
 	 * edgeEnd1 == edgeEnd2.
@@ -1140,11 +1143,13 @@ stSnarl *stSnarl_makeRecursiveSnarl(stCactusEdgeEnd *edgeEnd1, stCactusEdgeEnd *
 	stSnarl *snarl = getSnarlFromCache(snarlCache, edgeEnd1, edgeEnd2);
 
 	if(snarl == NULL) { // If not in the cache
-		snarl = stSnarl_constructEmptySnarl(edgeEnd1, edgeEnd2);
+		snarl = stSnarl_constructEmptySnarl(edgeEnd1, edgeEnd2); // This sets the initial parent count to 1
+		stSet_insert(snarlCache, snarl); // Add to the cache
 
 		// For each edge end incident with the cactus node
 		stCactusEdgeEnd *edgeEnd = edgeEnd1->node->head;
 		while(edgeEnd != NULL) {
+			assert(edgeEnd->node == edgeEnd1->node);
 
 			// If not edgeEnd1 or edgeEnd2
 			if(edgeEnd != edgeEnd1 && edgeEnd != edgeEnd2) {
@@ -1153,7 +1158,7 @@ stSnarl *stSnarl_makeRecursiveSnarl(stCactusEdgeEnd *edgeEnd1, stCactusEdgeEnd *
 					assert(edgeEnd->otherEdgeEnd->node != edgeEnd->node); // not a trivial chain
 					// Make a new nested unary snarl
 					stList_append(snarl->unarySnarls, stSnarl_makeRecursiveSnarl(edgeEnd->otherEdgeEnd,
-							edgeEnd->otherEdgeEnd, snarlCache, snarl));
+							edgeEnd->otherEdgeEnd, snarlCache));
 				}
 				// else is a chain
 				else if(edgeEnd->linkOrientation /* is the positive end of link in chain */ &&
@@ -1167,9 +1172,12 @@ stSnarl *stSnarl_makeRecursiveSnarl(stCactusEdgeEnd *edgeEnd1, stCactusEdgeEnd *
 					stCactusEdgeEnd *chainEnd = edgeEnd->link->otherEdgeEnd;
 					assert(chainEnd != edgeEnd);
 					do {
+						assert(chainEnd->node != edgeEnd->node);
 						assert(chainEnd->linkOrientation);
+						assert(chainEnd->link != edgeEnd);
+						assert(chainEnd->node == chainEnd->link->node);
 						stList_append(chain, stSnarl_makeRecursiveSnarl(chainEnd, chainEnd->link,
-								snarlCache, snarl));
+								snarlCache));
 						chainEnd = chainEnd->link->otherEdgeEnd;
 					} while(chainEnd != edgeEnd);
 				}
@@ -1179,10 +1187,8 @@ stSnarl *stSnarl_makeRecursiveSnarl(stCactusEdgeEnd *edgeEnd1, stCactusEdgeEnd *
 			edgeEnd = edgeEnd->nEdgeEnd;
 		}
 	}
-
-	// Add parent snarl
-	if(parentSnarl != NULL) {
-		stList_append(snarl->parentSnarls, parentSnarl);
+	else { // As we got it from the cache, increase the parent count
+		snarl->parentCount++;
 	}
 
 	return snarl;
@@ -1295,7 +1301,7 @@ bool getNodesOnPathInCactusTreeBetweenBridgeSnarlBoundaries2(stList *nodePath, s
 			   edgeEnd != currentEdgeEnd && edgeEnd != currentEdgeEnd->link) {
 
 				// Recurse
-				if(getNodesOnPathInCactusTreeBetweenBridgeSnarlBoundaries2(nodePath, seen, edgeEnd, endEdgeEnd)) {
+				if(getNodesOnPathInCactusTreeBetweenBridgeSnarlBoundaries2(nodePath, seen, edgeEnd->otherEdgeEnd, endEdgeEnd)) {
 					return 1;
 				}
 			}
@@ -1375,7 +1381,7 @@ stList *stCactusGraph_getTopLevelSnarlChain(stCactusGraph *cactusGraph,
 
 		stCactusEdgeEnd *end = startEdgeEnd;
 		while(1) {
-			stList_append(topLevelChain, stSnarl_makeRecursiveSnarl(end, end->link, snarlCache, NULL));
+			stList_append(topLevelChain, stSnarl_makeRecursiveSnarl(end, end->link, snarlCache));
 
 			if(end->link == endEdgeEnd) {
 				break; // we're done
@@ -1400,32 +1406,33 @@ stList *stCactusGraph_getTopLevelSnarlChain(stCactusGraph *cactusGraph,
 		// Get edges on the path in the bridge graph connecting the projection of startEdgeEnd and endEdgeEnd, starting
 		// with startEdgeEnd and ending with endEdgeEnd
 		stList *bridgePath = getBridgePathConnectingEnds(bridgeGraph, startEdgeEnd, endEdgeEnd);
+		assert(stList_length(bridgePath) > 0);
+		assert(stList_length(bridgePath) % 2 == 0);
 
 		// For each induced snarl on the path of bridge nodes
 
 		for(int64_t i=0; i+1<stList_length(bridgePath); i+=2) {
 			// Get the link in the chain
 			stCactusEdgeEnd *leftSnarlEnd = stList_get(bridgePath, i);
-			stCactusEdgeEnd *rightSnarlEnd = stList_get(bridgePath, i+2);
+			stCactusEdgeEnd *rightSnarlEnd = stList_get(bridgePath, i+1);
 
 			// If we can't find it in the cache build it
-			// if it is in the cache we need to nothing further
-			if(getSnarlFromCache(snarlCache, leftSnarlEnd, rightSnarlEnd) == NULL) {
+			stSnarl *snarl;
+			if((snarl = getSnarlFromCache(snarlCache, leftSnarlEnd, rightSnarlEnd)) == NULL) {
 
 				// Build top level snarl and add to top level chain
-				stSnarl *snarl = stSnarl_constructEmptySnarl(leftSnarlEnd, rightSnarlEnd);
+				snarl = stSnarl_constructEmptySnarl(leftSnarlEnd, rightSnarlEnd);
+				stSet_insert(snarlCache, snarl); // Add to the cache
 
 				// Get nodes on the path in the cactus tree that connect the induced snarl
 				stList *nodesOnPathBetweenSnarlBoundariesList = getNodesOnPathInCactusTreeBetweenBridgeSnarlBoundaries(leftSnarlEnd, rightSnarlEnd);
 				stSet *nodesOnPathBetweenSnarlBoundaries = stList_getSet(nodesOnPathBetweenSnarlBoundariesList);
-				stList_destruct(nodesOnPathBetweenSnarlBoundariesList);
 
 				// Traverse chains incident with these nodes, breaking chains where ever they intersect these nodes
 
 				// For each node on the path in the cactus tree between the induced snarl ends
-				stSetIterator *nodeIt = stSet_getIterator(nodesOnPathBetweenSnarlBoundaries);
-				stCactusNode *cactusNode;
-				while((cactusNode = stSet_getNext(nodeIt)) != NULL) {
+				for(int64_t j=0; j<stList_length(nodesOnPathBetweenSnarlBoundariesList); j++) {
+					stCactusNode *cactusNode = stList_get(nodesOnPathBetweenSnarlBoundariesList, j);
 
 					// For each chain or bridge incident with the node
 					stCactusEdgeEnd *edgeEnd = cactusNode->head;
@@ -1448,19 +1455,19 @@ stList *stCactusGraph_getTopLevelSnarlChain(stCactusGraph *cactusGraph,
 									stCactusEdgeEnd *chainEnd = edgeEnd->link->otherEdgeEnd; // Walk around chain in positive orientation
 									do {
 										assert(chainEnd->linkOrientation);
-										assert(stSet_search(nodesOnPathBetweenSnarlBoundaries, chainEnd) == NULL);
+										assert(stSet_search(nodesOnPathBetweenSnarlBoundaries, chainEnd->node) == NULL);
 
 										//  Add a nested snarl to the chain
-										stList_append(nestedChain, stSnarl_makeRecursiveSnarl(chainEnd, chainEnd->link, snarlCache, snarl));
+										stList_append(nestedChain, stSnarl_makeRecursiveSnarl(chainEnd, chainEnd->link, snarlCache));
 
 										chainEnd = chainEnd->link->otherEdgeEnd;
-									} while(stSet_search(nodesOnPathBetweenSnarlBoundaries, chainEnd) == NULL);
+									} while(stSet_search(nodesOnPathBetweenSnarlBoundaries, chainEnd->node) == NULL);
 								}
 							}
 						}
 						else { // Is a bridge
 							assert(edgeEnd->otherEdgeEnd->node != edgeEnd->node); // Is a bridge, not a trivial chain
-							stList_append(snarl->unarySnarls, stSnarl_makeRecursiveSnarl(edgeEnd->otherEdgeEnd, edgeEnd->otherEdgeEnd, snarlCache, snarl));
+							stList_append(snarl->unarySnarls, stSnarl_makeRecursiveSnarl(edgeEnd->otherEdgeEnd, edgeEnd->otherEdgeEnd, snarlCache));
 						}
 
 						// Get next edge end incident with the node
@@ -1470,7 +1477,15 @@ stList *stCactusGraph_getTopLevelSnarlChain(stCactusGraph *cactusGraph,
 
 				// Cleanup
 				stSet_destruct(nodesOnPathBetweenSnarlBoundaries);
+				stList_destruct(nodesOnPathBetweenSnarlBoundariesList);
 			}
+			else {
+				// As we got the snarl from the cache, increase its parent count
+				snarl->parentCount++;
+			}
+
+			// Add to the chain
+			stList_append(topLevelChain, snarl);
 		}
 
 		// Cleanup
@@ -1510,7 +1525,7 @@ stSnarlDecomposition *stCactusGraph_getSnarlDecomposition(stCactusGraph *cactusG
 		}
 		else { // If is a unary snarl
 			stList_append(snarlDecomposition->topLevelUnarySnarls,
-					stSnarl_makeRecursiveSnarl(edgeEnd1, edgeEnd2, snarlCache, NULL));
+					stSnarl_makeRecursiveSnarl(edgeEnd1, edgeEnd2, snarlCache));
 		}
 	}
 
@@ -1551,7 +1566,7 @@ void stSnarl_printChains2(stList *chains, FILE *fileHandle, const char *parentPr
 void stSnarl_print2(stSnarl *snarl, FILE *fileHandle, const char *parentPrefix, const char *parentChainPrefix) {
     fprintf(fileHandle, "%sSnarl,\tchild-chain-number: %" PRIi64 ", \tunary-snarl-child-number: %" PRIi64 ", \tparent-number: %" PRIi64
     		"\tis_bridge_snarl: %s\tSide1:(%" PRIi64 ",%" PRIi64 ")\tSide2:(%" PRIi64 ",%" PRIi64 ")\n", parentPrefix,
-            stList_length(snarl->chains), stList_length(snarl->unarySnarls), stList_length(snarl->parentSnarls),
+            stList_length(snarl->chains), stList_length(snarl->unarySnarls), snarl->parentCount,
 			stCactusEdgeEnd_getLink(snarl->edgeEnd1) == NULL ? "true" : "false",
 			(int64_t)stCactusEdgeEnd_getOtherEdgeEnd(snarl->edgeEnd1), (int64_t)snarl->edgeEnd1,
             (int64_t)snarl->edgeEnd2, (int64_t)stCactusEdgeEnd_getOtherEdgeEnd(snarl->edgeEnd2));
@@ -1564,7 +1579,7 @@ void stSnarl_print2(stSnarl *snarl, FILE *fileHandle, const char *parentPrefix, 
 void stSnarl_printUnary(stSnarl *snarl, FILE *fileHandle, const char *parentPrefix, const char *parentChainPrefix) {
 	fprintf(fileHandle, "%sUnary Snarl,\tchild-chain-number: %" PRIi64 ", \tunary-snarl-child-number: %" PRIi64 ", \tparent-number: %" PRIi64
 			"\tSide:(%" PRIi64 ",%" PRIi64 ")\n", parentPrefix,
-			stList_length(snarl->chains), stList_length(snarl->unarySnarls), stList_length(snarl->parentSnarls),
+			stList_length(snarl->chains), stList_length(snarl->unarySnarls), snarl->parentCount,
 			(int64_t)stCactusEdgeEnd_getOtherEdgeEnd(snarl->edgeEnd1), (int64_t)snarl->edgeEnd1);
 	stSnarl_printChains2(snarl->chains, fileHandle, parentPrefix, parentChainPrefix);
 	for(int64_t i=0; i<stList_length(snarl->unarySnarls); i++) {

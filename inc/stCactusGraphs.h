@@ -100,9 +100,8 @@ typedef struct _stSnarl {
     // The unary snarls contained in the snarl, for which edgeEnd1 == edgeEnd2
     stList *unarySnarls;
 
-    // Parent snarls, the snarls that this snarl is contained in -
-    // can be multiple, because top level traversals can overlap
-    stList *parentSnarls;
+    // The number of snarls / top-level chains this snarl is contained, vital for memory management
+    uint64_t parentCount;
 
 } stSnarl;
 
@@ -110,7 +109,7 @@ typedef struct _stSnarlDecomposition {
 	// List of top level chains. These chains may overlap.
 	stList *topLevelChains;
 
-	// Top level unary snarls
+	// Top level unary snarls, these are created by handing in a pair of equal bridge ends as telomeres
 	stList *topLevelUnarySnarls;
 
 } stSnarlDecomposition;
@@ -242,7 +241,7 @@ stSnarl *stSnarl_constructEmptySnarl(stCactusEdgeEnd *edgeEnd1, stCactusEdgeEnd 
 void stSnarl_destruct(stSnarl *snarl);
 
 stSnarl *stSnarl_makeRecursiveSnarl(stCactusEdgeEnd *edgeEnd1, stCactusEdgeEnd *edgeEnd2,
-		stSet *snarlCache, stSnarl *parentSnarl);
+		stSet *snarlCache);
 
 uint64_t stSnarl_hashKey(const void *snarl);
 
