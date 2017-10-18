@@ -14,32 +14,113 @@
 extern "C"{
 #endif
 
-typedef struct _stCactusNode stCactusNode;
+/*
+ * The basic data structures representing a cactus graph
+ */
 
 typedef struct _stCactusEdgeEnd stCactusEdgeEnd;
 
+typedef struct _stCactusNode {
+	/*
+	 * A vertex in the cactus graph
+	 */
+
+	// A linked list of the edge ends (sides) in the cactus graph incident with this node
+    stCactusEdgeEnd *head;
+    stCactusEdgeEnd *tail;
+
+    // The underlying object, e.g. adjacency component of pinchNodes, that "project to" this cactus node
+    void *nodeObject;
+} stCactusNode;
+
+struct _stCactusEdgeEnd {
+	/*
+	 * The end of an edge in the cactus graph.
+	 * Symmetrically, each edge is composed of two such ends.
+	 */
+
+	// The other end (side) of the edge
+    stCactusEdgeEnd *otherEdgeEnd;
+
+    // The incident vertex in the cactus graph
+    stCactusNode *node;
+
+    // A link in linked-list of edge ends that are incident with the incident node. See
+    // stCactusNode->head and stCactusNode->tail
+    stCactusEdgeEnd *nEdgeEnd;
+
+    // The underlying object, e.g. a pinchEdgeEnd
+    void *endObject;
+
+    // If the edge end is in a snarl, the other edge end in the snarl - which must also
+    // be incident with the given cactus node
+    stCactusEdgeEnd *link;
+
+    // Variables used to orient the cactus graph
+    bool linkOrientation;
+    bool isChainEnd;
+};
+
+typedef struct _stCactusGraph {
+	// A hash from underlying node objects to their given nodes
+    stHash *objectToNodeHash;
+
+    // Cleanup functions for the underlying node and edge end objects
+    void (*destructNodeObjectFn)(void *);
+    void (*destructEdgeEndObjectFn)(void *);
+} stCactusGraph;
+
 typedef struct _stCactusNodeEdgeEndIt {
+	/*
+	 * Iterator over the edge ends incident with a given node in the cactus graph.
+	 */
     stCactusEdgeEnd *edgeEnd;
 } stCactusNodeEdgeEndIt;
 
-typedef struct _stCactusGraph stCactusGraph;
-
 typedef struct _stCactusGraphNodeIterator {
+	/*
+	 * Iterator over the nodes in a cactus graph
+	 */
     stHashIterator *it;
     stCactusGraph *graph;
 } stCactusGraphNodeIt;
 
-// Ultra bubbles
-typedef struct _stUltraBubble stUltraBubble;
-struct _stUltraBubble {
-    stList *chains; // Each chain is an stList list of ultrabubbles in a sequence
-    // such that for i > 0, edgeEnd1 of ultrabubble i in the chain is the opposite end to edgeEnd2 of ultrabubble i-1.
+/*
+ * Snarls
+ */
+
+typedef struct _stSnarl {
+    // The boundaries of the snarl
     stCactusEdgeEnd *edgeEnd1, *edgeEnd2;
-};
+
+    // The chains contained in the snarl
+    stList *chains; // Each chain is an stList list of stSnarls in a sequence
+    // such that for i > 0, edgeEnd1 of snarl i in the chain is the opposite end to edgeEnd2 of snarl i-1.
+
+    // The unary snarls contained in the snarl, for which edgeEnd1 == edgeEnd2
+    stList *unarySnarls;
+
+    // The number of snarls / top-level chains this snarl is contained, vital for memory management
+    uint64_t parentCount;
+
+} stSnarl;
+
+typedef struct _stSnarlDecomposition {
+	// List of top level chains. These chains may overlap.
+	stList *topLevelChains;
+
+	// Top level unary snarls, these are created by handing in a pair of equal bridge ends as telomeres
+	stList *topLevelUnarySnarls;
+
+} stSnarlDecomposition;
+
+/*
+ * Bridge graph
+ */
 
 typedef struct _stBridgeNode stBridgeNode;
 struct _stBridgeNode {
-    stList *connectedNodes; // (stBridgNode) Connected bridge nodes
+    stList *connectedNodes; // (stBridgeNode) Connected bridge nodes
     stSet *bridgeEnds; // (stCactusEdgeEnd) The ends of the bridges in the cactus graph
     // that project to the node
     stSet *cactusNodes; // (stCactusNode) The cactus nodes which project to the node
@@ -134,10 +215,12 @@ stList *stCactusGraph_getComponents(stCactusGraph *cactusGraph, bool ignoreBridg
 
 stHash *stCactusGraphComponents_getNodesToComponentsMap(stList *components);
 
-// Used to compute ultrabubbles, startNode may be NULL.
-stList *stCactusGraph_getUltraBubbles(stCactusGraph *graph, stCactusNode *startNode);
-
 int64_t stCactusGraph_getNodeNumber(stCactusGraph *graph);
+
+stSnarlDecomposition *stCactusGraph_getSnarlDecomposition(stCactusGraph *cactusGraph, stList *snarlChainEnds);
+
+stList *stCactusGraph_getTopLevelSnarlChain(stCactusGraph *cactusGraph,
+		stCactusEdgeEnd *startEdgeEnd, stCactusEdgeEnd *endEdgeEnd, stSet *snarlCache);
 
 // Bridge graphs
 
@@ -149,17 +232,26 @@ void stBridgeGraph_destruct(stBridgeGraph *bridgeGraph);
 
 void stBridgeNode_print(stBridgeNode *bridgeNode, FILE *fileHandle);
 
-// Ultrabubbles
+stHash *stBridgeGraph_getBridgeEdgeEndsToBridgeNodesHash(stBridgeGraph *bridgeGraph);
 
-stUltraBubble *stUltraBubble_construct(stList *parentChain,
-        stCactusEdgeEnd *edgeEnd1, stCactusEdgeEnd *edgeEnd2);
+// Snarls
 
-void stUltraBubble_destruct(stUltraBubble *ultraBubble);
+stSnarl *stSnarl_constructEmptySnarl(stCactusEdgeEnd *edgeEnd1, stCactusEdgeEnd *edgeEnd2);
 
-void stUltraBubble_print(stUltraBubble *ultraBubble, FILE *fileHandle);
+void stSnarl_destruct(stSnarl *snarl);
 
-void stUltraBubble_printChains(stList *ultraBubbleChains, FILE *fileHandle);
+stSnarl *stSnarl_makeRecursiveSnarl(stCactusEdgeEnd *edgeEnd1, stCactusEdgeEnd *edgeEnd2,
+		stSet *snarlCache);
 
+uint64_t stSnarl_hashKey(const void *snarl);
+
+int stSnarl_equals(const void *snarl1, const void *snarl2);
+
+void stSnarl_print(stSnarl *snarl, FILE *fileHandle);
+
+void stSnarlDecomposition_destruct(stSnarlDecomposition *snarls);
+
+void stSnarlDecomposition_print(stSnarlDecomposition *snarls, FILE *fileHandle);
 
 #ifdef __cplusplus
 }

@@ -11,28 +11,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-struct _stCactusNode {
-    stCactusEdgeEnd *head;
-    stCactusEdgeEnd *tail;
-    void *nodeObject;
-};
-
-struct _stCactusEdgeEnd {
-    stCactusEdgeEnd *otherEdgeEnd;
-    stCactusNode *node;
-    stCactusEdgeEnd *nEdgeEnd;
-    void *endObject;
-    stCactusEdgeEnd *link;
-    bool linkOrientation;
-    bool isChainEnd;
-};
-
-struct _stCactusGraph {
-    stHash *objectToNodeHash;
-    void (*destructNodeObjectFn)(void *);
-    void (*destructEdgeEndObjectFn)(void *);
-};
-
 //Node functions
 
 stCactusNode *stCactusNode_construct(stCactusGraph *graph, void *nodeObject) {
@@ -826,7 +804,12 @@ void stBridgeNode_destruct(stBridgeNode *bridgeNode) {
     free(bridgeNode);
 }
 
-static void buildBridgeComponent(stBridgeNode *bridgeNode, stCactusEdgeEnd *edgeEnd) {
+static void constructConnectedNodes(stBridgeNode *bridgeNode, stCactusEdgeEnd *edgeEnd) {
+	/*
+	 * Adds the subset of nodes in the 2-EC component containing bridgeNode that are on a path in the
+	 * cactus tree between bridge edges to the set of connected nodes, bridgeNode->connectedCactusNodes
+	 */
+
     // Stack object containing pairs of cactus edge ends
     stList *stack = stList_construct();
 
@@ -906,7 +889,7 @@ static void buildBridgeComponent(stBridgeNode *bridgeNode, stCactusEdgeEnd *edge
                 stSet_insert(bridgeNode->connectedCactusNodes, cactusNode);
 
                 // Search for the predecessor and update its connected path variable to
-                // indicate it is also one a connected path
+                // indicate it is also on a connected path
                 onConnectedPath = stHash_search(edgeEndsToConnectedStatus, pEdgeEnd);
                 assert(onConnectedPath != NULL);
                 onConnectedPath[0] = 1;
@@ -967,6 +950,10 @@ void stBridgeNode_print(stBridgeNode *bridgeNode, FILE *fileHandle) {
 }
 
 stBridgeGraph *stBridgeGraph_getBridgeGraph(stCactusNode *cactusNode) {
+	/*
+	 * Build the bridge graph for the connnected component containing cactusNode.
+	 */
+
     // Create the bridge graph container
     stBridgeGraph *bridgeGraph = st_malloc(sizeof(stBridgeGraph));
     bridgeGraph->bridgeNodes = stList_construct3(0, (void (*)(void *))stBridgeNode_destruct);
@@ -978,6 +965,8 @@ stBridgeGraph *stBridgeGraph_getBridgeGraph(stCactusNode *cactusNode) {
     stSet *seen = stSet_construct(); // A record of which nodes are in a bridge node;
 
     stHash *bridgeEndsToBridgeNodes = stHash_construct();
+
+    // Make bridge nodes in component
 
     // For each cactus node
     stSetIterator *componentIt = stSet_getIterator(component);
@@ -1008,7 +997,12 @@ stBridgeGraph *stBridgeGraph_getBridgeGraph(stCactusNode *cactusNode) {
             stSetIterator *bridgeEndIt = stSet_getIterator(bridgeNode->bridgeEnds);
             stCactusEdgeEnd *bridgeEnd;
             while((bridgeEnd = stSet_getNext(bridgeEndIt)) != NULL) {
-                buildBridgeComponent(bridgeNode, bridgeEnd);
+
+            	// Call adds the set of connected nodes to bridgeNode->connectedNodes reachable
+            	// from connected nodes
+            	constructConnectedNodes(bridgeNode, bridgeEnd);
+
+            	// Map bridgeEnd to the bridgeNode
                 stHash_insert(bridgeEndsToBridgeNodes, bridgeEnd, bridgeNode);
             }
             stSet_destructIterator(bridgeEndIt);
@@ -1052,364 +1046,555 @@ void stBridgeGraph_destruct(stBridgeGraph *bridgeGraph) {
     free(bridgeGraph);
 }
 
-/*
- * Core functions for computing ultrabubbles for a cactus graph.
- */
+stHash *stBridgeGraph_getBridgeEdgeEndsToBridgeNodesHash(stBridgeGraph *bridgeGraph) {
+	/*
+	 * Returns a hash of the bridge edge ends in the bridge graph to their incident nodes in the graph.
+	 */
+	stHash *bridgeEndsToBridgeNodes = stHash_construct();
 
-stUltraBubble *stUltraBubble_construct(stList *parentChain,
-        stCactusEdgeEnd *edgeEnd1, stCactusEdgeEnd *edgeEnd2) {
-    stUltraBubble *ultraBubble = st_malloc(sizeof(stUltraBubble));
-    if(parentChain != NULL) {
-        stList_append(parentChain, ultraBubble);
-    }
-    ultraBubble->chains = stList_construct3(0,
-            (void (*)(void *))stList_destruct);
-    ultraBubble->edgeEnd1 = edgeEnd1;
-    ultraBubble->edgeEnd2 = edgeEnd2;
-    return ultraBubble;
+	for(int64_t i=0; i<stList_length(bridgeGraph->bridgeNodes); i++) {
+		stBridgeNode *bridgeNode = stList_get(bridgeGraph->bridgeNodes, i);
+
+		stCactusEdgeEnd *edgeEnd;
+		stSetIterator *endIt = stSet_getIterator(bridgeNode->bridgeEnds);
+		while((edgeEnd = stSet_getNext(endIt)) != NULL) {
+			assert(stHash_search(bridgeEndsToBridgeNodes, edgeEnd) == NULL);
+			stHash_insert(bridgeEndsToBridgeNodes, edgeEnd, bridgeNode);
+		}
+		stSet_destructIterator(endIt);
+	}
+
+	return bridgeEndsToBridgeNodes;
 }
 
-void stUltraBubble_destruct(stUltraBubble *ultraBubble) {
-    stList_destruct(ultraBubble->chains);
-    free(ultraBubble);
+/*
+ * Functions to build the snarl decomposition
+ */
+
+stSnarl *stSnarl_constructEmptySnarl(stCactusEdgeEnd *edgeEnd1, stCactusEdgeEnd *edgeEnd2) {
+	stSnarl *snarl = st_calloc(1, sizeof(stSnarl));
+
+	snarl->edgeEnd1 = edgeEnd1;
+	snarl->edgeEnd2 = edgeEnd2;
+	snarl->chains = stList_construct3(0, (void (*)(void *))stList_destruct);
+	snarl->unarySnarls = stList_construct3(0, (void (*)(void *))stSnarl_destruct);
+	snarl->parentCount = 1; // start off assuming there is one parent referencing the snarl
+
+	return snarl;
+}
+
+void stSnarl_destruct(stSnarl *snarl) {
+	// Cleanup only happens once all references to the snarl are released
+	assert(snarl->parentCount > 0);
+	if(--snarl->parentCount <= 0) {
+		stList_destruct(snarl->chains);
+		stList_destruct(snarl->unarySnarls);
+		free(snarl);
+	}
+}
+
+uint64_t stSnarl_hashKey(const void *snarl) {
+	/*
+	 * Hash key for snarls that hashes on boundary edge end references.
+	 */
+	stSnarl *s = (stSnarl *)snarl;
+	return stHash_pointer(s->edgeEnd1) ^ stHash_pointer(s->edgeEnd2);
+}
+
+int stSnarl_equals(const void *snarl1, const void *snarl2) {
+	/*
+	 * Returns zero iff the two snarls have the same boundaries in the same order.
+	 */
+	stSnarl *s1 = (stSnarl *)snarl1;
+	stSnarl *s2 = (stSnarl *)snarl2;
+	return s1->edgeEnd1 == s2->edgeEnd1 && s1->edgeEnd2 == s2->edgeEnd2;
+}
+
+static stSet *getEmptySnarlCache() {
+	return stSet_construct3(stSnarl_hashKey, stSnarl_equals, NULL);
+}
+
+static stSnarl *getSnarlFromCache(stSet *snarlCache,
+		stCactusEdgeEnd *edgeEnd1, stCactusEdgeEnd *edgeEnd2) {
+	/*
+	 * Gets a snarl from the cache, NULL if not present;
+	 */
+	stSnarl snarl;
+	snarl.edgeEnd1 = edgeEnd1;
+	snarl.edgeEnd2 = edgeEnd2;
+	return stSet_search(snarlCache, &snarl);
+}
+
+stSnarl *stSnarl_makeRecursiveSnarl(stCactusEdgeEnd *edgeEnd1, stCactusEdgeEnd *edgeEnd2,
+									stSet *snarlCache) {
+	/*
+	 * Makes a snarl, recursively constructing all its child snarls. If a unary snarl
+	 * edgeEnd1 == edgeEnd2.
+	 */
+
+	// Must either be a bridge or be opposite ends of a link within a chain
+	if(edgeEnd1 != edgeEnd2) { // If both equal is a unary snarl
+		assert(edgeEnd1->node == edgeEnd2->node);
+		assert(edgeEnd1->link == edgeEnd2);
+		assert(edgeEnd2->link == edgeEnd1);
+	}
+
+	// Check the cache
+	stSnarl *snarl = getSnarlFromCache(snarlCache, edgeEnd1, edgeEnd2);
+
+	if(snarl == NULL) { // If not in the cache
+		snarl = stSnarl_constructEmptySnarl(edgeEnd1, edgeEnd2); // This sets the initial parent count to 1
+		stSet_insert(snarlCache, snarl); // Add to the cache
+
+		// For each edge end incident with the cactus node
+		stCactusEdgeEnd *edgeEnd = edgeEnd1->node->head;
+		while(edgeEnd != NULL) {
+			assert(edgeEnd->node == edgeEnd1->node);
+
+			// If not edgeEnd1 or edgeEnd2
+			if(edgeEnd != edgeEnd1 && edgeEnd != edgeEnd2) {
+
+				if(edgeEnd->link == NULL) { // is a bridge
+					assert(edgeEnd->otherEdgeEnd->node != edgeEnd->node); // not a trivial chain
+					// Make a new nested unary snarl
+					stList_append(snarl->unarySnarls, stSnarl_makeRecursiveSnarl(edgeEnd->otherEdgeEnd,
+							edgeEnd->otherEdgeEnd, snarlCache));
+				}
+				// else is a chain
+				else if(edgeEnd->linkOrientation /* is the positive end of link in chain */ &&
+						edgeEnd->link != edgeEnd->otherEdgeEnd /* is not a trivial chain (i.e. a self loop) */) {
+
+					// Make a new nested chain
+					stList *chain = stList_construct3(0, (void (*)(void *))stSnarl_destruct);
+					stList_append(snarl->chains, chain);
+
+					// Add links to the chain
+					stCactusEdgeEnd *chainEnd = edgeEnd->link->otherEdgeEnd;
+					assert(chainEnd != edgeEnd);
+					do {
+						assert(chainEnd->node != edgeEnd->node);
+						assert(chainEnd->linkOrientation);
+						assert(chainEnd->link != edgeEnd);
+						assert(chainEnd->node == chainEnd->link->node);
+						stList_append(chain, stSnarl_makeRecursiveSnarl(chainEnd, chainEnd->link,
+								snarlCache));
+						chainEnd = chainEnd->link->otherEdgeEnd;
+					} while(chainEnd != edgeEnd);
+				}
+			}
+
+			// Get next incident edge end
+			edgeEnd = edgeEnd->nEdgeEnd;
+		}
+	}
+	else { // As we got it from the cache, increase the parent count
+		snarl->parentCount++;
+	}
+
+	return snarl;
+}
+
+stList *getBridgePathConnectingEnds(stBridgeGraph *bridgeGraph, stCactusEdgeEnd *startEdgeEnd, stCactusEdgeEnd *endEdgeEnd) {
+	/*
+	 * Gets a path of bridge edges in the bridge graph connecting the projection of two cactus edge ends, and including these ends.
+	 * Returned path is represented as a sequence of pairs of bridge edge ends, each of which is a snarl.
+	 */
+
+	// Build hash of bridge ends to bridge nodes
+	stHash *bridgeEndsToBridgeNodes = stBridgeGraph_getBridgeEdgeEndsToBridgeNodesHash(bridgeGraph);
+
+	// Get bridge node incident with startEdgeEnd
+	stBridgeNode *startBridgeNode = stHash_search(bridgeEndsToBridgeNodes, startEdgeEnd);
+	assert(startBridgeNode != NULL);
+
+	// Do DFS from startBridgeNode until we find a path to endBridgeNode
+	// We use a stack to prevent stack overflows as recursion can get pretty deep
+	stList *stack = stList_construct();
+
+	stList_append(stack, startEdgeEnd);
+	stList_append(stack, stSet_getIterator(startBridgeNode->bridgeEnds)); // Iterator over incident bridge ends
+	while(1) {
+		assert(stList_length(stack) > 0);
+		stSetIterator *endIt = stList_get(stack, stList_length(stack)-1);
+		stCactusEdgeEnd *edgeEnd = stList_get(stack, stList_length(stack)-2);
+
+		// Get next incident edge end
+		stCactusEdgeEnd *edgeEnd2 = stSet_getNext(endIt);
+
+		if(edgeEnd == edgeEnd2) { // Go around again in this case
+			continue;
+		}
+
+		// Pop the stack if finished
+		if(edgeEnd2 == NULL) {
+			stList_pop(stack);
+			stList_pop(stack);
+			stSet_destructIterator(endIt);
+			continue;
+		}
+
+		// If we're done, convert stack to final path
+		if(edgeEnd2 == endEdgeEnd) {
+			stList *bridgePath = stList_construct();
+			assert(stList_length(stack) % 2 == 0); // Check stack has even length
+			for(int64_t i=0; i<stList_length(stack); i+=2) {
+				stList_append(bridgePath, stList_get(stack, i));
+				stSet_destructIterator(stList_get(stack, i+1));
+				stList_append(bridgePath, i+2 < stList_length(stack) ?
+						((stCactusEdgeEnd *)stList_get(stack, i+2))->otherEdgeEnd : endEdgeEnd);
+			}
+
+			// Cleanup
+			stList_destruct(stack);
+			stHash_destruct(bridgeEndsToBridgeNodes);
+
+			return bridgePath;
+		}
+
+		// Else add to the stack and continue traverse
+		stList_append(stack, edgeEnd2->otherEdgeEnd);
+		stList_append(stack, stSet_getIterator(((stBridgeNode *)stHash_search(bridgeEndsToBridgeNodes,
+				edgeEnd2->otherEdgeEnd))->bridgeEnds));
+	}
+	return NULL; // This is unreachable
+}
+
+bool getNodesOnPathInCactusTreeBetweenBridgeSnarlBoundaries2(stList *nodePath, stSet *seen,
+		stCactusEdgeEnd *currentEdgeEnd, stCactusEdgeEnd *endEdgeEnd) {
+	/*
+	 * Recursive sub-function of getNodesOnPathInCactusTreeBetweenBridgeSnarlBoundaries.
+	 */
+
+	// First check if we've visited this node before, we don't need do anything if that's the case
+	if(stSet_search(seen, currentEdgeEnd->node) == NULL) {
+		stSet_insert(seen, currentEdgeEnd->node);
+
+		// If currentEdgeEnd is in a chain,
+		// extend this chain without adding the node incident with currentEdgeEnd
+		// to the path, because as we are extending the chain the node incident with currentEdgeEnd
+		// is not on the path in the corresponding cactus tree
+		if(currentEdgeEnd->link != NULL) {
+
+			// If return value is true then we have found the path and can stop
+			if(getNodesOnPathInCactusTreeBetweenBridgeSnarlBoundaries2(nodePath, seen,
+					currentEdgeEnd->link->otherEdgeEnd, endEdgeEnd)) {
+				return 1;
+			}
+		}
+
+		// Now add the node incident with currentEdgeEnd to the current path, as any path
+		// between the start and end edges in the cactus
+		// graph reached in this traversal must include the node incident with currentEdgeEnd
+		stList_append(nodePath, currentEdgeEnd->node);
+
+		// For each other chain / bridge incident with the node
+		stCactusEdgeEnd *edgeEnd = currentEdgeEnd->node->head;
+		do {
+			// If we've reached the end of the path we're done
+			if(edgeEnd == endEdgeEnd) {
+				return 1;
+			}
+
+			// Otherwise, if edgeEnd is in a chain and not in the chain
+			// containing currentEdgeEnd
+			if(edgeEnd->link != NULL && edgeEnd->linkOrientation /* traverse in one direction only */ &&
+			   edgeEnd != currentEdgeEnd && edgeEnd != currentEdgeEnd->link) {
+
+				// Recurse
+				if(getNodesOnPathInCactusTreeBetweenBridgeSnarlBoundaries2(nodePath, seen, edgeEnd->otherEdgeEnd, endEdgeEnd)) {
+					return 1;
+				}
+			}
+
+		} while((edgeEnd = edgeEnd->nEdgeEnd) != NULL);
+
+		// Remove the current node from the path as we haven't found a path to endEdgeEnd
+		// including the node
+		assert(stList_peek(nodePath) == currentEdgeEnd->node);
+		stList_pop(nodePath);
+	}
+
+	return 0; // Indicate that we haven't found a complete path yet in the DFS
+}
+
+stList *getNodesOnPathInCactusTreeBetweenBridgeSnarlBoundaries(stCactusEdgeEnd *edgeEnd1, stCactusEdgeEnd *edgeEnd2) {
+	/*
+	 * Gets net nodes in the cactus tree on the path connecting two cactus bridge edge ends,
+	 * edgeEnd1 and edgeEnd2, that are both in the same bridge component.
+	 * Path includes the nodes in the cactus graph
+	 * incident with these ends. Path goes from edgeEnd1 to edgeEnd2.
+	 */
+
+	// Check they are both bridges
+	assert(edgeEnd1->link == NULL);
+	assert(edgeEnd2->link == NULL);
+	assert(edgeEnd1->node != edgeEnd1->otherEdgeEnd->node);
+	assert(edgeEnd2->node != edgeEnd2->otherEdgeEnd->node);
+
+	// A set to represent the vertices visited by the dfs,
+	// used to avoid walking backwards in the cactus tour
+	stSet *seen = stSet_construct();
+
+	// A list representing the nodes on the path
+	stList *nodePath = stList_construct();
+
+	// Uses a DFS from edgeEnd1 until we have have found a path to edgeEnd2
+	bool b = getNodesOnPathInCactusTreeBetweenBridgeSnarlBoundaries2(nodePath, seen, edgeEnd1, edgeEnd2);
+	(void)b; // Stop compiler complaining in non-debug mode
+	assert(b); // If this is not true then we did not find a path in the cactus tree between the edge ends
+
+	// Cleanup
+	stSet_destruct(seen);
+
+	return nodePath;
+}
+
+stList *stCactusGraph_getTopLevelSnarlChain(stCactusGraph *cactusGraph,
+		stCactusEdgeEnd *startEdgeEnd, stCactusEdgeEnd *endEdgeEnd, stSet *snarlCache) {
+	/*
+	 * Constructs the set of nested snarls and unary snarls between two edge ends in a cactus graph,
+	 * returning the top level chain as a list.
+     *
+     * The startEdgeEnd and endEdgeEnd are used as the boundaries of the top level chain.
+     * They must both be in the same chain and distinct or both be part of bridges in the same component
+	 */
+
+	// Get cactus graph component containing startEdgeEnd and endEdgeEnd
+	stSet *component = stSet_construct();
+	buildComponent(component, startEdgeEnd->node, 0);
+
+	// Check two edge ends are in the same component
+	assert(stSet_search(component, startEdgeEnd->node) == startEdgeEnd->node);
+	assert(stSet_search(component, endEdgeEnd->node) == endEdgeEnd->node);
+
+	// Make top level chain, which we'll then fill out
+	stList *topLevelChain = stList_construct3(0, (void (*)(void *))stSnarl_destruct);
+
+	// If the two edge ends are in a chain
+	// then walk over the links in the chain between the two boundaries creating
+	// the top level chain
+
+	if(startEdgeEnd->link != NULL) { // Is a chain end
+
+		assert(endEdgeEnd->link != NULL); // Check the other edge end is also in a chain
+		assert(startEdgeEnd != endEdgeEnd);  // Check not the same
+
+		stCactusEdgeEnd *end = startEdgeEnd;
+		while(1) {
+			stList_append(topLevelChain, stSnarl_makeRecursiveSnarl(end, end->link, snarlCache));
+
+			if(end->link == endEdgeEnd) {
+				break; // we're done
+			}
+
+			end = end->link->otherEdgeEnd;
+			assert(end != startEdgeEnd); // Check we haven't looped
+			assert(end != endEdgeEnd); // Check end edge end doesn't have the wrong orientation
+			// with respect start edge end
+		}
+	}
+
+	// Else they are bridges
+	else {
+		assert(endEdgeEnd->link == NULL); // Check other end is also a bridge
+		assert(startEdgeEnd != endEdgeEnd);
+
+		// Get bridge graph
+		stBridgeGraph *bridgeGraph = stBridgeGraph_getBridgeGraph(stSet_peek(component));
+		assert(stList_length(bridgeGraph->bridgeNodes) > 0);
+
+		// Get edges on the path in the bridge graph connecting the projection of startEdgeEnd and endEdgeEnd, starting
+		// with startEdgeEnd and ending with endEdgeEnd
+		stList *bridgePath = getBridgePathConnectingEnds(bridgeGraph, startEdgeEnd, endEdgeEnd);
+		assert(stList_length(bridgePath) > 0);
+		assert(stList_length(bridgePath) % 2 == 0);
+
+		// For each induced snarl on the path of bridge nodes
+
+		for(int64_t i=0; i+1<stList_length(bridgePath); i+=2) {
+			// Get the link in the chain
+			stCactusEdgeEnd *leftSnarlEnd = stList_get(bridgePath, i);
+			stCactusEdgeEnd *rightSnarlEnd = stList_get(bridgePath, i+1);
+
+			// If we can't find it in the cache build it
+			stSnarl *snarl;
+			if((snarl = getSnarlFromCache(snarlCache, leftSnarlEnd, rightSnarlEnd)) == NULL) {
+
+				// Build top level snarl and add to top level chain
+				snarl = stSnarl_constructEmptySnarl(leftSnarlEnd, rightSnarlEnd);
+				stSet_insert(snarlCache, snarl); // Add to the cache
+
+				// Get nodes on the path in the cactus tree that connect the induced snarl
+				stList *nodesOnPathBetweenSnarlBoundariesList = getNodesOnPathInCactusTreeBetweenBridgeSnarlBoundaries(leftSnarlEnd, rightSnarlEnd);
+				stSet *nodesOnPathBetweenSnarlBoundaries = stList_getSet(nodesOnPathBetweenSnarlBoundariesList);
+
+				// Traverse chains incident with these nodes, breaking chains where ever they intersect these nodes
+
+				// For each node on the path in the cactus tree between the induced snarl ends
+				for(int64_t j=0; j<stList_length(nodesOnPathBetweenSnarlBoundariesList); j++) {
+					stCactusNode *cactusNode = stList_get(nodesOnPathBetweenSnarlBoundariesList, j);
+
+					// For each chain or bridge incident with the node
+					stCactusEdgeEnd *edgeEnd = cactusNode->head;
+					while(edgeEnd != NULL) {
+						assert(edgeEnd->node == cactusNode);
+
+						if(edgeEnd->link != NULL) { // Is in a chain
+							if(edgeEnd->linkOrientation) { // Is positively oriented (avoid going around it twice)
+
+								// There exists a part of the chain that contains snarls not collapsed by the induced snarl
+								if(stSet_search(nodesOnPathBetweenSnarlBoundaries, edgeEnd->link->otherEdgeEnd->node) == NULL) {
+
+									// Create a new nested chain
+									stList *nestedChain = stList_construct3(0, (void (*)(void *))stSnarl_destruct);
+									stList_append(snarl->chains, nestedChain);
+
+									// Add links to the chain while they involve a node not in the
+									// nodesOnPathBetweenSnarlBoundaries
+
+									stCactusEdgeEnd *chainEnd = edgeEnd->link->otherEdgeEnd; // Walk around chain in positive orientation
+									do {
+										assert(chainEnd->linkOrientation);
+										assert(stSet_search(nodesOnPathBetweenSnarlBoundaries, chainEnd->node) == NULL);
+
+										//  Add a nested snarl to the chain
+										stList_append(nestedChain, stSnarl_makeRecursiveSnarl(chainEnd, chainEnd->link, snarlCache));
+
+										chainEnd = chainEnd->link->otherEdgeEnd;
+									} while(stSet_search(nodesOnPathBetweenSnarlBoundaries, chainEnd->node) == NULL);
+								}
+							}
+						}
+						else { // Is a bridge
+							assert(edgeEnd->otherEdgeEnd->node != edgeEnd->node); // Is a bridge, not a trivial chain
+							stList_append(snarl->unarySnarls, stSnarl_makeRecursiveSnarl(edgeEnd->otherEdgeEnd, edgeEnd->otherEdgeEnd, snarlCache));
+						}
+
+						// Get next edge end incident with the node
+						edgeEnd = edgeEnd->nEdgeEnd;
+					}
+				}
+
+				// Cleanup
+				stSet_destruct(nodesOnPathBetweenSnarlBoundaries);
+				stList_destruct(nodesOnPathBetweenSnarlBoundariesList);
+			}
+			else {
+				// As we got the snarl from the cache, increase its parent count
+				snarl->parentCount++;
+			}
+
+			// Add to the chain
+			stList_append(topLevelChain, snarl);
+		}
+
+		// Cleanup
+		stBridgeGraph_destruct(bridgeGraph);
+		stList_destruct(bridgePath);
+	}
+
+	// Cleanup
+	stSet_destruct(component);
+
+
+	return topLevelChain;
+}
+
+stSnarlDecomposition *stCactusGraph_getSnarlDecomposition(stCactusGraph *cactusGraph, stList *snarlChainEnds) {
+	/*
+	 * Gets the snarl decomposition for a set paths, each specified by a pair of cactus edge ends which are either
+	 * both ends of bridge edges or both in the same chain and oriented so that they form a non-minimal snarl.
+	 * Each such pair is specified by a successive pair of ends in snarlChainEnds.
+	 */
+
+	// Make snarl decomposition object
+	stSnarlDecomposition *snarlDecomposition = st_calloc(1, sizeof(stSnarlDecomposition));
+	snarlDecomposition->topLevelChains = stList_construct3(0, (void (*)(void *))stList_destruct);
+	snarlDecomposition->topLevelUnarySnarls = stList_construct3(0, (void (*)(void *))stSnarl_destruct);
+
+	// Make empty snarl cache, used to avoid constructing the same snarl twice
+	stSet *snarlCache = getEmptySnarlCache();
+
+	// Build snarl chain for each pair of ends
+	for(int64_t i=0; i+1<stList_length(snarlChainEnds); i+=2) {
+		stCactusEdgeEnd *edgeEnd1 = stList_get(snarlChainEnds, i);
+		stCactusEdgeEnd *edgeEnd2 = stList_get(snarlChainEnds, i+1);
+		if(edgeEnd1 != edgeEnd2) { // If forms a chain
+			stList_append(snarlDecomposition->topLevelChains,
+					stCactusGraph_getTopLevelSnarlChain(cactusGraph, edgeEnd1, edgeEnd2, snarlCache));
+		}
+		else { // If is a unary snarl
+			stList_append(snarlDecomposition->topLevelUnarySnarls,
+					stSnarl_makeRecursiveSnarl(edgeEnd1, edgeEnd2, snarlCache));
+		}
+	}
+
+	// Cleanup
+	stSet_destruct(snarlCache);
+
+	return snarlDecomposition;
+}
+
+void stSnarlDecomposition_destruct(stSnarlDecomposition *snarls) {
+	stList_destruct(snarls->topLevelChains);
+	stList_destruct(snarls->topLevelUnarySnarls);
+	free(snarls);
 }
 
 /*
- * Functions for printing ultra bubble decomposition.
+ * Functions for printing snarl decomposition.
  */
 
-void stUltraBubble_print2(stUltraBubble *ultraBubble, FILE *fileHandle, const char *parentPrefix, const char *parentChainPrefix);
+void stSnarl_print2(stSnarl *snarl, FILE *fileHandle, const char *parentPrefix, const char *parentChainPrefix);
 
-void stUltraBubble_printChains2(stList *ultraBubbleChains, FILE *fileHandle, const char *parentPrefix, const char *parentChainPrefix) {
-    for(int64_t i=0; i<stList_length(ultraBubbleChains); i++) {
-        stList *chain = stList_get(ultraBubbleChains, i);
+void stSnarl_printUnary(stSnarl *snarl, FILE *fileHandle, const char *parentPrefix, const char *parentChainPrefix);
+
+void stSnarl_printChains2(stList *chains, FILE *fileHandle, const char *parentPrefix, const char *parentChainPrefix) {
+    for(int64_t i=0; i<stList_length(chains); i++) {
+        stList *chain = stList_get(chains, i);
         char *chainPrefix = stString_print("%s-%" PRIi64 "", parentChainPrefix, i);
         fprintf(fileHandle, "%s\tChain: %s\tLength: %" PRIi64 "\n", parentPrefix, chainPrefix, stList_length(chain));
         for(int64_t j=0; j<stList_length(chain); j++) {
             char *prefix = stString_print("%s%s", parentPrefix, "\t\t");
-            stUltraBubble_print2(stList_get(chain, j), fileHandle, prefix, chainPrefix);
+            stSnarl_print2(stList_get(chain, j), fileHandle, prefix, chainPrefix);
             free(prefix);
         }
         free(chainPrefix);
     }
 }
 
-void stUltraBubble_print2(stUltraBubble *ultraBubble, FILE *fileHandle, const char *parentPrefix, const char *parentChainPrefix) {
-    fprintf(fileHandle, "%sBubble,\tchild-chain-number: %" PRIi64 "\tSide1:(%" PRIi64 ",%" PRIi64 ")\tSide2:(%" PRIi64 ",%" PRIi64 ")\n", parentPrefix,
-            stList_length(ultraBubble->chains), (int64_t)stCactusEdgeEnd_getOtherEdgeEnd(ultraBubble->edgeEnd1), (int64_t)ultraBubble->edgeEnd1,
-            (int64_t)ultraBubble->edgeEnd2, (int64_t)stCactusEdgeEnd_getOtherEdgeEnd(ultraBubble->edgeEnd2));
-    stUltraBubble_printChains2(ultraBubble->chains, fileHandle, parentPrefix, parentChainPrefix);
-}
-
-void stUltraBubble_print(stUltraBubble *ultraBubble, FILE *fileHandle) {
-    stUltraBubble_print2(ultraBubble, fileHandle, "", "C");
-}
-
-void stUltraBubble_printChains(stList *ultraBubbleChains, FILE *fileHandle) {
-    fprintf(fileHandle, "Top level chains, total: %" PRIi64 "\n", stList_length(ultraBubbleChains));
-    stUltraBubble_printChains2(ultraBubbleChains, fileHandle, "", "C");
-}
-
-/*
- * Functions for building ultrabubble decomposition
- */
-
-static stList *addNewNestedChain(stList *chains) {
-    // Adds an ultrabubble chain to a list of ultrabubble chains.
-    stList *chain = stList_construct3(0, (void (*)(void *))stUltraBubble_destruct);
-    stList_append(chains, chain);
-    return chain;
-}
-
-static void recursiveEnumerateChainBubbles(stList *parentUltraBubbleChain, stCactusNode *parentNode, stCactusEdgeEnd *parentChain) {
-    // Stack to keep track of recursion
-    stList *stack = stList_construct();
-    stList_append(stack, parentUltraBubbleChain);
-    stList_append(stack, parentNode);
-    stList_append(stack, parentChain);
-
-    while(stList_length(stack) > 0) {
-        // Pop the stack
-        parentChain = stList_pop(stack);
-        parentNode = stList_pop(stack);
-        parentUltraBubbleChain = stList_pop(stack);
-
-        // Checks
-        assert(stCactusEdgeEnd_getNode(parentChain) == parentNode);
-        assert(stCactusEdgeEnd_getNode(stCactusEdgeEnd_getLink(parentChain)) == parentNode);
-        assert(stCactusEdgeEnd_getLinkOrientation(parentChain));
-        assert(!stCactusEdgeEnd_getLinkOrientation(stCactusEdgeEnd_getLink(parentChain)));
-
-        // Create a bubble and append it to the parent's ultrabubble chain
-        stUltraBubble *ultraBubble = stUltraBubble_construct(parentUltraBubbleChain,
-                parentChain, stCactusEdgeEnd_getLink(parentChain));
-
-        // For each child chain incident with parentNode and not equal to parentChain
-        stCactusNodeEdgeEndIt edgeIterator = stCactusNode_getEdgeEndIt(parentNode);
-        stCactusEdgeEnd *edgeEnd;
-        while ((edgeEnd = stCactusNodeEdgeEndIt_getNext(&edgeIterator))) {
-            assert(parentNode == stCactusEdgeEnd_getNode(edgeEnd));
-            assert(stCactusEdgeEnd_getLink(edgeEnd) != NULL); // Can not be a bridge, by definition
-            if (stCactusEdgeEnd_getLinkOrientation(edgeEnd) && edgeEnd != parentChain) {
-
-                stCactusEdgeEnd *edgeEnd2 = stCactusEdgeEnd_getLink(stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd));
-
-                if(edgeEnd != edgeEnd2) {
-                    // Make a new ultrabubble chain
-                    stList *childUltraBubbleChain = addNewNestedChain(ultraBubble->chains);
-
-                    // For each node in the chain not equal to parentNode
-                    do {
-
-                        // Add to the stack
-                        stList_append(stack, childUltraBubbleChain);
-                        stList_append(stack, stCactusEdgeEnd_getNode(edgeEnd2));
-                        stList_append(stack, edgeEnd2);
-
-                        edgeEnd2 = stCactusEdgeEnd_getLink(stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd2));
-                    } while (edgeEnd != edgeEnd2);
-                }
-            }
-        }
+void stSnarl_print2(stSnarl *snarl, FILE *fileHandle, const char *parentPrefix, const char *parentChainPrefix) {
+    fprintf(fileHandle, "%sSnarl,\tchild-chain-number: %" PRIi64 ", \tunary-snarl-child-number: %" PRIi64 ", \tparent-number: %" PRIi64
+    		"\tis_bridge_snarl: %s\tSide1:(%" PRIi64 ",%" PRIi64 ")\tSide2:(%" PRIi64 ",%" PRIi64 ")\n", parentPrefix,
+            stList_length(snarl->chains), stList_length(snarl->unarySnarls), snarl->parentCount,
+			stCactusEdgeEnd_getLink(snarl->edgeEnd1) == NULL ? "true" : "false",
+			(int64_t)stCactusEdgeEnd_getOtherEdgeEnd(snarl->edgeEnd1), (int64_t)snarl->edgeEnd1,
+            (int64_t)snarl->edgeEnd2, (int64_t)stCactusEdgeEnd_getOtherEdgeEnd(snarl->edgeEnd2));
+    stSnarl_printChains2(snarl->chains, fileHandle, parentPrefix, parentChainPrefix);
+    for(int64_t i=0; i<stList_length(snarl->unarySnarls); i++) {
+    	stSnarl_printUnary(stList_get(snarl->unarySnarls, i), fileHandle, parentPrefix, parentChainPrefix);
     }
-
-    // Cleanup
-    stList_destruct(stack);
 }
 
-void bridgeGraphToUltraBubbles(stBridgeNode *pBridgeNode, stBridgeNode *bridgeNode, stSet *seen,
-        stList *topLevelChains, stSet *cactusGraphComponent, stCactusNode *startNode) {
-    // Stack for recursion
-    stList *stack = stList_construct();
-    stList_append(stack, pBridgeNode);
-    stList_append(stack, bridgeNode);
-
-    // Loop while there are bridge nodes to consider
-    while(stList_length(stack) > 0) {
-        bridgeNode = stList_pop(stack);
-        pBridgeNode = stList_pop(stack);
-
-        // This check ensures we do not loop in the case that the bridge graph contains a cycle
-        if(stSet_search(seen, bridgeNode) != NULL) {
-            continue;
-        }
-        stSet_insert(seen, bridgeNode);
-
-        // If the bridge node has incident edges
-        if(stSet_size(bridgeNode->bridgeEnds) > 0) {
-            stList *workingLevelChains = topLevelChains;
-
-            // If incident edges equals 2
-            if(stSet_size(bridgeNode->bridgeEnds) == 2) {
-
-                // Continue the existing top level chain if previous node was link in the chain, else start a new one
-                stList *topLevelChain = (pBridgeNode != NULL && stSet_size(pBridgeNode->bridgeEnds) == 2) ?
-                        stList_peek(topLevelChains) : addNewNestedChain(topLevelChains);
-
-                // Create a bubble and add it to the top level chain
-                stList *bridgeEnds = stSet_getList(bridgeNode->bridgeEnds);
-
-                if(stList_length(topLevelChain) > 0) { // If continuing chain orient
-                    // the ends correctly in the chain
-                    stUltraBubble *pUltraBubble = stList_peek(topLevelChain);
-                    stCactusEdgeEnd *oppEnd = stCactusEdgeEnd_getOtherEdgeEnd(pUltraBubble->edgeEnd2);
-
-                    // This statement is true if the start of the chain was oriented backwards
-                    // with respect to this link
-                    if(!stList_contains(bridgeEnds, oppEnd)) {
-                        assert(stList_length(topLevelChain) == 1);
-                        oppEnd = stCactusEdgeEnd_getOtherEdgeEnd(pUltraBubble->edgeEnd1);
-                        assert(stList_contains(bridgeEnds, oppEnd));
-                        stCactusEdgeEnd *edgeEnd = pUltraBubble->edgeEnd1;
-                        pUltraBubble->edgeEnd1 = pUltraBubble->edgeEnd2;
-                        pUltraBubble->edgeEnd2 = edgeEnd;
-                    }
-
-                    // Reverse the orientation if backwards with respect to the previous
-                    // link
-                    if(oppEnd == stList_get(bridgeEnds, 1)) {
-                        stList_reverse(bridgeEnds);
-                    }
-                }
-
-                stUltraBubble *ultraBubble = stUltraBubble_construct(topLevelChain,
-                            stList_get(bridgeEnds, 0), stList_get(bridgeEnds, 1));
-
-                stList_destruct(bridgeEnds);
-
-                // Set working chains to be those nested in the ultraBubble
-                workingLevelChains = ultraBubble->chains;
-            }
-
-            // A set to track which nodes we've constructed ultrabubbles for
-            stSet *visitedCactusNodes = stSet_construct();
-
-            // For each node in cactusNodes
-            stSetIterator *cactusNodesIt = stSet_getIterator(bridgeNode->connectedCactusNodes);
-            stCactusNode *cactusNode;
-            while((cactusNode = stSet_getNext(cactusNodesIt)) != NULL) {
-
-                // For each chain incident with the cactusNode
-                stCactusNodeEdgeEndIt edgeIterator = stCactusNode_getEdgeEndIt(cactusNode);
-                stCactusEdgeEnd *edgeEnd;
-                while ((edgeEnd = stCactusNodeEdgeEndIt_getNext(&edgeIterator))) {
-                    assert(cactusNode == stCactusEdgeEnd_getNode(edgeEnd));
-                    if (stCactusEdgeEnd_getLink(edgeEnd) != NULL && stCactusEdgeEnd_getLinkOrientation(edgeEnd)) {
-
-                        // Make new chain
-                        stList *ultraBubbleChain = addNewNestedChain(workingLevelChains);
-
-                        // For each node in the chain not in cactusNodes and not yet visited
-                        stCactusEdgeEnd *edgeEnd2 = stCactusEdgeEnd_getOtherEdgeEnd(stCactusEdgeEnd_getLink(edgeEnd));;
-                        while (edgeEnd != edgeEnd2) {
-                            stCactusNode *cactusNode2 = stCactusEdgeEnd_getNode(edgeEnd2);
-                            assert(cactusNode2 != cactusNode);
-                            if(stSet_search(bridgeNode->connectedCactusNodes, cactusNode2) == NULL) {
-                                if(stSet_search(visitedCactusNodes, cactusNode2) == NULL) {
-
-                                    // Call recursivelyEnumerateChainBubbles
-                                    recursiveEnumerateChainBubbles(ultraBubbleChain, cactusNode2, edgeEnd2);
-
-                                    // Add to visited
-                                    stSet_insert(visitedCactusNodes, cactusNode2);
-                                }
-                            }
-                            else {
-                                // As we encountered a node in connected nodes we break the chain if it is already started
-                                if(stList_length(ultraBubbleChain) > 0) {
-                                    ultraBubbleChain = addNewNestedChain(workingLevelChains);
-                                }
-                            }
-                            edgeEnd2 = stCactusEdgeEnd_getOtherEdgeEnd(stCactusEdgeEnd_getLink(edgeEnd2));
-                        }
-
-                        // If new chain has zero length delete
-                        if(stList_length(ultraBubbleChain) == 0) {
-                            assert(stList_peek(workingLevelChains) == ultraBubbleChain);
-                            stList_pop(workingLevelChains);
-                            stList_destruct(ultraBubbleChain);
-                        }
-                    }
-                }
-            }
-            stSet_destructIterator(cactusNodesIt);
-            stSet_destruct(visitedCactusNodes);
-
-            // Recursively walk the remainder of the bridge graph to construct chains for the other nodes
-            for(int64_t i=0; i<stList_length(bridgeNode->connectedNodes); i++) {
-                stBridgeNode *nBridgeNode = stList_get(bridgeNode->connectedNodes, i);
-                if(nBridgeNode != pBridgeNode) {
-                    assert(nBridgeNode != bridgeNode);
-                    stList_append(stack, bridgeNode);
-                    stList_append(stack, nBridgeNode);
-                }
-            }
-        }
-
-        // Else the bridgeNode is in a circular component
-        else {
-            // Pick the start node, otherwise the highest degree node in the cactus component
-            // Mostly this is just to make things deterministic.
-            stSetIterator *componentIt = stSet_getIterator(cactusGraphComponent);
-            stCactusNode *cactusNode = stSet_getNext(componentIt);
-            int64_t chainNumber = stCactusNode_getChainNumber(cactusNode);
-            stCactusNode *cactusNode2;
-            while((cactusNode2 = stSet_getNext(componentIt)) != NULL) {
-                if(cactusNode2 == startNode || (stCactusNode_getChainNumber(cactusNode2) > chainNumber && cactusNode != startNode)) {
-                    cactusNode = cactusNode2;
-                    chainNumber = stCactusNode_getChainNumber(cactusNode2);
-                }
-            }
-            stSet_destructIterator(componentIt);
-
-            // For each chain incident with the cactusNode
-            stCactusNodeEdgeEndIt edgeIterator = stCactusNode_getEdgeEndIt(cactusNode);
-            stCactusEdgeEnd *edgeEnd;
-            while ((edgeEnd = stCactusNodeEdgeEndIt_getNext(&edgeIterator))) {
-                assert(cactusNode == stCactusEdgeEnd_getNode(edgeEnd));
-                assert(stCactusEdgeEnd_getLink(edgeEnd) != NULL); // Can not be a bridge, by definition
-                if (stCactusEdgeEnd_getLinkOrientation(edgeEnd)) {
-
-                    // For each node in the chain not equal to cactusNode
-                    stCactusEdgeEnd *edgeEnd2 = stCactusEdgeEnd_getOtherEdgeEnd(stCactusEdgeEnd_getLink(edgeEnd));
-
-                    if(edgeEnd != edgeEnd2) { // If not a self loop
-                        // Make new chain
-                        stList *ultraBubbleChain = addNewNestedChain(topLevelChains);
-
-                        do {
-                            assert(stCactusEdgeEnd_getNode(edgeEnd2) != cactusNode);
-
-                            // Call recursivelyEnumerateChainBubbles
-                            recursiveEnumerateChainBubbles(ultraBubbleChain, stCactusEdgeEnd_getNode(edgeEnd2), edgeEnd2);
-
-                            edgeEnd2 = stCactusEdgeEnd_getOtherEdgeEnd(stCactusEdgeEnd_getLink(edgeEnd2));
-                        } while (edgeEnd != edgeEnd2);
-
-                        assert(stList_length(ultraBubbleChain) > 0);
-                    }
-                }
-            }
-        }
-    }
-
-    // Clean up
-    stList_destruct(stack);
+void stSnarl_printUnary(stSnarl *snarl, FILE *fileHandle, const char *parentPrefix, const char *parentChainPrefix) {
+	fprintf(fileHandle, "%sUnary Snarl,\tchild-chain-number: %" PRIi64 ", \tunary-snarl-child-number: %" PRIi64 ", \tparent-number: %" PRIi64
+			"\tSide:(%" PRIi64 ",%" PRIi64 ")\n", parentPrefix,
+			stList_length(snarl->chains), stList_length(snarl->unarySnarls), snarl->parentCount,
+			(int64_t)stCactusEdgeEnd_getOtherEdgeEnd(snarl->edgeEnd1), (int64_t)snarl->edgeEnd1);
+	stSnarl_printChains2(snarl->chains, fileHandle, parentPrefix, parentChainPrefix);
+	for(int64_t i=0; i<stList_length(snarl->unarySnarls); i++) {
+		stSnarl_printUnary(stList_get(snarl->unarySnarls, i), fileHandle, parentPrefix, parentChainPrefix);
+	}
 }
 
-stBridgeNode *getStartingNode(stBridgeGraph *bridgeGraph) {
-    /*
-     * Picks a non-chain node (if it exists). A chain node is a node with two incident edges.
-     * This ensures that all chains are complete, or if cyclic are broken arbitrarily.
-     */
-    for(int64_t i=0; i<stList_length(bridgeGraph->bridgeNodes); i++) {
-        stBridgeNode *bridgeNode = stList_get(bridgeGraph->bridgeNodes, i);
-        if(stList_length(bridgeNode->connectedNodes) != 2) {
-            return bridgeNode;
-        }
-    }
-    return stList_peek(bridgeGraph->bridgeNodes);
+void stSnarl_print(stSnarl *snarl, FILE *fileHandle) {
+    stSnarl_print2(snarl, fileHandle, "", "C");
 }
 
-stList *stCactusGraph_getUltraBubbles(stCactusGraph *graph, stCactusNode *startNode) {
-    /*
-     * Constructs the set of nested ultrabubbles for a cactus graph, returning the
-     * set of top level chains as a list. A bubble is top level if it is not
-     * contained in any other. A chain is a sequence of bubbles, such that each successive
-     * bubble in the chain starts with the opposite side of a side in the previous bubble.
-     *
-     * The startNode is used as a tip for the ultra-bubble construction, it may be NULL.
-     */
-
-    // Create the list to contain the top level chains
-    stList *topLevelChains = stList_construct3(0, (void (*)(void *))stList_destruct);
-
-    // Get cactus graph components
-    stList *cactusGraphComponents = stCactusGraph_getComponents(graph, 0);
-
-    // For each component in the cactus graph
-    for(int64_t i=0; i<stList_length(cactusGraphComponents); i++) {
-        stSet *cactusGraphComponent = stList_get(cactusGraphComponents, i);
-
-        // Determine the bridge graph for the component
-        stBridgeGraph *bridgeGraph = stBridgeGraph_getBridgeGraph(stSet_peek(cactusGraphComponent));
-        assert(stList_length(bridgeGraph->bridgeNodes) > 0);
-
-        // Get a starting node for recursion
-        stBridgeNode *bridgeNode = getStartingNode(bridgeGraph);
-
-        // Recursively build the ultra bubble chains for the bridge graph
-        stSet *seen = stSet_construct();
-        bridgeGraphToUltraBubbles(NULL, bridgeNode, seen, topLevelChains, cactusGraphComponent, startNode);
-        assert(stSet_size(seen) == stList_length(bridgeGraph->bridgeNodes));
-        stSet_destruct(seen);
-
-        // Cleanup the bridge graph
-        stBridgeGraph_destruct(bridgeGraph);
+void stSnarlDecomposition_print(stSnarlDecomposition *snarls, FILE *fileHandle) {
+    fprintf(fileHandle, "Top level chains, total: %" PRIi64 "\n", stList_length(snarls->topLevelChains));
+    stSnarl_printChains2(snarls->topLevelChains, fileHandle, "", "C");
+    for(int64_t i=0; i<stList_length(snarls->topLevelUnarySnarls); i++) {
+    	stSnarl_printUnary(stList_get(snarls->topLevelUnarySnarls, i), fileHandle, "", "C");
     }
-
-    // Cleanup the cactus graph components
-    stList_destruct(cactusGraphComponents);
-
-    return topLevelChains;
 }
