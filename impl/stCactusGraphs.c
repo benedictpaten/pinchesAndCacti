@@ -1502,9 +1502,25 @@ stList *stCactusGraph_getTopLevelSnarlChain(stCactusGraph *cactusGraph,
 
 stSnarlDecomposition *stCactusGraph_getSnarlDecomposition(stCactusGraph *cactusGraph, stList *snarlChainEnds) {
 	/*
-	 * Gets the snarl decomposition for a set paths, each specified by a pair of cactus edge ends which are either
-	 * both ends of bridge edges or both in the same chain and oriented so that they form a non-minimal snarl.
-	 * Each such pair is specified by a successive pair of ends in snarlChainEnds.
+	 * Gets the snarl decomposition for a set paths, each specified by a pair of
+	 * stCactusEdgeEnd*s. Each such pair appears consecurtively in
+	 * snarlChainEnds. One pair must exist per connected component in the graph.
+	 *
+	 * The edge end pairs can meet one of two criteria:
+	 *
+	 * 1. The pair are ends of two bridge edges which, by their deletion, would
+	 * disconnect a part of the graph from the rest of its component. The ends
+	 * should face towards the part to be disconnected.
+	 *
+	 * 2. The pair are inward-facing ends in the same chain of snarls, which
+	 * would themselves form a snarl when ignoring the minimality constraint. In
+	 * this case, the decomposition only operates on the part of the connected
+	 * component along that chain between the specified edge ends.
+	 *
+	 * An easy way to generate such pairs is to select inward-facing ends of
+	 * "tips" (which are always bridge edges). Ideally, one tip should be
+	 * reachable from the other. One can also select opposite ends of a node in
+	 * a cycle.
 	 */
 
 	// Make snarl decomposition object
