@@ -1206,6 +1206,84 @@ static void addRandomTelomerePair(struct RandomCactusGraph *rGraph, stList *telo
 	stList_append(telomeres, edgeEnd2);
 }
 
+static void testStCactusGraph_tinySnarlTest(CuTest *testCase) {
+    // Define a graph of two sequences connected back-to-back
+    
+    // The graph
+    stCactusGraph* cactusGraph = stCactusGraph_construct();
+
+    // External containers for tracking nodes and edges
+    stList* nodeObjects = stList_construct3(0, free);
+    stSortedSet* edgeEnds = stSortedSet_construct();
+
+    // Create the nodes (3 of them)
+    for (int64_t i = 0; i < 3; i++) {
+        int64_t *j = st_malloc(sizeof(int64_t));
+        j[0] = i;
+        stCactusNode_construct(cactusGraph, j);
+        stList_append(nodeObjects, j);
+    }
+
+    // Connect node 0 to node 1
+    void *nodeObject1 = stList_get(nodeObjects, 0);
+    void *nodeObject2 = stList_get(nodeObjects, 1);
+    stCactusNode *node1 = stCactusGraph_getNode(cactusGraph, nodeObject1);
+    assert(node1 != NULL);
+    stCactusNode *node2 = stCactusGraph_getNode(cactusGraph, nodeObject2);
+    assert(node2 != NULL);
+    stCactusEdgeEnd *edgeEnd = stCactusEdgeEnd_construct(cactusGraph, node1, node2, nodeObject1, nodeObject2);
+    stSortedSet_insert(edgeEnds, edgeEnd);
+    stSortedSet_insert(edgeEnds, stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd));
+
+    // The right side of this edge is one telomere
+    stCactusEdgeEnd* telomere1 = edgeEnd->otherEdgeEnd;
+    
+    // Connect node 2 to node 1
+    nodeObject1 = stList_get(nodeObjects, 2);
+    nodeObject2 = stList_get(nodeObjects, 1);
+    node1 = stCactusGraph_getNode(cactusGraph, nodeObject1);
+    assert(node1 != NULL);
+    node2 = stCactusGraph_getNode(cactusGraph, nodeObject2);
+    assert(node2 != NULL);
+    edgeEnd = stCactusEdgeEnd_construct(cactusGraph, node1, node2, nodeObject1, nodeObject2);
+    stSortedSet_insert(edgeEnds, edgeEnd);
+    stSortedSet_insert(edgeEnds, stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd));
+    
+    // The right side of this edge is the other telomere
+    stCactusEdgeEnd* telomere2 = edgeEnd->otherEdgeEnd;
+
+    // Collapse to cactus
+    stCactusGraph_collapseToCactus(cactusGraph, mergeNodeObjects, stList_get(nodeObjects, 0));
+    
+    // Add the two inside edge ends as telomeres
+    stList *telomeres = stList_construct();
+    stList_append(telomeres, (void*) telomere1);
+    stList_append(telomeres, (void*) telomere2);
+
+    // Make snarls
+    stSnarlDecomposition *snarls = stCactusGraph_getSnarlDecomposition(cactusGraph, telomeres);
+    
+    // Make sure we got the right number
+    CuAssertIntEquals(testCase, stList_length(snarls->topLevelChains) + stList_length(snarls->topLevelUnarySnarls),
+        stList_length(telomeres)/2);
+    
+    // Clean up the snarls
+    stSnarlDecomposition_destruct(snarls);
+    
+    // And up the telomeres
+    stList_destruct(telomeres);
+    
+    // And the cactus graph
+    stCactusGraph_destruct(cactusGraph);
+    
+    // And the node objects in their list
+    stList_destruct(nodeObjects);
+    
+    // And the edge ends
+    stSortedSet_destruct(edgeEnds);
+        
+}
+
 static void testStCactusGraph_randomSnarlTest(CuTest *testCase) {
     // Creates problem instances, then checks resulting snarl set.
     for (int64_t test = 0; test < 1000; test++) {
@@ -1257,6 +1335,7 @@ CuSuite* stCactusGraphsTestSuite(void) {
     SUITE_ADD_TEST(suite, testStCactusGraph_randomTest);
     SUITE_ADD_TEST(suite, testStCactusGraph_getComponents);
     SUITE_ADD_TEST(suite, testStCactusGraph_getBridgeGraphs);
+    SUITE_ADD_TEST(suite, testStCactusGraph_tinySnarlTest);
     SUITE_ADD_TEST(suite, testStCactusGraph_randomSnarlTest);
     return suite;
 }
