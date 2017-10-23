@@ -1236,7 +1236,7 @@ static void testStCactusGraph_tinySnarlTest(CuTest *testCase) {
     stSortedSet_insert(edgeEnds, stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd));
 
     // The right side of this edge is one telomere
-    stCactusEdgeEnd* telomere1 = edgeEnd->otherEdgeEnd;
+    stCactusEdgeEnd* telomere1 = stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd);
     
     // Connect node 2 to node 1
     nodeObject1 = stList_get(nodeObjects, 2);
@@ -1250,7 +1250,7 @@ static void testStCactusGraph_tinySnarlTest(CuTest *testCase) {
     stSortedSet_insert(edgeEnds, stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd));
     
     // The right side of this edge is the other telomere
-    stCactusEdgeEnd* telomere2 = edgeEnd->otherEdgeEnd;
+    stCactusEdgeEnd* telomere2 = stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd);
 
     // Collapse to cactus
     stCactusGraph_collapseToCactus(cactusGraph, mergeNodeObjects, stList_get(nodeObjects, 0));
@@ -1266,6 +1266,120 @@ static void testStCactusGraph_tinySnarlTest(CuTest *testCase) {
     // Make sure we got the right number
     CuAssertIntEquals(testCase, stList_length(snarls->topLevelChains) + stList_length(snarls->topLevelUnarySnarls),
         stList_length(telomeres)/2);
+    
+    // Clean up the snarls
+    stSnarlDecomposition_destruct(snarls);
+    
+    // And up the telomeres
+    stList_destruct(telomeres);
+    
+    // And the cactus graph
+    stCactusGraph_destruct(cactusGraph);
+    
+    // And the node objects in their list
+    stList_destruct(nodeObjects);
+    
+    // And the edge ends
+    stSortedSet_destruct(edgeEnds);
+        
+}
+
+static void testStCactusGraph_unreachableSnarlTest(CuTest *testCase) {
+    /* 
+     * Define a graph with two tips that can't reach each other.
+     *
+     *    1\
+     *  2---3
+     *  v\4 v
+     *
+     * The head is 1, the tail is 4, 2 and 3 have self loops, and the graph is
+     * connected. But the head cannot reach the tail.
+     */
+
+    
+    // The graph
+    stCactusGraph* cactusGraph = stCactusGraph_construct();
+
+    // External containers for tracking nodes and edges
+    stList* nodeObjects = stList_construct3(0, free);
+    stSortedSet* edgeEnds = stSortedSet_construct();
+
+    // Create the adjacency component nodes (5 of them)
+    for (int64_t i = 0; i < 5; i++) {
+        int64_t *j = st_malloc(sizeof(int64_t));
+        j[0] = i;
+        stCactusNode_construct(cactusGraph, j);
+        stList_append(nodeObjects, j);
+    }
+
+    // Node 1 connects component 0 to component 1
+    stCactusEdgeEnd *edgeEnd1 = stCactusEdgeEnd_construct(cactusGraph,
+        stCactusGraph_getNode(cactusGraph, stList_get(nodeObjects, 0)),
+        stCactusGraph_getNode(cactusGraph, stList_get(nodeObjects, 1)),
+        stList_get(nodeObjects, 0),
+        stList_get(nodeObjects, 1));
+    stSortedSet_insert(edgeEnds, edgeEnd1);
+    stSortedSet_insert(edgeEnds, stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd1));
+    
+    // Node 2 connects component 2 to component 1
+    stCactusEdgeEnd *edgeEnd2 = stCactusEdgeEnd_construct(cactusGraph,
+        stCactusGraph_getNode(cactusGraph, stList_get(nodeObjects, 2)),
+        stCactusGraph_getNode(cactusGraph, stList_get(nodeObjects, 1)),
+        stList_get(nodeObjects, 2),
+        stList_get(nodeObjects, 1));
+    stSortedSet_insert(edgeEnds, edgeEnd2);
+    stSortedSet_insert(edgeEnds, stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd2));
+    
+    // Node 3 connects component 1 to component 3
+    stCactusEdgeEnd *edgeEnd3 = stCactusEdgeEnd_construct(cactusGraph,
+        stCactusGraph_getNode(cactusGraph, stList_get(nodeObjects, 1)),
+        stCactusGraph_getNode(cactusGraph, stList_get(nodeObjects, 3)),
+        stList_get(nodeObjects, 1),
+        stList_get(nodeObjects, 3));
+    stSortedSet_insert(edgeEnds, edgeEnd3);
+    stSortedSet_insert(edgeEnds, stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd3));
+    
+    // Node 4 connects component 1 to component 4
+    stCactusEdgeEnd *edgeEnd4 = stCactusEdgeEnd_construct(cactusGraph,
+        stCactusGraph_getNode(cactusGraph, stList_get(nodeObjects, 1)),
+        stCactusGraph_getNode(cactusGraph, stList_get(nodeObjects, 4)),
+        stList_get(nodeObjects, 1),
+        stList_get(nodeObjects, 4));
+    stSortedSet_insert(edgeEnds, edgeEnd4);
+    stSortedSet_insert(edgeEnds, stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd4));
+
+    // The right side of node 1's edge is one telomere
+    stCactusEdgeEnd* telomere1 = stCactusEdgeEnd_getOtherEdgeEnd(edgeEnd1);
+    
+    // The left side of node 4's edge is the other telomere
+    stCactusEdgeEnd* telomere2 = edgeEnd4;
+
+    // Collapse to cactus
+    stCactusGraph_collapseToCactus(cactusGraph, mergeNodeObjects, stList_get(nodeObjects, 0));
+    
+    // Add the two inside edge ends as telomeres
+    stList *telomeres = stList_construct();
+    stList_append(telomeres, (void*) telomere1);
+    stList_append(telomeres, (void*) telomere2);
+
+    // Make snarls
+    stSnarlDecomposition *snarls = stCactusGraph_getSnarlDecomposition(cactusGraph, telomeres);
+    
+    // Make sure we got the right number of items (one chain per telomere pair)
+    CuAssertIntEquals(testCase, stList_length(snarls->topLevelChains) + stList_length(snarls->topLevelUnarySnarls),
+        stList_length(telomeres)/2);
+        
+    // Make sure it really is a chain and not a unary snarl.
+    CuAssertIntEquals(testCase, stList_length(snarls->topLevelChains), 1);
+    
+    // Make sure it ahs one top-level snarl
+    stList* chain1 = stList_get(snarls->topLevelChains, 0);
+    CuAssertIntEquals(testCase, stList_length(chain1), 1);
+    stSnarl* snarl = stList_get(chain1, 0);
+    
+    // Make sure that snarl has 4 unary children (one per graph sequence node)
+    CuAssertIntEquals(testCase, stList_length(snarl->chains), 0);
+    CuAssertIntEquals(testCase, stList_length(snarl->unarySnarls), 4);
     
     // Clean up the snarls
     stSnarlDecomposition_destruct(snarls);
@@ -1337,5 +1451,6 @@ CuSuite* stCactusGraphsTestSuite(void) {
     SUITE_ADD_TEST(suite, testStCactusGraph_getBridgeGraphs);
     SUITE_ADD_TEST(suite, testStCactusGraph_tinySnarlTest);
     SUITE_ADD_TEST(suite, testStCactusGraph_randomSnarlTest);
+    SUITE_ADD_TEST(suite, testStCactusGraph_unreachableSnarlTest);
     return suite;
 }
