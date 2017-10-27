@@ -1439,35 +1439,38 @@ stList *stCactusGraph_getTopLevelSnarlChain(stCactusGraph *cactusGraph,
 					while(edgeEnd != NULL) {
 						assert(edgeEnd->node == cactusNode);
 
-						if(edgeEnd->link != NULL) { // Is in a chain
-							if(edgeEnd->linkOrientation) { // Is positively oriented (avoid going around it twice)
+						if(edgeEnd != leftSnarlEnd && edgeEnd != rightSnarlEnd) { // Do not exit the snarl in this traversal
 
-								// There exists a part of the chain that contains snarls not collapsed by the induced snarl
-								if(stSet_search(nodesOnPathBetweenSnarlBoundaries, edgeEnd->link->otherEdgeEnd->node) == NULL) {
+							if(edgeEnd->link != NULL) { // Is in a chain
+								if(edgeEnd->linkOrientation) { // Is positively oriented (avoid going around it twice)
 
-									// Create a new nested chain
-									stList *nestedChain = stList_construct3(0, (void (*)(void *))stSnarl_destruct);
-									stList_append(snarl->chains, nestedChain);
+									// There exists a part of the chain that contains snarls not collapsed by the induced snarl
+									if(stSet_search(nodesOnPathBetweenSnarlBoundaries, edgeEnd->link->otherEdgeEnd->node) == NULL) {
 
-									// Add links to the chain while they involve a node not in the
-									// nodesOnPathBetweenSnarlBoundaries
+										// Create a new nested chain
+										stList *nestedChain = stList_construct3(0, (void (*)(void *))stSnarl_destruct);
+										stList_append(snarl->chains, nestedChain);
 
-									stCactusEdgeEnd *chainEnd = edgeEnd->link->otherEdgeEnd; // Walk around chain in positive orientation
-									do {
-										assert(chainEnd->linkOrientation);
-										assert(stSet_search(nodesOnPathBetweenSnarlBoundaries, chainEnd->node) == NULL);
+										// Add links to the chain while they involve a node not in the
+										// nodesOnPathBetweenSnarlBoundaries
 
-										//  Add a nested snarl to the chain
-										stList_append(nestedChain, stSnarl_makeRecursiveSnarl(chainEnd, chainEnd->link, snarlCache));
+										stCactusEdgeEnd *chainEnd = edgeEnd->link->otherEdgeEnd; // Walk around chain in positive orientation
+										do {
+											assert(chainEnd->linkOrientation);
+											assert(stSet_search(nodesOnPathBetweenSnarlBoundaries, chainEnd->node) == NULL);
 
-										chainEnd = chainEnd->link->otherEdgeEnd;
-									} while(stSet_search(nodesOnPathBetweenSnarlBoundaries, chainEnd->node) == NULL);
+											//  Add a nested snarl to the chain
+											stList_append(nestedChain, stSnarl_makeRecursiveSnarl(chainEnd, chainEnd->link, snarlCache));
+
+											chainEnd = chainEnd->link->otherEdgeEnd;
+										} while(stSet_search(nodesOnPathBetweenSnarlBoundaries, chainEnd->node) == NULL);
+									}
 								}
 							}
-						}
-						else { // Is a bridge
-							assert(edgeEnd->otherEdgeEnd->node != edgeEnd->node); // Is a bridge, not a trivial chain
-							stList_append(snarl->unarySnarls, stSnarl_makeRecursiveSnarl(edgeEnd->otherEdgeEnd, edgeEnd->otherEdgeEnd, snarlCache));
+							else { // Is a bridge
+								assert(edgeEnd->otherEdgeEnd->node != edgeEnd->node); // Is a bridge, not a trivial chain
+								stList_append(snarl->unarySnarls, stSnarl_makeRecursiveSnarl(edgeEnd->otherEdgeEnd, edgeEnd->otherEdgeEnd, snarlCache));
+							}
 						}
 
 						// Get next edge end incident with the node
@@ -1503,14 +1506,15 @@ stList *stCactusGraph_getTopLevelSnarlChain(stCactusGraph *cactusGraph,
 stSnarlDecomposition *stCactusGraph_getSnarlDecomposition(stCactusGraph *cactusGraph, stList *snarlChainEnds) {
 	/*
 	 * Gets the snarl decomposition for a set paths, each specified by a pair of
-	 * stCactusEdgeEnd*s. Each such pair appears consecurtively in
+	 * stCactusEdgeEnd*s. Each such pair appears consecutively in
 	 * snarlChainEnds. One pair must exist per connected component in the graph.
 	 *
 	 * The edge end pairs can meet one of two criteria:
 	 *
 	 * 1. The pair are ends of two bridge edges which, by their deletion, would
 	 * disconnect a part of the graph from the rest of its component. The ends
-	 * should face towards the part to be disconnected.
+	 * should face towards the part to be disconnected. The ends may actually by
+	 * equal if the top level telomere pair represents a unary snarl.
 	 *
 	 * 2. The pair are inward-facing ends in the same chain of snarls, which
 	 * would themselves form a snarl when ignoring the minimality constraint. In
@@ -1569,9 +1573,9 @@ void stSnarl_printChains2(stList *chains, FILE *fileHandle, const char *parentPr
     for(int64_t i=0; i<stList_length(chains); i++) {
         stList *chain = stList_get(chains, i);
         char *chainPrefix = stString_print("%s-%" PRIi64 "", parentChainPrefix, i);
-        fprintf(fileHandle, "%s\tChain: %s\tLength: %" PRIi64 "\n", parentPrefix, chainPrefix, stList_length(chain));
+        fprintf(fileHandle, "%sChain: %s\tLength: %" PRIi64 "\n", parentPrefix, chainPrefix, stList_length(chain));
         for(int64_t j=0; j<stList_length(chain); j++) {
-            char *prefix = stString_print("%s%s", parentPrefix, "\t\t");
+            char *prefix = stString_print("\t%s", parentPrefix);
             stSnarl_print2(stList_get(chain, j), fileHandle, prefix, chainPrefix);
             free(prefix);
         }
@@ -1586,10 +1590,12 @@ void stSnarl_print2(stSnarl *snarl, FILE *fileHandle, const char *parentPrefix, 
 			stCactusEdgeEnd_getLink(snarl->edgeEnd1) == NULL ? "true" : "false",
 			(int64_t)stCactusEdgeEnd_getOtherEdgeEnd(snarl->edgeEnd1), (int64_t)snarl->edgeEnd1,
             (int64_t)snarl->edgeEnd2, (int64_t)stCactusEdgeEnd_getOtherEdgeEnd(snarl->edgeEnd2));
-    stSnarl_printChains2(snarl->chains, fileHandle, parentPrefix, parentChainPrefix);
+    char *childPrefix = stString_print("\t%s", parentPrefix);
+    stSnarl_printChains2(snarl->chains, fileHandle, childPrefix, parentChainPrefix);
     for(int64_t i=0; i<stList_length(snarl->unarySnarls); i++) {
-    	stSnarl_printUnary(stList_get(snarl->unarySnarls, i), fileHandle, parentPrefix, parentChainPrefix);
+    	stSnarl_printUnary(stList_get(snarl->unarySnarls, i), fileHandle, childPrefix, parentChainPrefix);
     }
+    free(childPrefix);
 }
 
 void stSnarl_printUnary(stSnarl *snarl, FILE *fileHandle, const char *parentPrefix, const char *parentChainPrefix) {
@@ -1609,7 +1615,7 @@ void stSnarl_print(stSnarl *snarl, FILE *fileHandle) {
 
 void stSnarlDecomposition_print(stSnarlDecomposition *snarls, FILE *fileHandle) {
     fprintf(fileHandle, "Top level chains, total: %" PRIi64 "\n", stList_length(snarls->topLevelChains));
-    stSnarl_printChains2(snarls->topLevelChains, fileHandle, "", "C");
+    stSnarl_printChains2(snarls->topLevelChains, fileHandle, "\t", "C");
     for(int64_t i=0; i<stList_length(snarls->topLevelUnarySnarls); i++) {
     	stSnarl_printUnary(stList_get(snarls->topLevelUnarySnarls, i), fileHandle, "", "C");
     }

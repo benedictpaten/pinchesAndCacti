@@ -1380,7 +1380,7 @@ static void testStCactusGraph_unreachableSnarlTest(CuTest *testCase) {
     
     // Make sure that snarl has 4 unary children (one per graph sequence node)
     CuAssertIntEquals(testCase, 0, stList_length(snarl->chains));
-    CuAssertIntEquals(testCase, 4, stList_length(snarl->unarySnarls));
+    CuAssertIntEquals(testCase, 2, stList_length(snarl->unarySnarls));
     
     // Clean up the snarls
     stSnarlDecomposition_destruct(snarls);
@@ -1502,10 +1502,12 @@ static void testStCactusGraph_adjacentSnarlTest(CuTest *testCase) {
     stList *telomeres = stList_construct();
     stList_append(telomeres, (void*) telomere1);
     stList_append(telomeres, (void*) telomere2);
+    CuAssertTrue(testCase, telomere1->link == NULL);
+    CuAssertTrue(testCase, telomere2->link == NULL);
 
     // Make snarls
     stSnarlDecomposition *snarls = stCactusGraph_getSnarlDecomposition(cactusGraph, telomeres);
-    
+
     // Make sure we got the right number of items (one chain per telomere pair)
     CuAssertIntEquals(testCase, stList_length(telomeres)/2,
         stList_length(snarls->topLevelChains) + stList_length(snarls->topLevelUnarySnarls));
@@ -1517,7 +1519,7 @@ static void testStCactusGraph_adjacentSnarlTest(CuTest *testCase) {
     stList* chain1 = stList_get(snarls->topLevelChains, 0);
     CuAssertIntEquals(testCase, 2, stList_length(chain1));
     stSnarl* snarl1 = stList_get(chain1, 0);
-    stSnarl* snarl2 = stList_get(chain1, 0);
+    stSnarl* snarl2 = stList_get(chain1, 1);
     
     // Make sure that snarl1 has 0 chains and 0 unary children
     CuAssertIntEquals(testCase, 0, stList_length(snarl1->chains));
