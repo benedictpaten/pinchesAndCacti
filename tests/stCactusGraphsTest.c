@@ -1378,7 +1378,7 @@ static void testStCactusGraph_unreachableSnarlTest(CuTest *testCase) {
     CuAssertIntEquals(testCase, 1, stList_length(chain1));
     stSnarl* snarl = stList_get(chain1, 0);
     
-    // Make sure that snarl has 4 unary children (one per graph sequence node)
+    // Make sure that snarl has 2 unary children (one per graph sequence node)
     CuAssertIntEquals(testCase, 0, stList_length(snarl->chains));
     CuAssertIntEquals(testCase, 2, stList_length(snarl->unarySnarls));
     
