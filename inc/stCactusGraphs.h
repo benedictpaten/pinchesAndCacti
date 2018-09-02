@@ -98,6 +98,8 @@ typedef struct _stSnarl {
     // such that for i > 0, edgeEnd1 of snarl i in the chain is the opposite end to edgeEnd2 of snarl i-1.
 
     // The unary snarls contained in the snarl, for which edgeEnd1 == edgeEnd2
+    // Connected components of unary snarls in a cactus graph form a tree
+    // To
     stList *unarySnarls;
 
     // The number of snarls / top-level chains this snarl is contained, vital for memory management

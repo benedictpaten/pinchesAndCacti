@@ -1132,66 +1132,95 @@ stSnarl *stSnarl_makeRecursiveSnarl(stCactusEdgeEnd *edgeEnd1, stCactusEdgeEnd *
 	 * edgeEnd1 == edgeEnd2.
 	 */
 
-	// Must either be a bridge or be opposite ends of a link within a chain
-	if(edgeEnd1 != edgeEnd2) { // If both equal is a unary snarl
-		assert(edgeEnd1->node == edgeEnd2->node);
-		assert(edgeEnd1->link == edgeEnd2);
-		assert(edgeEnd2->link == edgeEnd1);
-	}
+	// A stack object to avoid recursion
+	stList *snarlStack = stList_construct();
+	stList_append(snarlStack, NULL);
+	stList_append(snarlStack, edgeEnd1);
+	stList_append(snarlStack, edgeEnd2);
+	stSnarl *snarlToReturn = NULL;
 
-	// Check the cache
-	stSnarl *snarl = getSnarlFromCache(snarlCache, edgeEnd1, edgeEnd2);
+	while(stList_length(snarlStack) > 0) {
+		edgeEnd2 = stList_pop(snarlStack);
+		edgeEnd1 = stList_pop(snarlStack);
+		stList *parent = stList_pop(snarlStack);
 
-	if(snarl == NULL) { // If not in the cache
-		snarl = stSnarl_constructEmptySnarl(edgeEnd1, edgeEnd2); // This sets the initial parent count to 1
-		stSet_insert(snarlCache, snarl); // Add to the cache
-
-		// For each edge end incident with the cactus node
-		stCactusEdgeEnd *edgeEnd = edgeEnd1->node->head;
-		while(edgeEnd != NULL) {
-			assert(edgeEnd->node == edgeEnd1->node);
-
-			// If not edgeEnd1 or edgeEnd2
-			if(edgeEnd != edgeEnd1 && edgeEnd != edgeEnd2) {
-
-				if(edgeEnd->link == NULL) { // is a bridge
-					assert(edgeEnd->otherEdgeEnd->node != edgeEnd->node); // not a trivial chain
-					// Make a new nested unary snarl
-					stList_append(snarl->unarySnarls, stSnarl_makeRecursiveSnarl(edgeEnd->otherEdgeEnd,
-							edgeEnd->otherEdgeEnd, snarlCache));
-				}
-				// else is a chain
-				else if(edgeEnd->linkOrientation /* is the positive end of link in chain */ &&
-						edgeEnd->link != edgeEnd->otherEdgeEnd /* is not a trivial chain (i.e. a self loop) */) {
-
-					// Make a new nested chain
-					stList *chain = stList_construct3(0, (void (*)(void *))stSnarl_destruct);
-					stList_append(snarl->chains, chain);
-
-					// Add links to the chain
-					stCactusEdgeEnd *chainEnd = edgeEnd->link->otherEdgeEnd;
-					assert(chainEnd != edgeEnd);
-					do {
-						assert(chainEnd->node != edgeEnd->node);
-						assert(chainEnd->linkOrientation);
-						assert(chainEnd->link != edgeEnd);
-						assert(chainEnd->node == chainEnd->link->node);
-						stList_append(chain, stSnarl_makeRecursiveSnarl(chainEnd, chainEnd->link,
-								snarlCache));
-						chainEnd = chainEnd->link->otherEdgeEnd;
-					} while(chainEnd != edgeEnd);
-				}
-			}
-
-			// Get next incident edge end
-			edgeEnd = edgeEnd->nEdgeEnd;
+		// Must either be a bridge or be opposite ends of a link within a chain
+		if(edgeEnd1 != edgeEnd2) { // If both equal is a unary snarl
+			assert(edgeEnd1->node == edgeEnd2->node);
+			assert(edgeEnd1->link == edgeEnd2);
+			assert(edgeEnd2->link == edgeEnd1);
 		}
-	}
-	else { // As we got it from the cache, increase the parent count
-		snarl->parentCount++;
+
+		// Check the cache
+		stSnarl *snarl = getSnarlFromCache(snarlCache, edgeEnd1, edgeEnd2);
+
+		if(snarl == NULL) { // If not in the cache
+			snarl = stSnarl_constructEmptySnarl(edgeEnd1, edgeEnd2); // This sets the initial parent count to 1
+			stSet_insert(snarlCache, snarl); // Add to the cache
+
+			// For each edge end incident with the cactus node
+			stCactusEdgeEnd *edgeEnd = edgeEnd1->node->head;
+			while(edgeEnd != NULL) {
+				assert(edgeEnd->node == edgeEnd1->node);
+
+				// If not edgeEnd1 or edgeEnd2
+				if(edgeEnd != edgeEnd1 && edgeEnd != edgeEnd2) {
+
+					if(edgeEnd->link == NULL) { // is a bridge
+						assert(edgeEnd->otherEdgeEnd->node != edgeEnd->node); // not a trivial chain
+						// Queue up making a new nested unary snarl
+						stList_append(snarlStack, snarl->unarySnarls);
+						stList_append(snarlStack, edgeEnd->otherEdgeEnd);
+						stList_append(snarlStack, edgeEnd->otherEdgeEnd);
+					}
+					// else is a chain
+					else if(edgeEnd->linkOrientation /* is the positive end of link in chain */ &&
+							edgeEnd->link != edgeEnd->otherEdgeEnd /* is not a trivial chain (i.e. a self loop) */) {
+
+						// Make a new nested chain
+						stList *chain = stList_construct3(0, (void (*)(void *))stSnarl_destruct);
+						stList_append(snarl->chains, chain);
+
+						// Add links to the chain
+						stCactusEdgeEnd *chainEnd = edgeEnd->otherEdgeEnd;
+						assert(chainEnd != edgeEnd);
+						do {
+							assert(chainEnd->node != edgeEnd->node);
+							assert(!chainEnd->linkOrientation);
+							assert(chainEnd->link != edgeEnd);
+							assert(chainEnd->node == chainEnd->link->node);
+
+							stList_append(snarlStack, chain);
+							stList_append(snarlStack, chainEnd->link); // Note beng added in reverse order
+							stList_append(snarlStack, chainEnd);
+
+							chainEnd = chainEnd->link->otherEdgeEnd;
+						} while(chainEnd->link != edgeEnd);
+					}
+				}
+
+				// Get next incident edge end
+				edgeEnd = edgeEnd->nEdgeEnd;
+			}
+		}
+		else { // As we got it from the cache, increase the parent count
+			snarl->parentCount++;
+		}
+
+		if(parent != NULL) {
+			// As parent is not null, must be a nested snarl
+			stList_append(parent, snarl);
+		}
+		else {
+			snarlToReturn = snarl;
+		}
+
 	}
 
-	return snarl;
+	assert(snarlToReturn != NULL);
+	stList_destruct(snarlStack);
+
+	return snarlToReturn;
 }
 
 stList *getBridgePathConnectingEnds(stBridgeGraph *bridgeGraph, stCactusEdgeEnd *startEdgeEnd, stCactusEdgeEnd *endEdgeEnd) {
@@ -1506,10 +1535,10 @@ stList *stCactusGraph_getTopLevelSnarlChain(stCactusGraph *cactusGraph,
 stSnarlDecomposition *stCactusGraph_getSnarlDecomposition(stCactusGraph *cactusGraph, stList *snarlChainEnds) {
 	/*
 	 * Gets the snarl decomposition for a set paths, each specified by a pair of
-	 * stCactusEdgeEnd*s. Each such pair appears consecutively in
+	 * stCactusEdgeEnds. Each such pair appears consecutively in
 	 * snarlChainEnds. One pair must exist per connected component in the graph.
 	 *
-	 * The edge end pairs can meet one of two criteria:
+	 * The edge end pairs must meet one of two criteria:
 	 *
 	 * 1. The pair are ends of two bridge edges which, by their deletion, would
 	 * disconnect a part of the graph from the rest of its component. The ends
