@@ -9,10 +9,10 @@ testBin = tests/testBin
 all : externalToolsM ${libPath}/stPinchesAndCacti.a ${binPath}/stPinchesAndCactiTests
 
 externalToolsM : 
-	cd externalTools && make all
+	cd externalTools && $(MAKE) all
 
 ${libPath}/stPinchesAndCacti.a : ${libSources} ${libHeaders} ${basicLibsDependencies} externalToolsM
-	${cxx} ${cflags} -I inc -I ${libPath}/ -c ${libSources}
+	${cxx} $(CPPFLAGS) ${cflags} $(CFLAGS) -I inc -I ${libPath}/ -c ${libSources}
 	ar rc stPinchesAndCacti.a *.o
 	ranlib stPinchesAndCacti.a 
 	rm *.o
@@ -20,10 +20,10 @@ ${libPath}/stPinchesAndCacti.a : ${libSources} ${libHeaders} ${basicLibsDependen
 	cp ${libHeaders} ${libPath}/
 
 ${binPath}/stPinchesAndCactiTests : ${libTests} ${libSources} ${libHeaders} ${basicLibsDependencies} externalToolsM
-	${cxx} ${cflags} -I inc -I impl -I${libPath} -o ${binPath}/stPinchesAndCactiTests ${libTests} ${libSources} ${basicLibs}  ${libPath}/3EdgeConnected.a
+	${cxx} $(CPPFLAGS) ${cflags} $(CFLAGS) $(LDFLAGS) -I inc -I impl -I${libPath} -o ${binPath}/stPinchesAndCactiTests ${libTests} ${libSources} ${basicLibs}  ${libPath}/3EdgeConnected.a
 
 clean : 
-	cd externalTools && make clean
+	cd externalTools && $(MAKE) clean
 	rm -f *.o
 	rm -f ${libPath}/stPinchesAndCacti.a ${binPath}/stPinchesAndCactiTests
 
