@@ -1288,63 +1288,17 @@ stList *getBridgePathConnectingEnds(stBridgeGraph *bridgeGraph, stCactusEdgeEnd 
 	return NULL; // This is unreachable
 }
 
-bool getNodesOnPathInCactusTreeBetweenBridgeSnarlBoundaries2(stList *nodePath, stSet *seen,
-		stCactusEdgeEnd *currentEdgeEnd, stCactusEdgeEnd *endEdgeEnd) {
-	/*
-	 * Recursive sub-function of getNodesOnPathInCactusTreeBetweenBridgeSnarlBoundaries.
-	 */
-
-	// First check if we've visited this node before, we don't need do anything if that's the case
-	if(stSet_search(seen, currentEdgeEnd->node) == NULL) {
-		stSet_insert(seen, currentEdgeEnd->node);
-
-		// If currentEdgeEnd is in a chain,
-		// extend this chain without adding the node incident with currentEdgeEnd
-		// to the path, because as we are extending the chain the node incident with currentEdgeEnd
-		// is not on the path in the corresponding cactus tree
-		if(currentEdgeEnd->link != NULL) {
-
-			// If return value is true then we have found the path and can stop
-			if(getNodesOnPathInCactusTreeBetweenBridgeSnarlBoundaries2(nodePath, seen,
-					currentEdgeEnd->link->otherEdgeEnd, endEdgeEnd)) {
-				return 1;
-			}
-		}
-
-		// Now add the node incident with currentEdgeEnd to the current path, as any path
-		// between the start and end edges in the cactus
-		// graph reached in this traversal must include the node incident with currentEdgeEnd
-		stList_append(nodePath, currentEdgeEnd->node);
-
-		// For each other chain / bridge incident with the node
-		stCactusEdgeEnd *edgeEnd = currentEdgeEnd->node->head;
-		do {
-			// If we've reached the end of the path we're done
-			if(edgeEnd == endEdgeEnd) {
-				return 1;
-			}
-
-			// Otherwise, if edgeEnd is in a chain and not in the chain
-			// containing currentEdgeEnd
-			if(edgeEnd->link != NULL && edgeEnd->linkOrientation /* traverse in one direction only */ &&
-			   edgeEnd != currentEdgeEnd && edgeEnd != currentEdgeEnd->link) {
-
-				// Recurse
-				if(getNodesOnPathInCactusTreeBetweenBridgeSnarlBoundaries2(nodePath, seen, edgeEnd->otherEdgeEnd, endEdgeEnd)) {
-					return 1;
-				}
-			}
-
-		} while((edgeEnd = edgeEnd->nEdgeEnd) != NULL);
-
-		// Remove the current node from the path as we haven't found a path to endEdgeEnd
-		// including the node
-		assert(stList_peek(nodePath) == currentEdgeEnd->node);
-		stList_pop(nodePath);
-	}
-
-	return 0; // Indicate that we haven't found a complete path yet in the DFS
-}
+/*
+ * We need a frame on a stack for each edge end we consider including.
+ */
+typedef struct {
+    // What's the edge end we are at
+    stCactusEdgeEnd *currentEdgeEnd;
+    // Did we recurse on its link?
+    bool followedLink;
+    // What's the last edge end we were working on incedent on the same thing as currentEdgeEnd?
+    stCactusEdgeEnd *edgeEnd;
+} stPathDfsFrame;
 
 stList *getNodesOnPathInCactusTreeBetweenBridgeSnarlBoundaries(stCactusEdgeEnd *edgeEnd1, stCactusEdgeEnd *edgeEnd2) {
 	/*
@@ -1366,13 +1320,127 @@ stList *getNodesOnPathInCactusTreeBetweenBridgeSnarlBoundaries(stCactusEdgeEnd *
 
 	// A list representing the nodes on the path
 	stList *nodePath = stList_construct();
+    
+    // A list functioning as a stack for our DFS.
+    // We can't just use the real stack; we may need more space than is available there.
+    stList *stack = stList_construct3(0, &free);
+    
+    // Make a first frame
+    stPathDfsFrame *baseFrame = malloc(sizeof(stPathDfsFrame));
+    baseFrame->currentEdgeEnd = edgeEnd1;
+    baseFrame->followedLink = false;
+    // Always initialize this like this so we can use this to detect iteration start and NULL as an iteration-over value.
+    baseFrame->edgeEnd = baseFrame->currentEdgeEnd->node->head;
+    stList_append(stack, baseFrame);
+    
+    // Allocate a return value to bring up the stack. True if we found a path, false otherwise.
+    bool retVal = 0;
 
-	// Uses a DFS from edgeEnd1 until we have have found a path to edgeEnd2
-	bool b = getNodesOnPathInCactusTreeBetweenBridgeSnarlBoundaries2(nodePath, seen, edgeEnd1, edgeEnd2);
-	(void)b; // Stop compiler complaining in non-debug mode
-	assert(b); // If this is not true then we did not find a path in the cactus tree between the edge ends
+    while(stList_length(stack) > 0) {
+        // If we recursed and found a path, we need to clean up our stack frame and return 1 also, because we also found a path.
+        if(retVal) {
+            stList_pop(stack);
+        } else {
+            // Find our stack frame
+            stPathDfsFrame *frame = stList_peek(stack);
+            
+            // If we haven't done the link step already, do it.
+            if(!frame->followedLink) {
+                frame->followedLink = 1;
+                // As part of that, we first check to see if we saw this edge end already.
+                if(stSet_search(seen, frame->currentEdgeEnd->node) == NULL) {
+                    // This frame is a new edge end and has work to do.
+                    stSet_insert(seen, frame->currentEdgeEnd->node);
+                    
+                    // If currentEdgeEnd is in a chain,
+                    // extend this chain without adding the node incident with currentEdgeEnd
+                    // to the path, because as we are extending the chain the node incident with currentEdgeEnd
+                    // is not on the path in the corresponding cactus tree
+                    if(frame->currentEdgeEnd->link != NULL) {
+                        // Try looking off of where we go next (recurse).
+                        stPathDfsFrame *childFrame = malloc(sizeof(stPathDfsFrame));
+                        childFrame->currentEdgeEnd = frame->currentEdgeEnd->link->otherEdgeEnd;
+                        childFrame->followedLink = false;
+                        childFrame->edgeEnd = childFrame->currentEdgeEnd->node->head;
+                        stList_append(stack, childFrame);
+                        continue;
+                    }
+                } else {
+                    // Has been seen already. Return 0 to parent frame and don't recurse on anything.
+                    retVal = 0;
+                    stList_pop(stack);
+                    continue;
+                }
+            }
+            
+            // When we get here, either we returned from following the link
+            // (which didn't find anything), or there wasn't a good link to
+            // follow.
+            
+            if(frame->edgeEnd == frame->currentEdgeEnd->node->head) {
+                // We are just starting the loop over each other chain / bridge incident with the node
+                
+                // Now add the node incident with currentEdgeEnd to the current path, as any path
+                // between the start and end edges in the cactus
+                // graph reached in this traversal must include the node incident with currentEdgeEnd
+                stList_append(nodePath, frame->currentEdgeEnd->node);
+            }
+            
+            // If we've reached the end of the path we're done
+            if(frame->edgeEnd == edgeEnd2) {
+                retVal = 1;
+                stList_pop(stack);
+                continue;
+            }
+
+            if(frame->edgeEnd == NULL) {
+                // Done iterating in this frame, and we didn't find anything.
+                
+                // Remove the current node from the path as we haven't found a path to edgeEnd2
+                // including the node
+                assert(stList_peek(nodePath) == frame->currentEdgeEnd->node);
+                stList_pop(nodePath);
+                
+                // Return 0.
+                retVal = 0;
+                stList_pop(stack);
+                continue;
+            }
+
+            // Otherwise, if edgeEnd is in a chain and not in the chain
+            // containing currentEdgeEnd
+            if(frame->edgeEnd->link != NULL && frame->edgeEnd->linkOrientation /* traverse in one direction only */ &&
+               frame->edgeEnd != frame->currentEdgeEnd && frame->edgeEnd != frame->currentEdgeEnd->link) {
+
+                // Set up recursive call
+                stPathDfsFrame *childFrame = malloc(sizeof(stPathDfsFrame));
+                childFrame->currentEdgeEnd = frame->edgeEnd->otherEdgeEnd;
+                childFrame->followedLink = false;
+                childFrame->edgeEnd = childFrame->currentEdgeEnd->node->head;
+                
+                // Increment edgeEnd
+                frame->edgeEnd = frame->edgeEnd->nEdgeEnd;
+                
+                // Call the child frame
+                stList_append(stack, childFrame);
+                continue;
+
+            } else {
+                // We're skipping recursing on this item.
+                // Still increment edgeEnd
+                frame->edgeEnd = frame->edgeEnd->nEdgeEnd;
+            }
+            
+             
+            // If we get here, we didn't make a recursive call, but we did do the increment.
+            // Loop around on the same frame to check for completion.
+        }
+    }
+
+	assert(retVal); // If this is not true then we did not find a path in the cactus tree between the edge ends
 
 	// Cleanup
+    stList_destruct(stack);
 	stSet_destruct(seen);
 
 	return nodePath;
